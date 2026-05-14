@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code per-developer settings. The .local variants are user-specific
+# (auth state, local permission grants); a non-local settings.json is the
+# team-shared file and may be committed if/when one is created.
+.claude/settings.local.json
+.claude/*.local.json
+.claude/projects/
+.claude/shell-snapshots/
+.claude/todos/
+
+# Defensive env-file ignores. Each service also has its own .gitignore
+# entry for these — belt and braces in case a stray .env ends up at the
+# repo root (e.g. accidental `cp` from one of the services).
+.env
+.env.*
+!.env.example
+!*/.env.example
+!*/.env.local.example
+
+# Logs at the root (services have their own coverage)
+*.log
