@@ -20,6 +20,33 @@ export interface Node {
   created_at: string;
 }
 
+export interface Edge {
+  id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_kind: "prerequisite" | "related";
+  weight: number;
+  created_at: string;
+}
+
+export interface UserNodeState {
+  user_id: string;
+  node_id: string;
+  state: "unseen" | "bookmarked" | "active" | "struggling" | "comfortable";
+  engagement_count: number;
+  struggle_score: number;
+  last_engaged_at: string | null;
+}
+
+export interface UserInterest {
+  id: string;
+  user_id: string;
+  node_id: string;
+  weight: number;
+  added_via: "survey" | "explicit_request" | "cross_pollination";
+  created_at: string;
+}
+
 export type NodeRating = "interested" | "comfortable" | "refresh";
 export type NodeRatings = Record<string, NodeRating>; // keyed by node slug
 
@@ -30,77 +57,77 @@ export interface SurveyV2Payload {
   mode_balance: number;
 }
 
-export interface CanonicalTopic {
-  id: string;
-  slug: string;
-  title: string;
-  description: string | null;
-  difficulty_band: "intro" | "core" | "advanced";
-  domain: string;
-  subtopics: Subtopic[];
-  created_at: string;
-}
+// ---------------------------------------------------------------------------
+// v2 queue types
+// ---------------------------------------------------------------------------
 
-export interface CanonicalEdge {
-  id: string;
-  prerequisite_topic_id: string;
-  dependent_topic_id: string;
-  weight: number;
-}
+export type QueueItemKind =
+  | "problem"
+  | "paper_engagement"
+  | "refresher"
+  | "concept_review"
+  | "suggested_interest";
 
-export interface UserPlan {
+export type QueueItemState =
+  | "pending"
+  | "surfaced"
+  | "in_progress"
+  | "done"
+  | "skipped"
+  | "dismissed";
+
+export interface QueueItem {
   id: string;
   user_id: string;
-  status: "pending_review" | "active" | "completed";
-  adjustment_notes: string | null;
-  created_at: string;
+  kind: QueueItemKind;
+  ref_id: string | null;
+  state: QueueItemState;
+  priority_score: number;
+  time_estimate_minutes_low: number | null;
+  time_estimate_minutes_high: number | null;
+  added_reason: string | null;
+  added_at: string;
+  updated_at: string;
 }
 
-export interface PlanNode {
+export interface SurfacedPick {
   id: string;
-  plan_id: string;
-  canonical_topic_id: string;
-  order_index: number;
-  state: "pending" | "active" | "struggling" | "mastered";
-  problems_completed_count: number;
-  canonical_topics?: CanonicalTopic;
+  user_id: string;
+  queue_item_ids: string[];
+  surfaced_at: string;
+  replaced_at: string | null;
+  chosen_item_id: string | null;
 }
 
-export type TopicState = "target" | "known" | "refresher";
-
-export interface TopicEntry {
-  state?: TopicState;
-  subtopics?: Record<string, TopicState>;
+export interface SurfacedQueueItem {
+  queue_item_id: string;
+  kind: string;
+  ref_id: string | null;
+  added_reason: string | null;
+  time_estimate_minutes_low: number | null;
+  time_estimate_minutes_high: number | null;
 }
 
-export type TopicStateMap = Record<string, TopicEntry>;
-
-export interface SurveyPayload {
-  background: {
-    degrees: string[];
-    yearsSinceStudy: string;
-    degreeFields: string;
-    currentField: string;
-  };
-  topicStates: TopicStateMap;
-  extraTopics: string;
-  difficultyCurve: "gentle" | "standard" | "aggressive";
+export interface QueueResult {
+  pick_id: string | null;
+  items: SurfacedQueueItem[];
+  more_coming: boolean;
 }
 
-// Phase 3 — daily problem types.
-//
-// `solution_md` and `rubric_md` are deliberately omitted from the client-shipped
-// `Problem` shape: the daily page never needs them, the RLS policy on
-// `problems` already restricts access, and dropping them here is defence in
-// depth against an accidental over-select.
+// ---------------------------------------------------------------------------
+// Problem types (used in Phase 5-rev problem flow)
+// ---------------------------------------------------------------------------
 
+// `solution_md` and `rubric_md` are deliberately omitted: the daily page never
+// needs them, and dropping them here is defence in depth against an accidental
+// over-select.
 export interface Problem {
   id: string;
-  canonical_topic_id: string | null;
+  topic_node_id: string | null;
   statement_md: string;
   difficulty: number | null;
   context_hook_id: string | null;
-  generated_context_md: string | null;
+  context_md: string | null;
   created_at: string;
 }
 
@@ -120,13 +147,4 @@ export interface ContextHook {
   difficulty_band: "intro" | "core" | "advanced";
   sources_json: unknown;
   created_at: string;
-}
-
-export interface DailyAssignment {
-  id: string;
-  user_id: string;
-  problem_id: string;
-  plan_node_id: string | null;
-  assigned_for_date: string;
-  status: "pending" | "in_progress" | "submitted" | "graded";
 }

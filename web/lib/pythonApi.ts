@@ -33,6 +33,24 @@ interface UpdateQueueResponse {
   ok: boolean;
 }
 
+interface SurfacedItemRaw {
+  queue_item_id: string;
+  kind: string;
+  ref_id: string | null;
+  added_reason: string | null;
+  time_estimate_minutes_low: number | null;
+  time_estimate_minutes_high: number | null;
+}
+
+interface SurfaceDailyArgs {
+  userId: string;
+}
+
+interface SurfaceDailyResponse {
+  pick_id: string;
+  items: SurfacedItemRaw[];
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not set`);
@@ -83,4 +101,10 @@ export async function updateQueue(
   args: UpdateQueueArgs,
 ): Promise<UpdateQueueResponse> {
   return pythonPost("/update-queue", { user_id: args.userId });
+}
+
+export async function surfaceDaily(
+  args: SurfaceDailyArgs,
+): Promise<SurfaceDailyResponse> {
+  return pythonPost("/surface-daily", { user_id: args.userId });
 }

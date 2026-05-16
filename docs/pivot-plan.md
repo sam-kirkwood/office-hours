@@ -1,5 +1,5 @@
-Status: Phase 4-rev in progress — steps 1–9 done. Last commit: 731c644.
-Next step: Phase 4-rev step 10 — Next.js queue read + interest API routes.
+Status: Phase 4-rev complete.
+Next step: Phase 5-rev step 1 — POST /parse-solution.
 
 ---
 

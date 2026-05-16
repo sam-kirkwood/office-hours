@@ -273,6 +273,54 @@ def test_related_verdict_creates_node_with_related_edge(client: TestClient, fake
 
 
 # ---------------------------------------------------------------------------
+# title collision — Sonnet returns a title that already exists; no new insert
+# ---------------------------------------------------------------------------
+
+
+def test_title_collision_links_to_existing_no_new_insert(client: TestClient, fakes) -> None:
+    supabase, anthropic = fakes
+    existing_fourier_id = str(uuid4())
+    ui_id = str(uuid4())
+
+    # DB already has a "Fourier Analysis" node under a different slug.
+    existing_fourier = {
+        "id": existing_fourier_id,
+        "slug": "fourier-analysis-intro",
+        "title": "Fourier Analysis",
+        "description_md": "An intro to Fourier analysis.",
+    }
+    _prime_nodes(supabase, [EXISTING_NODE, existing_fourier])
+    _prime_llm_calls(supabase)
+    supabase.respond("curation_proposals", "insert", lambda _: [{"id": str(uuid4())}])
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    # Haiku says 'new'; Sonnet generates a node whose title duplicates an existing one.
+    anthropic.queue(json.dumps({"verdict": "new", "matched_node_slug": None}))
+    anthropic.queue(json.dumps(VALID_GENERATED_NODE))  # title="Fourier Analysis"
+
+    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["node_id"] == existing_fourier_id
+    assert body["node_slug"] == "fourier-analysis-intro"
+
+    # No new node inserted.
+    assert not any(c.table == "nodes" and c.op == "insert" for c in supabase.calls)
+
+    # Curation proposal written with reason='title_collision'.
+    cp_inserts = [c for c in supabase.calls if c.table == "curation_proposals" and c.op == "insert"]
+    assert len(cp_inserts) == 1
+    assert cp_inserts[0].payload["kind"] == "merge"
+    assert cp_inserts[0].payload["payload_json"]["reason"] == "title_collision"
+
+    # user_interests linked to the existing node.
+    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
+    assert len(ui_inserts) == 1
+    assert ui_inserts[0].payload["node_id"] == existing_fourier_id
+
+
+# ---------------------------------------------------------------------------
 # hallucinated slug — falls back to 'new', Sonnet still called
 # ---------------------------------------------------------------------------
 

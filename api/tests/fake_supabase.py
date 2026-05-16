@@ -81,6 +81,7 @@ class FakeTable:
         return q
 
 
+
 class FakeSupabase:
     def __init__(self) -> None:
         self.calls: list[CapturedCall] = []

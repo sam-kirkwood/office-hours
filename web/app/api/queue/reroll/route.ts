@@ -1,0 +1,35 @@
+import { createClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+import { surfaceDaily } from "@/lib/pythonApi";
+
+export async function POST() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    // 1. Mark current open pick as replaced.
+    await supabase
+      .from("surfaced_picks")
+      .update({ replaced_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .is("replaced_at", null);
+
+    // 2. Create a new pick.
+    const result = await surfaceDaily({ userId: user.id });
+    return NextResponse.json({
+      pick_id: result.pick_id,
+      items: result.items,
+      more_coming: result.items.length < 3,
+    });
+  } catch (err) {
+    // 404 from Python means no pending items left after reroll.
+    if (err instanceof Error && err.message.includes("404")) {
+      return NextResponse.json({ pick_id: null, items: [], more_coming: true });
+    }
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

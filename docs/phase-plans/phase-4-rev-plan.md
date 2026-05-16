@@ -72,13 +72,14 @@ target is unclear. Must be pinned before step 8 (`/surface-daily` +
 | 3 | Migration `20250010_papers_schema.sql` | Done |
 | 4 | Migration `20250011_modify_problems_attempts_surveys.sql` | Done |
 | 5+6 | Migration `20250012_seed_nodes_edges.sql` (combined seed + deprecation) | Done |
+| — | Migration `20250013_surveys_rls.sql` (bug fix — see Deviations) | Done |
 | 7 | FastAPI `POST /add-interest` | Done |
 | 8 | FastAPI `POST /surface-daily` + `/update-queue` skeleton | Done |
 | 9 | Next.js: new survey UI | Done |
-| 10 | Next.js: queue read + interest API routes | Pending |
-| 11 | Next.js: daily-three page (mocked content) | Pending |
-| 12 | Delete deprecated code | Pending |
-| 13 | Phase 4-rev acceptance + status line update | Pending |
+| 10 | Next.js: queue read + interest API routes | Done |
+| 11 | Next.js: daily-three page (mocked content) | Done |
+| 12 | Delete deprecated code | Done |
+| 13 | Phase 4-rev acceptance + status line update | Done |
 
 Steps 1–6 are pure SQL — no code changes. Apply each with
 `npx supabase db push --db-url <url>` and verify before moving to the next.
@@ -827,6 +828,16 @@ Next step: Phase 5-rev step 1 — POST /parse-solution.
 - **Sonnet 4.6 = `claude-sonnet-4-6`. Haiku = `claude-haiku-4-5-20251001`.**
 - **Next.js 16.** Auth proxy at `web/proxy.ts`, exported function `proxy`.
   Tailwind v4: `@import "tailwindcss"`. `web/` has its own `.git`.
+- **Every RLS-enabled table needs a SELECT policy** for server-client reads,
+  not just INSERT/UPDATE. Writes via the admin/service-role client bypass RLS
+  entirely, so a missing SELECT policy only shows up as a silent null return
+  when reading from the auth-scoped server client — it looks like the row was
+  never written. Check both write *and* read policies when adding a new table.
+- **`postgrest-py upsert(ignore_duplicates=True)` does NOT suppress 23505.**
+  The flag sets a PostgREST `Prefer` header that often doesn't propagate as
+  expected. Use `try/except` with a `_is_unique_violation(exc)` check instead.
+  The route already has that helper for the node insert — apply the same pattern
+  to any other table where duplicate-on-conflict is acceptable.
 
 ## Handoff to Phase 5-rev (preview)
 
@@ -845,53 +856,132 @@ Phase 5-rev adds:
 
 ---
 
-## Session handoff — state after session 1 (migrations complete)
+## Deviations (steps 12–13)
 
-*Written for a fresh Claude session picking up at step 7.*
+### Step 12 — type cleanup went further than specified
 
-### What is in the database (all applied)
+`web/lib/types.ts` also had stale field names on the surviving `Problem` interface
+(`canonical_topic_id`, `generated_context_md`) which were renamed in migration
+`20250011`. These were corrected to `topic_node_id` and `context_md` in the same
+pass. The full set of v2 types added: `Edge`, `QueueItem` (with `QueueItemKind`
+and `QueueItemState` aliases), `SurfacedPick`, `UserNodeState`, `UserInterest`.
+
+### Step 13 — placeholder queue seeding added to survey route
+
+The acceptance test criteria required cards to render on `/daily`, but `update_queue`
+is a no-op stub so no `queue_items` are written. To unblock the layout test without
+implementing the real queue-build logic, the survey route (`web/app/api/survey/route.ts`)
+was extended to seed one `suggested_interest` queue item per `user_interests` row after
+all `addInterest` calls complete. This gives the daily page cards to render with.
+
+**Phase 7-rev must handle this:** when real `update_queue` lands, it needs to avoid
+double-seeding items for interests that already have a `suggested_interest` queue item.
+There is currently no unique constraint on `(user_id, kind, ref_id)` in `queue_items`,
+so re-submitting the survey creates duplicate items.
+
+### Step 13 — dedup bug found and fixed during acceptance
+
+Sending a multi-topic free-text string (e.g. "I want to learn quantum mech, solid state
+physics, and Kalman filters") as a single `/add-interest` call caused near-duplicate node
+generation across repeated survey submissions. Root cause: Haiku's single-verdict dedup
+was returning `"related"` for known topics in a multi-topic sentence rather than `"same"`,
+and Sonnet was generating duplicate-titled nodes because only slug uniqueness was
+constrained, not title uniqueness.
+
+Three fixes applied:
+
+1. **Dedup prompt tightened** (`api/prompts/add_interest.py`): `"same"` is now preferred
+   when the expression covers the same subject area, even with minor phrasing differences.
+   `"related"` requires meaningfully different scope/domain/level. `"new"` is a last resort.
+
+2. **Title collision detection** (`api/routes/add_interest.py`): after Sonnet generates a
+   node, if its title (case-insensitive) matches any existing node, the route links the
+   user to the existing node and writes a `curation_proposals` merge row rather than
+   inserting a duplicate. New test: `test_title_collision_links_to_existing_no_new_insert`.
+
+3. **Existing titles passed to generate prompt**: Sonnet is now told the list of existing
+   titles alongside existing slugs and instructed not to duplicate either.
+
+**Structural limitation still present:** sending a multi-topic sentence as one
+`addInterest` call can only ever produce one node — the most "novel" aspect of the text
+gets a node; the others are handled by Haiku's dedup returning `"same"` if they match
+existing nodes. The longer-term fix (Phase 7-rev or later) is an upstream extraction
+step that parses free text into discrete topic expressions before fanning out to
+per-topic `addInterest` calls.
+
+---
+
+## Session handoff — Phase 4-rev complete
+
+*Written for a fresh Claude session starting Phase 5-rev.*
+
+### Database state (all migrations applied)
 
 | Migration | What it did |
 |---|---|
 | `20250008_graph_schema.sql` | Created `nodes`, `edges`, `user_node_states`, `user_interests`, `bookmarks`, `curation_proposals`, `megagraph_snapshots`. Added `profiles.timezone`. |
 | `20250009_queue_schema.sql` | Created `queue_items`, `surfaced_picks`, `refresher_schedule`. |
 | `20250010_papers_schema.sql` | Created `papers`, `paper_engagements`, `paper_answers`, `paper_qa`, `notebook_entries` (with FTS on title). |
-| `20250011_modify_problems_attempts_surveys.sql` | Renamed `problems.canonical_topic_id → topic_node_id`, `generated_context_md → context_md`. Added versioning, tags, paper_id, pool_status, time estimates to `problems`. Dropped `attempts.assignment_id`, added `queue_item_id`, refreshed/easier/harder flags, `grade_response_md`, `disputed`. Restructured `surveys` for v2 shape. |
-| `20250012_seed_nodes_edges.sql` | Copied 13 foundation + 8 interest nodes from `canonical_topics` into `nodes` (UUID-preserving). Copied 28 edges. Added FK `problems.topic_node_id → nodes(id)`. Added DEPRECATED comments and revoked INSERT/UPDATE on v1 tables. |
+| `20250011_modify_problems_attempts_surveys.sql` | Renamed `problems.canonical_topic_id → topic_node_id`, `generated_context_md → context_md`. Added versioning, tags, paper_id, pool_status, time estimates. Dropped `attempts.assignment_id`; added `queue_item_id`, grade flags, `grade_response_md`, `disputed`. Restructured `surveys` for v2 shape. |
+| `20250012_seed_nodes_edges.sql` | Copied 13 foundation + 8 interest nodes from `canonical_topics` into `nodes` (UUID-preserving). Copied 28 edges. Added FK `problems.topic_node_id → nodes(id)`. DEPRECATED v1 tables. |
+| `20250013_surveys_rls.sql` | Added SELECT RLS policy on `surveys`. |
 
-Migration `20250007_phase4_attempts.sql` was **never applied** and must stay unapplied — it is superseded by `20250011`.
+Migration `20250007_phase4_attempts.sql` was **never applied** and must stay unapplied.
 
-### Deviations from the original plan
+### Code state
 
-- Steps 5 and 6 were combined into `20250012_seed_nodes_edges.sql`. There is no `20250013_deprecate_v1_tables.sql`.
-- `notebook_entries.fts_vector` generated column indexes `title` only (not `topic_node_slugs`). `array_to_string` is `STABLE` in Postgres and cannot be used in a generated column. Slug-based filtering uses the `topic_node_slugs text[]` column directly with `@>` or `ANY()`.
+All v1 plan-flow code has been deleted. The full v2 flow is working end-to-end:
+sign up → survey (free-text intent + node ratings + mode balance) → interests added to
+megagraph (Haiku dedup + Sonnet generate) → `/daily` shows surfaced queue items.
 
-### What the code looks like right now
+The `/daily` page currently shows `suggested_interest` placeholder items seeded during the
+survey. Real problem and paper items appear once Phase 5-rev wires `/generate-problem` to
+write `queue_items`.
 
-The existing code still references v1 concepts (`canonical_topics`, `user_plans`, `daily_assignments`, plan-approval routes). None of that code has been touched yet — the old pages and routes are still present. Steps 7–12 replace and delete them.
+### Key files for Phase 5-rev
 
-Key files that exist and survive unchanged into v2:
-- `api/anthropic_client.py` — `call_json`, `log_llm_call`, pricing dict. Use this for all new Claude calls.
-- `api/config.py`, `api/auth.py`, `api/supabase_client.py` — internal-token auth and Supabase client.
-- `api/difficulty.py` — `difficulty_for(curve, band)`.
-- `api/prompts/hook_match.py` — hook-matching prompt.
-- `api/main.py` — FastAPI app; register new routes here.
-- `web/proxy.ts` — Next.js 16 auth middleware (exported as `proxy`, not `middleware`).
-- `web/lib/supabase/client.ts`, `web/lib/supabase/server.ts` — Supabase client factories.
-- `web/lib/markdown.tsx` — markdown+LaTeX rendering.
+**FastAPI (`api/`):**
+- `routes/add_interest.py` — Haiku dedup + Sonnet generate + title-collision detection + user_interests write. 8 tests in `tests/test_add_interest.py`.
+- `routes/surface_daily.py` — deterministic kind-varied picking, writes `surfaced_picks`. 9 tests in `tests/test_surface_daily.py`.
+- `routes/update_queue.py` — **no-op stub**; replace in Phase 7-rev.
+- `routes/generate_problem.py` — still reads from `canonical_topics` and uses `plan_node_id`. **Must be refactored in Phase 5-rev step 3** to read from `nodes` and accept a `queue_item_id`.
 
-### Next step: step 7 — FastAPI `POST /add-interest`
+**Next.js (`web/`):**
+- `app/api/survey/route.ts` — seeds placeholder `queue_items` after interests are added. Phase 7-rev must avoid re-seeding duplicates.
+- `lib/queueHelpers.ts` — `getOrSurfacePick`: checks for an open `surfaced_picks` row, loads its items, or calls `/surface-daily`. Called directly from the `/daily` server component (not via the API route — avoids a self-referential HTTP call).
+- `lib/pythonApi.ts` — `generateProblem` wrapper still passes stale `plan_node_id`. **Update in Phase 5-rev step 3** when the route is refactored.
+- `lib/types.ts` — v1 types removed; v2 types present: `Node`, `Edge`, `QueueItem`, `SurfacedPick`, `UserNodeState`, `UserInterest`, `SurveyV2Payload`, `QueueResult`. `Problem` interface uses current field names (`topic_node_id`, `context_md`).
 
-New files to create:
-- `api/routes/add_interest.py`
-- `api/prompts/add_interest.py`
-- `api/tests/test_add_interest.py`
-- Register route in `api/main.py`
-- Add `AddInterestRequest`, `AddInterestResponse`, `DeduplicationVerdict`, `GeneratedInterestNode` to `api/schemas.py`
+### Things to watch in Phase 5-rev
 
-Full spec in the **Step 7** section above. Key points:
-- Haiku call for dedup (route label `'add-interest/dedup'`), Sonnet call for generation (`'add-interest/generate'`).
-- Slug collision on INSERT → write `curation_proposals` merge row, link user to existing node. Do not error.
-- Skip any `proposed_prerequisite_slugs` that don't resolve to existing node IDs rather than erroring.
-- All Claude calls go through the existing `call_json` helper which logs to `llm_calls` automatically.
-- Resolve deferred decision **F9** (`queue_items.ref_id` kind→table mapping) before starting step 8.
+- **`generate_problem.py` refactor**: inputs change from `plan_node_id` to `queue_item_id` + `node_id`. The difficulty curve (previously from `surveys.difficulty_curve`, now dropped) should derive from `user_node_states.struggle_score` for the relevant node.
+- **Problem cache key**: the two partial unique indexes (`problems_cache_key_with_hook`, `problems_cache_key_no_hook`) already use `topic_node_id` — they are correct and should be respected by the refactored route.
+- **`attempts.queue_item_id` FK has no cascade** — deleting a queue item orphans the attempt. This is intentional (attempts are permanent records); just be aware when writing tests that delete queue items.
+- **`add_interest` dedup: use `try/except` + `_is_unique_violation()`**, never `upsert(ignore_duplicates=True)`. See `feedback_postgrest_upsert_ignore_duplicates.md` in memory.
+- **`queue_items` placeholder items from survey**: when Phase 5-rev's problem generation writes real `problem` queue items, the existing `suggested_interest` placeholders remain in the queue. The daily page will show a mix until Phase 7-rev's `update_queue` prunes them.
+
+### Test data reset SQL
+
+When re-running acceptance tests, use this to return to a clean post-migration state
+(preserves profiles and seeded nodes):
+
+```sql
+begin;
+delete from public.surfaced_picks;
+delete from public.attempts;
+delete from public.queue_items;
+delete from public.refresher_schedule;
+delete from public.paper_answers;
+delete from public.paper_qa;
+delete from public.paper_engagements;
+delete from public.notebook_entries;
+delete from public.bookmarks;
+delete from public.surveys;
+delete from public.user_node_states;
+delete from public.user_interests;
+delete from public.nodes where created_by_user_id is not null;
+delete from public.curation_proposals;
+delete from public.megagraph_snapshots;
+delete from public.llm_calls;
+commit;
+```

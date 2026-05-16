@@ -101,7 +101,40 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Initialise the queue (stub — real logic in Phase 7-rev).
+    // 6. Seed placeholder queue items so /daily has cards to show.
+    // Fetch the user's interests (includes nodes matched by dedup and newly-created
+    // ones from free-text — addInterest has now written all of them).
+    // Real queue population happens in Phase 7-rev via update_queue.
+    try {
+      const { data: interests } = await adminClient
+        .from("user_interests")
+        .select("node_id")
+        .eq("user_id", user.id);
+
+      if (interests && interests.length > 0) {
+        const nodeIds = interests.map((i: { node_id: string }) => i.node_id);
+        const { data: interestNodes } = await adminClient
+          .from("nodes")
+          .select("id, title")
+          .in("id", nodeIds);
+        const titleById: Record<string, string> = Object.fromEntries(
+          (interestNodes ?? []).map((n: { id: string; title: string }) => [n.id, n.title]),
+        );
+        await adminClient.from("queue_items").insert(
+          interests.map((i: { node_id: string }) => ({
+            user_id: user.id,
+            kind: "suggested_interest",
+            ref_id: i.node_id,
+            added_reason: `Based on your interest in ${titleById[i.node_id] ?? "this topic"}`,
+            priority_score: 0.5,
+          })),
+        );
+      }
+    } catch (err) {
+      console.error("queue seeding failed:", err);
+    }
+
+    // 7. Initialise the queue (stub — real logic in Phase 7-rev).
     try {
       await updateQueue({ userId: user.id });
     } catch (err) {

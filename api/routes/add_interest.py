@@ -107,7 +107,9 @@ def add_interest(
     nodes_resp = supabase.table("nodes").select("id, slug, title, description_md").execute()
     all_nodes: list[dict] = nodes_resp.data or []
     existing_slugs = [n["slug"] for n in all_nodes]
+    existing_titles = [n["title"] for n in all_nodes]
     slug_to_id = {n["slug"]: n["id"] for n in all_nodes}
+    title_to_node = {n["title"].strip().lower(): n for n in all_nodes}
 
     # 2. Shortlist for dedup prompt.
     candidates = _shortlist(body.raw_text, all_nodes)
@@ -166,6 +168,7 @@ def add_interest(
         user_prompt=prompts.build_generate_user_prompt(
             raw_text=body.raw_text,
             existing_slugs=existing_slugs,
+            existing_titles=existing_titles,
             related_slug=related_slug,
         ),
         schema=GeneratedInterestNode,
@@ -174,7 +177,42 @@ def add_interest(
         request_summary={"raw_text": body.raw_text[:80], "verdict": verdict.verdict},
     )
 
-    # 6. Insert node; handle slug collision race.
+    # 6a. Title collision check — Sonnet may ignore the "no duplicate title" instruction.
+    # If the generated title matches an existing node (case-insensitive), skip the insert
+    # and link the user to the existing node instead.
+    title_matched = title_to_node.get(generated.title.strip().lower())
+    if title_matched:
+        logger.warning(
+            "Sonnet generated duplicate title %r (matches slug %r) — linking to existing node",
+            generated.title,
+            title_matched["slug"],
+        )
+        try:
+            supabase.table("curation_proposals").insert(
+                {
+                    "kind": "merge",
+                    "payload_json": {
+                        "slug": generated.slug,
+                        "new_title": generated.title,
+                        "raw_text": body.raw_text,
+                        "user_id": user_id,
+                        "reason": "title_collision",
+                    },
+                }
+            ).execute()
+        except Exception as exc:
+            logger.warning("curation_proposals insert failed: %s", exc)
+        ui_id = _upsert_user_interest(
+            supabase, user_id=user_id, node_id=title_matched["id"], added_via=body.added_via
+        )
+        return AddInterestResponse(
+            node_id=UUID(title_matched["id"]),
+            node_slug=title_matched["slug"],
+            verdict=verdict.verdict,
+            user_interest_id=ui_id,
+        )
+
+    # 6b. Insert node; handle slug collision race.
     node_row = {
         "slug": generated.slug,
         "title": generated.title,
@@ -244,7 +282,11 @@ def add_interest(
                     }
                 )
         if edge_rows:
-            supabase.table("edges").insert(edge_rows).execute()
+            try:
+                supabase.table("edges").insert(edge_rows).execute()
+            except Exception as exc:
+                if not _is_unique_violation(exc):
+                    raise
 
     # 8. Write user_interests.
     ui_id = _upsert_user_interest(
