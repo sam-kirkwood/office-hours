@@ -1,5 +1,5 @@
-Status: Phase 4-rev complete.
-Next step: Phase 5-rev step 1 — POST /parse-solution.
+Status: Phase 5-rev complete. Design-system pass (Phase 9-rev step 1) done early — all existing pages/components use design tokens; see CLAUDE.md Design principles.
+Next step: Phase 6-rev step 1 — FastAPI: papers ingestion endpoint.
 
 ---
 
@@ -283,7 +283,7 @@ Each step is one commit. The pivot-plan status line (top of this file) tracks th
 
 ### Phase 9-rev — Polish
 
-1. Design-system pass on every surface.
+1. ~~Design-system pass on every surface.~~ **Done early** (interstitial session between Phase 5 and Phase 6). All pages and components use design tokens; CLAUDE.md documents the system.
 2. Mobile polish (queue/notebook are mobile-relevant; skill tree probably desktop-only).
 3. Error monitoring (Sentry or similar).
 4. Phase 9-rev acceptance — v2 ready for friends.

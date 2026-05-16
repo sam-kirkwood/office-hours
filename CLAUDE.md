@@ -127,6 +127,100 @@ The pivot plan lives in docs/pivot-plan.md with a status line. Sessions execute 
 
 Do not start a phase before the prior phase is committed and the pivot plan's status line is updated.
 
+## Design principles
+
+Established in the design-system session (May 2026). These govern all future UI work.
+
+### Aesthetic intent
+
+Clean and academic but slightly cosy — closer to a well-made university press book or a quiet study than a SaaS dashboard. Not gamified, not slick, not generic-AI-startup. Warmth comes from colour temperature, the serif, and spacing — not from gradients, glassmorphism, heavy shadows, or decorative illustration.
+
+### Colour tokens
+
+| Token | Value | Role |
+|---|---|---|
+| `--background` | `#FAF7F0` | Paper-like off-white. All page backgrounds. |
+| `--foreground` | `#1C1917` | Warm near-black. All body text. |
+| `--amber` / `--primary` | `#B8860B` | Honey amber — bee-themed primary accent. Interactive elements, active states, focus rings, problem-mode colour. Used sparingly. |
+| `--forest` / `--secondary` | `#4A7066` | Muted forest — secondary accent. Paper-mode colour, nav structural elements, secondary actions. |
+| `--amber-subtle` | oklch(0.958 0.025 82) | Very light amber wash for highlight backgrounds. |
+| `--forest-subtle` | oklch(0.945 0.020 170) | Very light forest wash for paper-mode card tints. |
+| `--muted` / `--muted-foreground` | warm grays | Secondary text and muted surfaces. |
+
+Dark mode is **not** a design priority for v2. The `.dark` tokens in `globals.css` are kept structurally valid so shadcn compiles, but are untested.
+
+### Typography
+
+| Role | Font | Tailwind class |
+|---|---|---|
+| UI chrome (nav, labels, buttons, metadata) | Inter | `font-sans` (default) |
+| Reading surfaces (problem statements, paper context, notebook entries, node detail text) | Lora | `font-serif` |
+| Equations and code | JetBrains Mono | `font-mono` |
+
+- Source Serif 4 is loaded as `font-source-serif` for the `/design` font comparison page only. Do not use it on production surfaces.
+- Reading body: `text-base leading-[1.7] font-serif`. Max reading width: `max-w-prose` (~65 ch).
+- Section labels / nav: `text-xs font-semibold uppercase tracking-widest text-muted-foreground`.
+- Never use Geist (removed from this project).
+
+### Density and spacing
+
+- Border radius: `--radius: 0.375rem` (6px). Restrained, not rounded or bubble-like.
+- Reading columns: constrained to `max-w-prose` or `max-w-3xl` for full layouts.
+- Generous vertical rhythm between sections (`space-y-6` inside sections, `py-10` between).
+- Line height: `leading-[1.7]` for serif reading surfaces, `leading-relaxed` for UI text.
+
+### Restraint rules
+
+- No gradients. No glassmorphism. No heavy box-shadows. No decorative illustration.
+- No streaks, badges, or gamification UI — enforced at the product level, reinforce at the design level.
+- Accent colours used sparingly: amber for interactive affordances and problem-mode; forest for paper-mode and structural nav. Not scattered decoratively.
+- The `/design` route is the regression reference. Check it when applying styles to new surfaces.
+
+### Motion tokens
+
+Defined in `globals.css` as CSS variables. Apply via arbitrary Tailwind values:
+`transition-colors duration-[var(--duration-fast)] [transition-timing-function:var(--ease-productive)]`
+
+| Token | Value | Use for |
+|---|---|---|
+| `--duration-fast` | 100ms | Hover state colour changes, icon toggles |
+| `--duration-standard` | 200ms | Panel open/close, tab switches, accordion expand |
+| `--duration-slow` | 350ms | Page transitions, large layout shifts |
+| `--ease-productive` | `cubic-bezier(0, 0, 0.2, 1)` | UI responses — snappy ease-out |
+| `--ease-expressive` | `cubic-bezier(0.4, 0, 0.2, 1)` | Content entries — balanced ease-in-out |
+
+Do not animate anything that hasn't been explicitly designed. These tokens exist so when animation is added it uses a consistent vocabulary.
+
+### Queue badge colour semantics
+
+The daily queue uses shadcn `Badge` variants to signal item kind. These are fixed — don't change them without a design decision:
+
+| Kind | Badge | Rationale |
+|---|---|---|
+| `problem` | `variant="default"` (amber filled) | Active work — primary amber |
+| `paper_engagement` | `variant="secondary"` (forest filled) | Reading — primary forest |
+| `refresher` | `variant="outline"` + forest border/text | Revisiting known material — same family as paper |
+| `suggested_interest` | `variant="ghost"` (neutral grey) | Soft suggestion, not a commitment |
+
+### Skill tree node style
+
+Nodes in `SkillTreeView` use `rounded-full` circles (exception to the 6px radius rule — the circular shape reads as organic/conceptual rather than UI chrome). Node text uses `font-serif`. User nodes are 130×130px; adjacent/suggested nodes are 108×108px. State is conveyed by border weight and tint:
+
+- Unseen: `border-border bg-card`
+- Active: `border-2 border-primary bg-amber-subtle`
+- Comfortable: `border-[forest]/50 bg-forest-subtle`
+- Bookmarked: `border-amber/50 bg-amber-subtle`
+- Struggling: `border-destructive/30 bg-destructive/[0.07]`
+- Adjacent (suggested): dashed `border-border/50 bg-background`, muted serif text
+
+A legend panel is rendered absolutely in the bottom-left of the canvas.
+
+### Component library
+
+shadcn/ui (radix-nova style) with Tailwind v4. Components live in `web/components/ui/`. The design-system page at `/design` shows every component in context. Check it before adding new UI patterns.
+
+---
+
 ## Working rules
 
 - Read SPEC.md, ARCHITECTURE.md, docs/graph-design.md, docs/personas.md, and docs/pivot-plan.md at the start of any significant session.

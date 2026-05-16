@@ -148,3 +148,35 @@ export interface ContextHook {
   sources_json: unknown;
   created_at: string;
 }
+
+export interface Attempt {
+  id: string;
+  user_id: string;
+  problem_id: string;
+  queue_item_id: string | null;
+  raw_image_paths: string[];
+  parsed_markdown: string | null;
+  user_edited_markdown: string | null;
+  hint_levels_used: number[];
+  parse_status: string | null;
+  parsed_by_llm_call_id: string | null;
+  grade_response_md: string | null;
+  submitted_at: string | null;
+  marked_refreshed: boolean;
+  requested_easier: boolean;
+  requested_harder: boolean;
+  parent_attempt_id: string | null;
+  disputed: boolean;
+  created_at: string;
+}
+
+export interface NotebookEntry {
+  id: string;
+  user_id: string;
+  entry_kind: "problem_attempt" | "paper_engagement";
+  ref_id: string;
+  title: string;
+  topic_node_slugs: string[];
+  created_at: string;
+  updated_at: string;
+}

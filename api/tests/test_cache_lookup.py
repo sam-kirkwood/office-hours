@@ -6,13 +6,13 @@ from tests.fake_supabase import FakeSupabase
 
 def test_cache_lookup_with_hook_uses_eq() -> None:
     supabase = FakeSupabase()
-    topic_id = uuid4()
+    topic_node_id = uuid4()
     hook_id = uuid4()
     supabase.respond("problems", "select", lambda _call: [{"id": "deadbeef"}])
 
     result = cache_lookup(
         supabase,
-        canonical_topic_id=topic_id,
+        topic_node_id=topic_node_id,
         difficulty=3,
         context_hook_id=hook_id,
     )
@@ -22,7 +22,7 @@ def test_cache_lookup_with_hook_uses_eq() -> None:
     call = supabase.calls[0]
     assert call.table == "problems"
     assert call.op == "select"
-    assert ("eq", "canonical_topic_id", str(topic_id)) in call.filters
+    assert ("eq", "topic_node_id", str(topic_node_id)) in call.filters
     assert ("eq", "difficulty", 3) in call.filters
     assert ("eq", "context_hook_id", str(hook_id)) in call.filters
     # never call is_() in the hook-present branch
@@ -31,12 +31,12 @@ def test_cache_lookup_with_hook_uses_eq() -> None:
 
 def test_cache_lookup_without_hook_uses_is_null() -> None:
     supabase = FakeSupabase()
-    topic_id = uuid4()
+    topic_node_id = uuid4()
     supabase.respond("problems", "select", lambda _call: [{"id": "abc123"}])
 
     result = cache_lookup(
         supabase,
-        canonical_topic_id=topic_id,
+        topic_node_id=topic_node_id,
         difficulty=2,
         context_hook_id=None,
     )
@@ -53,11 +53,9 @@ def test_cache_lookup_no_rows_returns_none() -> None:
     assert (
         cache_lookup(
             supabase,
-            canonical_topic_id=uuid4(),
+            topic_node_id=uuid4(),
             difficulty=3,
             context_hook_id=None,
         )
         is None
     )
-
-

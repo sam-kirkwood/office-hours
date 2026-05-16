@@ -1,17 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Source_Serif_4, Lora, JetBrains_Mono } from "next/font/google";
+import Link from "next/link";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import "@xyflow/react/dist/style.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const sourceSerif4 = Source_Serif_4({
+  variable: "--font-source-serif-4",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+});
+
+const lora = Lora({
+  variable: "--font-lora",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -27,9 +42,35 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${sourceSerif4.variable} ${lora.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <TooltipProvider>
+          <nav className="border-b border-border bg-background">
+            <div className="mx-auto flex max-w-2xl items-center gap-6 px-4 py-3">
+              <Link
+                href="/daily"
+                className="text-sm font-semibold text-foreground hover:text-primary transition-colors duration-[var(--duration-fast)]"
+              >
+                Daily
+              </Link>
+              <Link
+                href="/notebook"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+              >
+                Notebook
+              </Link>
+              <Link
+                href="/skill-tree"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+              >
+                Skill Tree
+              </Link>
+            </div>
+          </nav>
+          {children}
+        </TooltipProvider>
+      </body>
     </html>
   );
 }

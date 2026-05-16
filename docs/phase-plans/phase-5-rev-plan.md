@@ -67,16 +67,16 @@ Resolve these before execution. Don't re-litigate them during implementation.
 
 ## Step table
 
-| # | Step | One commit |
-|---|---|---|
-| 1 | FastAPI `POST /parse-solution` | New module, prompt, schema additions, tests, register in main.py |
-| 2 | FastAPI `POST /grade-solution` | New module, prompt, schema additions, tests, register in main.py |
-| 3 | FastAPI: refactor `/generate-problem` | Read from `nodes`, write queue item; schema + prompt + test rewrite; update `pythonApi.ts` and survey route |
-| 4 | Next.js: real problem flow | `web/app/problem/[id]/page.tsx` + five API sub-routes + `ProblemView` component + `DailyView` link fix |
-| 5 | Next.js: "mark as refreshed" | `POST /api/problem/[id]/skip` route + skip button in `ProblemView` |
-| 6 | Next.js: notebook browse + read | `/notebook` + `/notebook/[id]` pages + `/api/notebook` route + types |
-| 7 | Next.js: skill tree view | `web/app/skill-tree/page.tsx` + `/api/graph/me` + `/api/queue/request` + `SkillTreeView` + `NodePanel`; install npm deps |
-| 8 | Phase 5-rev acceptance | Smoke test + pivot-plan.md status line update |
+| # | Step | One commit | Status |
+|---|---|---|---|
+| 1 | FastAPI `POST /parse-solution` | New module, prompt, schema additions, tests, register in main.py | done |
+| 2 | FastAPI `POST /grade-solution` | New module, prompt, schema additions, tests, register in main.py | done |
+| 3 | FastAPI: refactor `/generate-problem` | Read from `nodes`, write queue item; schema + prompt + test rewrite; update `pythonApi.ts` and survey route | done |
+| 4 | Next.js: real problem flow | `web/app/problem/[id]/page.tsx` + five API sub-routes + `ProblemView` component + `DailyView` link fix | done |
+| 5 | Next.js: "mark as refreshed" | `POST /api/problem/[id]/skip` route + skip button in `ProblemView` | done |
+| 6 | Next.js: notebook browse + read | `/notebook` + `/notebook/[id]` pages + `/api/notebook` route + types | done |
+| 7 | Next.js: skill tree view | `web/app/skill-tree/page.tsx` + `/api/graph/me` + `/api/queue/request` + `SkillTreeView` + `NodePanel`; install npm deps | done |
+| 8 | Phase 5-rev acceptance | Smoke test + pivot-plan.md status line update | done |
 
 ---
 
@@ -968,6 +968,72 @@ Next step: Phase 6-rev step 1 — FastAPI: papers ingestion endpoint.
 - **Next.js 16 auth proxy at `web/proxy.ts`** — new pages automatically inherit
   the proxy's auth redirect behaviour if they are listed as protected routes. Verify
   `/problem/*`, `/notebook*`, `/skill-tree` are gated.
+
+---
+
+## Acceptance notes (recorded after smoke test)
+
+Issues found and resolved during Phase 5-rev acceptance testing. These are not
+re-opened — they are fixed and merged. Recorded here as a decision log.
+
+**A1 — `max_tokens` too low on `/generate-problem`**
+The default `call_json` limit of 4096 tokens was insufficient for problems that
+include a full solution, rubric, and five hints. The response was truncated
+mid-JSON on both attempts, causing a 500. Fixed by passing `max_tokens=8192`
+explicitly to the `call_json` call in `generate_problem.py`. This is the maximum
+non-extended output for Sonnet 4.6.
+
+**A2 — Supabase migration gap on `attempts`**
+Migrations `20250007` (adding `parsed_markdown`, `user_edited_markdown`,
+`parse_status`, `parsed_by_llm_call_id`, `hint_levels_used`) had not been fully
+applied to the hosted Supabase database. PostgREST reported "Could not find
+column X in schema cache" at runtime. Applied the missing columns manually via
+the SQL editor and ran `NOTIFY pgrst, 'reload schema'`. Future schema work must
+confirm `npx supabase db push` has been run against the target database.
+
+**A3 — Stale `surfaced_picks` masked new problem items**
+After the first (failed, 500-error) survey run, `surface_daily` was called and
+surfaced `suggested_interest` queue items into a `surfaced_picks` row. After the
+second (successful) survey run, new `problem` queue items entered the queue in
+`pending` state, but the open `surfaced_picks` row from the first run remained
+(its `replaced_at` was NULL). Subsequent `/daily` loads returned the old Explore
+cards. Resolution: the user clicked "Show me something else" (reroll), which
+marked the old pick as replaced and called `surface_daily` again, surfacing the
+problem items. No code change required — this is correct queue behaviour, but it
+was confusing during first-run testing. The reroll button is the intended escape
+hatch.
+
+**A4 — `suggested_interest` cards were unclickable**
+The `DailyView` rendered `suggested_interest` cards as a grey non-interactive
+span, which was confusing. Fixed by:
+- Adding a "View in Skill Tree →" button that links to `/skill-tree`.
+- Upgrading the `problem` card CTA from a text link to a dark rounded button
+  for clearer affordance.
+
+**A5 — React Flow edges: "Couldn't create edge for source handle id: null"**
+Two root causes:
+
+1. *Missing `<Handle>` components.* Custom `UserNode` and `AdjacentNode`
+   components had no `<Handle>` elements. React Flow requires explicit handles
+   for edge routing; without them it can't find the attachment point and logs the
+   error. Fixed by adding invisible top (target) and bottom (source) handles to
+   both components (`opacity: 0, pointerEvents: none`).
+
+2. *Edges referencing nodes absent from the rendered graph.* The server-side
+   edge filter in `skill-tree/page.tsx` included edges where only one endpoint
+   was a user node, but the other endpoint might not exist in `nodeById` (and
+   therefore not in `adjacentNodes`). Fixed by computing `renderedIds` (the union
+   of all nodes actually passed to the graph) and filtering edges to require both
+   endpoints to be present.
+
+**A6 — Duplicate problem cards after reroll**
+After reroll, two `problem` cards appeared referencing the same problem. This
+happened because the survey route's step 5a calls `generateProblem` for up to
+two `user_interests` rows; when both interests deduplicate to the same `nodes`
+row, the cache lookup returns the same `problem_id` for both calls, but two
+separate `queue_items` rows are still written. Accepted as a known limitation for
+Phase 5-rev (documented in the "Decisions locked in" table). Phase 7-rev's real
+`/update-queue` will prune duplicate queue items for the same node.
 
 ---
 

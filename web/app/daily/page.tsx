@@ -22,7 +22,7 @@ export default async function DailyPage() {
   const result = await getOrSurfacePick(supabase, user.id);
 
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen bg-background">
       <DailyView initialResult={result} />
     </main>
   );

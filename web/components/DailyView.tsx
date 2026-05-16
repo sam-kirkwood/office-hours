@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import type { QueueResult, SurfacedQueueItem } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -15,32 +18,24 @@ const KIND_LABELS: Record<string, string> = {
   suggested_interest: "Explore",
 };
 
-const KIND_COLORS: Record<string, string> = {
-  problem: "bg-zinc-900 text-white",
-  paper_engagement: "bg-blue-700 text-white",
-  concept_review: "bg-violet-700 text-white",
-  refresher: "bg-amber-600 text-white",
-  suggested_interest: "bg-emerald-700 text-white",
-};
-
 const KIND_CTA: Record<string, string> = {
-  problem: "Work on this →",
-  paper_engagement: "Read paper →",
-  concept_review: "Review →",
-  refresher: "Practice again →",
-  suggested_interest: "Explore →",
+  problem: "Work on this",
+  paper_engagement: "Read paper",
+  concept_review: "Review",
+  refresher: "Practice again",
+  suggested_interest: "Explore",
 };
 
-function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind;
-}
-
-function kindColor(kind: string): string {
-  return KIND_COLORS[kind] ?? "bg-zinc-600 text-white";
-}
-
-function kindCta(kind: string): string {
-  return KIND_CTA[kind] ?? "Open →";
+function KindBadge({ kind }: { kind: string }) {
+  const label = KIND_LABELS[kind] ?? kind;
+  if (kind === "problem") return <Badge variant="default">{label}</Badge>;
+  if (kind === "paper_engagement") return <Badge variant="secondary">{label}</Badge>;
+  // refresher = revisiting known material → forest outline (reading/knowledge side)
+  if (kind === "refresher")
+    return <Badge variant="outline" className="border-[var(--forest)]/50 text-[var(--forest)]">{label}</Badge>;
+  if (kind === "suggested_interest")
+    return <Badge variant="ghost">{label}</Badge>;
+  return <Badge variant="ghost">{label}</Badge>;
 }
 
 function timeRange(low: number | null, high: number | null): string | null {
@@ -81,15 +76,15 @@ export default function DailyView({ initialResult }: Props) {
   const hasItems = items.length > 0;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-6 flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold text-zinc-900">Up next</h1>
+    <div className="mx-auto max-w-2xl px-5 py-12">
+      <div className="mb-8 flex items-baseline justify-between">
+        <h1 className="text-xl font-semibold text-foreground">Up next</h1>
         {hasItems && (
           <button
             type="button"
             onClick={handleReroll}
             disabled={rerolling}
-            className="text-xs text-zinc-400 underline-offset-2 transition hover:text-zinc-700 hover:underline disabled:opacity-40"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
           >
             {rerolling ? "Finding alternatives…" : "Show me something else"}
           </button>
@@ -97,7 +92,7 @@ export default function DailyView({ initialResult }: Props) {
       </div>
 
       {rerollError && (
-        <p className="mb-4 text-sm text-red-600">{rerollError}</p>
+        <p className="mb-6 text-sm text-destructive">{rerollError}</p>
       )}
 
       {!hasItems ? (
@@ -122,24 +117,32 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
   const time = timeRange(item.time_estimate_minutes_low, item.time_estimate_minutes_high);
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white px-5 py-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span
-          className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${kindColor(item.kind)}`}
-        >
-          {kindLabel(item.kind)}
-        </span>
-        {time && <span className="text-xs text-zinc-400">{time}</span>}
+    <div className="rounded-md border border-border bg-card px-5 py-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <KindBadge kind={item.kind} />
+        {time && <span className="text-xs text-muted-foreground">{time}</span>}
       </div>
 
-      <p className="mb-1 text-sm text-zinc-800">
+      <p className="font-serif text-sm leading-relaxed text-foreground">
         {item.added_reason ?? defaultDescription(item.kind)}
       </p>
 
-      <div className="mt-4">
-        <span className="text-sm font-medium text-zinc-400 cursor-default">
-          {kindCta(item.kind)}
-        </span>
+      <div className="mt-5">
+        {item.kind === "problem" && item.ref_id ? (
+          <Button asChild size="sm">
+            <Link href={`/problem/${item.queue_item_id}`}>
+              {KIND_CTA[item.kind]} →
+            </Link>
+          </Button>
+        ) : item.kind === "suggested_interest" ? (
+          <Button asChild size="sm" variant="secondary">
+            <Link href="/skill-tree">View in skill tree →</Link>
+          </Button>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            {KIND_CTA[item.kind] ?? "Open"} — coming soon
+          </span>
+        )}
       </div>
     </div>
   );
@@ -147,7 +150,7 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
 
 function MoreComingCard() {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-200 px-5 py-4 text-center text-sm text-zinc-400">
+    <div className="rounded-md border border-dashed border-border px-5 py-4 text-center text-sm text-muted-foreground">
       More items are being prepared — check back soon.
     </div>
   );
@@ -155,11 +158,11 @@ function MoreComingCard() {
 
 function EmptyState() {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-200 px-6 py-10 text-center">
-      <p className="mb-1 text-sm font-medium text-zinc-700">
+    <div className="rounded-md border border-dashed border-border px-6 py-12 text-center">
+      <p className="mb-1.5 text-sm font-medium text-foreground">
         Your queue is being built.
       </p>
-      <p className="text-sm text-zinc-400">
+      <p className="text-sm text-muted-foreground">
         Add interests from your profile or check back after your next session.
       </p>
     </div>

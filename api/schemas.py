@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class GenerateProblemRequest(BaseModel):
     user_id: UUID
-    plan_node_id: UUID
+    node_id: UUID  # replaces plan_node_id
 
 
 class GeneratedProblem(BaseModel):
@@ -15,11 +15,12 @@ class GeneratedProblem(BaseModel):
     solution_md: str
     rubric_md: str
     hints: list[str] = Field(..., min_length=5, max_length=5)
-    generated_context_md: str | None = None
+    context_md: str | None = None  # matches DB column name
 
 
 class GenerateProblemResponse(BaseModel):
     problem_id: UUID
+    queue_item_id: UUID  # the queue item written for this user
 
 
 class HookMatch(BaseModel):
@@ -101,3 +102,42 @@ class UpdateQueueRequest(BaseModel):
 
 class UpdateQueueResponse(BaseModel):
     ok: bool
+
+
+# ---------------------------------------------------------------------------
+# /parse-solution
+# ---------------------------------------------------------------------------
+
+
+class ParseSolutionRequest(BaseModel):
+    user_id: UUID
+    attempt_id: UUID
+    image_urls: list[str]  # pre-signed Supabase Storage URLs (signed by Next.js)
+
+
+class ParseSolutionResponse(BaseModel):
+    attempt_id: UUID
+    parsed_markdown: str
+    parse_status: str  # 'parsed' | 'failed'
+
+
+# ---------------------------------------------------------------------------
+# /grade-solution
+# ---------------------------------------------------------------------------
+
+
+class GradeResponse(BaseModel):
+    """Sonnet grade call output — wrapped in JSON for call_json compatibility."""
+
+    response_md: str
+
+
+class GradeSolutionRequest(BaseModel):
+    user_id: UUID
+    attempt_id: UUID
+    user_edited_markdown: str  # the user's (possibly-edited) parsed solution
+
+
+class GradeSolutionResponse(BaseModel):
+    grade_response_md: str
+    notebook_entry_id: UUID

@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { addInterest, updateQueue } from "@/lib/pythonApi";
+import { addInterest, generateProblem, updateQueue } from "@/lib/pythonApi";
 import type { SurveyV2Payload, NodeRating } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -75,6 +75,24 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error("addInterest failed for free_text_intent:", err);
       }
+    }
+
+    // 5a. Seed up to 2 real problem queue items for the user's new interests.
+    // Best-effort — errors are swallowed so they don't block survey completion.
+    try {
+      const { data: seedInterests } = await adminClient
+        .from("user_interests")
+        .select("node_id")
+        .eq("user_id", user.id)
+        .limit(2);
+
+      await Promise.all(
+        (seedInterests ?? []).map((ui: { node_id: string }) =>
+          generateProblem({ userId: user.id, nodeId: ui.node_id }).catch(() => null)
+        )
+      );
+    } catch (err) {
+      console.error("generateProblem seeding failed:", err);
     }
 
     // 5. Seed user_node_states for "comfortable" and "refresh" nodes.

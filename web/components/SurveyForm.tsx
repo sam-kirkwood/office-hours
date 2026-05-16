@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import type { Node, NodeRating, NodeRatings } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -83,8 +85,8 @@ export default function SurveyForm({ nodes }: Props) {
   const ratedCount = Object.keys(form.nodeRatings).length;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10">
-      <p className="mb-6 text-sm text-zinc-400">
+    <div className="mx-auto max-w-2xl px-5 py-12">
+      <p className="mb-6 text-sm text-muted-foreground">
         Step {step + 1} of {STEPS.length} — {STEPS[step]}
       </p>
 
@@ -119,37 +121,28 @@ export default function SurveyForm({ nodes }: Props) {
         />
       )}
 
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
       <div className="mt-8 flex gap-3">
         {step > 0 && (
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={() => setStep((s) => s - 1)}
             disabled={submitting}
-            className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
           >
             Back
-          </button>
+          </Button>
         )}
         <div className="flex-1" />
         {step < STEPS.length - 1 ? (
-          <button
-            type="button"
-            onClick={() => setStep((s) => s + 1)}
-            className="rounded-lg bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700"
-          >
+          <Button type="button" onClick={() => setStep((s) => s + 1)}>
             Next
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="rounded-lg bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40"
-          >
+          <Button type="button" onClick={handleSubmit} disabled={submitting}>
             {submitting ? "Building your graph…" : "Start learning →"}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -170,19 +163,18 @@ function IntentStep({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-900">
+        <h1 className="text-xl font-semibold text-foreground">
           What do you want to learn or relearn?
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Write however feels natural — a few words or a few sentences.
         </p>
       </div>
-      <textarea
+      <Textarea
         rows={5}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="e.g. I studied physics in undergrad but it's been years. I want to get comfortable with quantum mechanics and maybe explore some modern applications."
-        className="w-full rounded-lg border border-zinc-300 px-3 py-2.5 text-sm outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
         autoFocus
       />
     </div>
@@ -207,8 +199,8 @@ function NodeRatingStep({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Rate the topics</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-xl font-semibold text-foreground">Rate the topics</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           For each topic, tell us where you are. Unmarked topics are fine — we
           build from what you share.
         </p>
@@ -256,13 +248,13 @@ function NodeSection({
 
   return (
     <div>
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {heading}
         {headingNote && (
           <span className="ml-1 normal-case font-normal">— {headingNote}</span>
         )}
       </h2>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-0.5">
         {sorted.map((node) => (
           <NodeRow
             key={node.slug}
@@ -288,8 +280,8 @@ function NodeRow({
   setRating: (r: NodeRating | null) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-zinc-50">
-      <p className="min-w-0 flex-1 text-sm text-zinc-800">{node.title}</p>
+    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors duration-[var(--duration-fast)] hover:bg-accent/40">
+      <p className="min-w-0 flex-1 text-sm text-foreground">{node.title}</p>
       <div className="flex shrink-0 gap-1">
         {RATING_OPTIONS.map((opt) => (
           <button
@@ -297,14 +289,14 @@ function NodeRow({
             type="button"
             title={RATING_LABELS[opt]}
             onClick={() => setRating(rating === opt ? null : opt)}
-            className={`rounded border px-2 py-0.5 text-xs transition ${
+            className={`rounded border px-2 py-0.5 text-xs transition-colors duration-[var(--duration-fast)] ${
               rating === opt
-                ? opt === "interested"
-                  ? "border-zinc-900 bg-zinc-900 text-white"
-                  : opt === "comfortable"
-                    ? "border-emerald-700 bg-emerald-600 text-white"
-                    : "border-amber-600 bg-amber-500 text-white"
-                : "border-zinc-200 text-zinc-500 hover:border-zinc-400 hover:text-zinc-800"
+                ? opt === "comfortable"
+                  ? "border-[var(--forest)] bg-[var(--forest)] text-white"
+                  : opt === "refresh"
+                    ? "border-amber bg-amber text-[var(--background)]"
+                    : "border-primary bg-primary text-primary-foreground"
+                : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
             }`}
           >
             {opt === "interested" ? "Learn" : opt === "comfortable" ? "Know it" : "Refresh"}
@@ -337,10 +329,10 @@ function ModeBalanceStep({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-900">
+        <h1 className="text-xl font-semibold text-foreground">
           Problems or papers?
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Set the balance between pen-and-paper problems and guided paper
           readings. You can revisit this anytime.
         </p>
@@ -348,7 +340,7 @@ function ModeBalanceStep({
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-4">
-          <span className="w-20 text-right text-sm font-medium text-zinc-700">
+          <span className="w-20 text-right text-sm font-medium text-foreground">
             Problems
           </span>
           <input
@@ -358,12 +350,12 @@ function ModeBalanceStep({
             step={0.05}
             value={value}
             onChange={(e) => onChange(Number(e.target.value))}
-            className="flex-1"
+            className="flex-1 accent-[var(--amber)]"
           />
-          <span className="w-20 text-sm font-medium text-zinc-700">Papers</span>
+          <span className="w-20 text-sm font-medium text-foreground">Papers</span>
         </div>
-        <p className="text-center text-sm text-zinc-500">{description}</p>
-        <p className="text-center text-xs text-zinc-400">{pct}% papers</p>
+        <p className="text-center text-sm text-muted-foreground">{description}</p>
+        <p className="text-center text-xs text-muted-foreground">{pct}% papers</p>
       </div>
     </div>
   );
@@ -389,13 +381,13 @@ function ReviewStep({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Ready?</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-xl font-semibold text-foreground">Ready?</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Here&apos;s what we&apos;ll use to build your queue.
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-4 text-sm">
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 text-sm">
         <Row
           label="Intent"
           value={
@@ -414,7 +406,7 @@ function ReviewStep({
       </div>
 
       {!freeTextIntent.trim() && ratedCount === 0 && (
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           You haven&apos;t shared any interests yet. Your queue will start empty
           — go back to add some, or submit and add them later.
         </p>
@@ -434,8 +426,8 @@ function Row({
 }) {
   return (
     <div className="flex gap-3">
-      <span className="w-28 shrink-0 font-medium text-zinc-500">{label}</span>
-      <span className={dim ? "text-zinc-400 italic" : "text-zinc-800"}>{value}</span>
+      <span className="w-28 shrink-0 font-medium text-muted-foreground">{label}</span>
+      <span className={dim ? "italic text-muted-foreground/60" : "text-foreground"}>{value}</span>
     </div>
   );
 }

@@ -24,7 +24,7 @@ solution must demonstrate. Read by an automated grader.
 - "hints": array of EXACTLY 5 strings, levels 1..5 in order. Each hint reveals \
 strictly more than the previous one. Hints NEVER state the final answer and NEVER \
 complete the solution path.
-- "generated_context_md": string OR null. Set to a 2–4 paragraph historical / \
+- "context_md": string OR null. Set to a 2–4 paragraph historical / \
 scientific context block ONLY when no curated context hook is supplied; otherwise null.
 
 # Hint ladder (strict)
@@ -67,14 +67,14 @@ def build_user_prompt(
         context_block = (
             "A curated historical context hook has been supplied — weave the problem "
             "into this context so the statement references the episode naturally. "
-            'Set "generated_context_md" to null.\n\n'
+            'Set "context_md" to null.\n\n'
             "Hook summary:\n"
             f"{context_hook_summary_md}"
         )
     else:
         context_block = (
             "No curated context hook fits this topic. Write your own 2–4 paragraph "
-            'historical or scientific context in "generated_context_md" — a real '
+            'historical or scientific context in "context_md" — a real '
             "episode, paper, or person tied to the topic. Keep it factual."
         )
 
