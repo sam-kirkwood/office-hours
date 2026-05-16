@@ -72,9 +72,9 @@ target is unclear. Must be pinned before step 8 (`/surface-daily` +
 | 3 | Migration `20250010_papers_schema.sql` | Done |
 | 4 | Migration `20250011_modify_problems_attempts_surveys.sql` | Done |
 | 5+6 | Migration `20250012_seed_nodes_edges.sql` (combined seed + deprecation) | Done |
-| 7 | FastAPI `POST /add-interest` | Pending |
-| 8 | FastAPI `POST /surface-daily` + `/update-queue` skeleton | Pending |
-| 9 | Next.js: new survey UI | Pending |
+| 7 | FastAPI `POST /add-interest` | Done |
+| 8 | FastAPI `POST /surface-daily` + `/update-queue` skeleton | Done |
+| 9 | Next.js: new survey UI | Done |
 | 10 | Next.js: queue read + interest API routes | Pending |
 | 11 | Next.js: daily-three page (mocked content) | Pending |
 | 12 | Delete deprecated code | Pending |

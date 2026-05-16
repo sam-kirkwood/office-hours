@@ -1,8 +1,8 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { generatePlan } from "@/lib/plan";
-import type { SurveyPayload, CanonicalTopic, CanonicalEdge } from "@/lib/types";
+import { addInterest, updateQueue } from "@/lib/pythonApi";
+import type { SurveyV2Payload, NodeRating } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body: SurveyPayload = await request.json();
+    const body: SurveyV2Payload = await request.json();
+    const { free_text_intent, node_ratings, comfort_responses, mode_balance } = body;
 
     if (!process.env.SUPABASE_SECRET_KEY) {
       return NextResponse.json({ error: "SUPABASE_SECRET_KEY not set" }, { status: 500 });
@@ -20,76 +21,94 @@ export async function POST(request: Request) {
 
     const adminClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SECRET_KEY
+      process.env.SUPABASE_SECRET_KEY,
     );
 
+    // 1. Upsert surveys row.
     const { error: surveyError } = await adminClient.from("surveys").upsert(
       {
         user_id: user.id,
-        background_json: body.background,
-        topic_states_json: body.topicStates,
-        difficulty_curve: body.difficultyCurve,
+        free_text_intent,
+        node_ratings_json: node_ratings,
+        comfort_responses_json: comfort_responses ?? {},
+        mode_balance: mode_balance ?? 0.5,
+        updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id" }
+      { onConflict: "user_id" },
     );
     if (surveyError) {
       return NextResponse.json({ error: surveyError.message }, { status: 500 });
     }
 
-    if (body.extraTopics?.trim()) {
-      await adminClient.from("pending_topic_requests").insert({
-        requested_by_user_id: user.id,
-        raw_topic_text: body.extraTopics.trim(),
-      });
-    }
-
-    const [{ data: topics, error: topicsError }, { data: edges, error: edgesError }] =
-      await Promise.all([
-        adminClient.from("canonical_topics").select("*"),
-        adminClient.from("canonical_edges").select("*"),
-      ]);
-
-    if (topicsError || edgesError || !topics || !edges) {
-      return NextResponse.json({ error: "Failed to load curriculum" }, { status: 500 });
-    }
-
-    const plannedTopics = generatePlan(
-      body.topicStates,
-      topics as CanonicalTopic[],
-      edges as CanonicalEdge[]
-    );
-
-    // Replace any existing pending_review plan, and any active/completed plans
-    // (since the user is restarting from a new survey).
-    await adminClient.from("user_plans").delete().eq("user_id", user.id);
-
-    const { data: plan, error: planError } = await adminClient
-      .from("user_plans")
-      .insert({ user_id: user.id, status: "pending_review" })
-      .select("id")
-      .single();
-
-    if (planError || !plan) {
-      return NextResponse.json(
-        { error: planError?.message ?? "Failed to create plan" },
-        { status: 500 }
-      );
-    }
-
-    const { error: nodesError } = await adminClient.from("plan_nodes").insert(
-      plannedTopics.map((pt, i) => ({
-        plan_id: plan.id,
-        canonical_topic_id: pt.topicId,
-        order_index: i,
-        state: pt.initialState === "mastered" ? "mastered" : "pending",
-      }))
-    );
-
+    // 2. Load nodes to resolve slugs → IDs for user_node_states writes.
+    const { data: nodes, error: nodesError } = await adminClient
+      .from("nodes")
+      .select("id, slug, title");
     if (nodesError) {
       return NextResponse.json({ error: nodesError.message }, { status: 500 });
     }
+    const nodeBySlug = Object.fromEntries((nodes ?? []).map((n) => [n.slug, n]));
 
-    return NextResponse.json({ planId: plan.id });
+    // 3. For each "interested" node: call /add-interest (writes user_interests).
+    const interestedSlugs = Object.entries(node_ratings ?? {})
+      .filter(([, rating]: [string, NodeRating]) => rating === "interested")
+      .map(([slug]) => slug);
+
+    for (const slug of interestedSlugs) {
+      const node = nodeBySlug[slug];
+      if (!node) continue;
+      try {
+        await addInterest({ userId: user.id, rawText: node.title, addedVia: "survey" });
+      } catch (err) {
+        console.error(`addInterest failed for slug=${slug}:`, err);
+      }
+    }
+
+    // 4. If free-text intent is non-empty: call /add-interest for the whole string.
+    if (free_text_intent?.trim()) {
+      try {
+        await addInterest({
+          userId: user.id,
+          rawText: free_text_intent.trim(),
+          addedVia: "survey",
+        });
+      } catch (err) {
+        console.error("addInterest failed for free_text_intent:", err);
+      }
+    }
+
+    // 5. Seed user_node_states for "comfortable" and "refresh" nodes.
+    const stateRows = Object.entries(node_ratings ?? {})
+      .filter(([, rating]: [string, NodeRating]) => rating === "comfortable" || rating === "refresh")
+      .flatMap(([slug, rating]: [string, NodeRating]) => {
+        const node = nodeBySlug[slug];
+        if (!node) return [];
+        return [
+          {
+            user_id: user.id,
+            node_id: node.id,
+            state: rating === "comfortable" ? "comfortable" : "active",
+          },
+        ];
+      });
+
+    if (stateRows.length > 0) {
+      const { error: stateError } = await adminClient
+        .from("user_node_states")
+        .upsert(stateRows, { onConflict: "user_id,node_id" });
+      if (stateError) {
+        console.error("user_node_states upsert failed:", stateError);
+      }
+    }
+
+    // 6. Initialise the queue (stub — real logic in Phase 7-rev).
+    try {
+      await updateQueue({ userId: user.id });
+    } catch (err) {
+      console.error("updateQueue failed:", err);
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });

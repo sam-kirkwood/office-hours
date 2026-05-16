@@ -1,5 +1,5 @@
-Status: Phase 4-rev in progress — migrations done (steps 1–6), code steps pending. Last commit: 731c644.
-Next step: Phase 4-rev step 7 — FastAPI POST /add-interest.
+Status: Phase 4-rev in progress — steps 1–9 done. Last commit: 731c644.
+Next step: Phase 4-rev step 10 — Next.js queue read + interest API routes.
 
 ---
 
@@ -328,6 +328,16 @@ Items resolved before implementation started. Deferred items are flagged with th
 
 ### Deferred (must be decided before the blocking step)
 
-**F9 — `queue_items.ref_id` type-by-kind mapping.** For `kind='suggested_interest'`, `ref_id` presumably points at `nodes(id)`. For `kind='concept_review'`, the target is unclear — `nodes(id)` again, or `bookmarks(id)`? Pin down the full kind→table mapping before writing step 4-rev.8 (`/surface-daily`) or step 7-rev.1 (`/update-queue`).
+**F9 — `queue_items.ref_id` type-by-kind mapping.** Resolved (pinned for step 4-rev.8):
+
+| kind | ref_id → |
+|---|---|
+| `problem` | `problems(id)` |
+| `paper_engagement` | `paper_engagements(id)` |
+| `refresher` | `refresher_schedule(id)` — the schedule row carries `subject_kind` + `subject_ref_id` so the UI can resolve the content |
+| `concept_review` | `nodes(id)` |
+| `suggested_interest` | `nodes(id)` |
+
+`ref_id` is nullable (some queue item kinds could in principle be content-free placeholders), but in practice all five kinds above populate it.
 
 **F10 — What user action writes `user_interests` with `added_via='cross_pollination'`.** Cross-pollination produces a `suggested_interest` queue item. The follow-on write to `user_interests` must be triggered by a specific user action (accept / first engage / bookmark → promote). Decide the trigger and whether `dismissed` items should also write a row (with a different state) before implementing step 7-rev.5.

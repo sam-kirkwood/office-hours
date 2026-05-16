@@ -3,6 +3,33 @@ export interface Subtopic {
   title: string;
 }
 
+// ---------------------------------------------------------------------------
+// v2 graph types
+// ---------------------------------------------------------------------------
+
+export interface Node {
+  id: string;
+  slug: string;
+  title: string;
+  description_md: string;
+  domain: "math" | "physics" | "applied";
+  kind: "foundation" | "interest";
+  difficulty_hint: "intro" | "core" | "advanced";
+  subtopics_json: unknown[];
+  pool_status: string;
+  created_at: string;
+}
+
+export type NodeRating = "interested" | "comfortable" | "refresh";
+export type NodeRatings = Record<string, NodeRating>; // keyed by node slug
+
+export interface SurveyV2Payload {
+  free_text_intent: string;
+  node_ratings: NodeRatings;
+  comfort_responses: Record<string, string>;
+  mode_balance: number;
+}
+
 export interface CanonicalTopic {
   id: string;
   slug: string;

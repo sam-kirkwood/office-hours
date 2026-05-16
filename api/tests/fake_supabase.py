@@ -51,6 +51,9 @@ class FakeQuery:
     def limit(self, _n: int) -> FakeQuery:
         return self
 
+    def order(self, _col: str, **_kwargs) -> FakeQuery:
+        return self
+
     def single(self) -> FakeQuery:
         return self
 
@@ -69,6 +72,11 @@ class FakeTable:
 
     def insert(self, payload: Any) -> FakeQuery:
         q = FakeQuery(self._name, "insert", self._client)
+        q._payload = payload
+        return q
+
+    def update(self, payload: Any) -> FakeQuery:
+        q = FakeQuery(self._name, "update", self._client)
         q._payload = payload
         return q
 

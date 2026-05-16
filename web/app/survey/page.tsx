@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import SurveyForm from "@/components/SurveyForm";
-import type { CanonicalTopic, CanonicalEdge } from "@/lib/types";
+import type { Node } from "@/lib/types";
 
 export default async function SurveyPage() {
   const supabase = await createClient();
@@ -10,17 +10,16 @@ export default async function SurveyPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/signin");
 
-  const [{ data: topics }, { data: edges }] = await Promise.all([
-    supabase.from("canonical_topics").select("*").order("domain").order("difficulty_band"),
-    supabase.from("canonical_edges").select("*"),
-  ]);
+  const { data: nodes } = await supabase
+    .from("nodes")
+    .select("id, slug, title, description_md, domain, kind, difficulty_hint, subtopics_json, pool_status, created_at")
+    .eq("pool_status", "active")
+    .order("kind")
+    .order("difficulty_hint");
 
   return (
     <main className="min-h-screen bg-white">
-      <SurveyForm
-        topics={(topics ?? []) as CanonicalTopic[]}
-        edges={(edges ?? []) as CanonicalEdge[]}
-      />
+      <SurveyForm nodes={(nodes ?? []) as Node[]} />
     </main>
   );
 }
