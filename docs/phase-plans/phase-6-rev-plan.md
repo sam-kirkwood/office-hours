@@ -1,5 +1,7 @@
 # Phase 6-rev — execution plan
 
+> **Status: COMPLETE.** This document is a closed execution and decision record. Do not use it as an active plan. Current work is tracked in `docs/pivot-plan.md`.
+
 Forward-looking plan for Phase 6-rev. Source-of-truth for the product is
 [../SPEC.md](../SPEC.md), [../ARCHITECTURE.md](../ARCHITECTURE.md),
 [../graph-design.md](../graph-design.md), and [../personas.md](../personas.md).
@@ -57,14 +59,14 @@ Resolve these before execution. Don't re-litigate them during implementation.
 
 | # | Step | One commit | Status |
 |---|---|---|---|
-| 1 | FastAPI: papers ingestion | `POST /admin/ingest-paper`; schema + route + tests | todo |
-| 2 | FastAPI: `POST /generate-paper-engagement` | Pre-generates why-this, concepts, questions; schema + route + prompt + tests | todo |
-| 3 | FastAPI: `POST /grade-paper-answer` | Per-question dialogic response; schema + route + prompt + tests | todo |
-| 4 | FastAPI: `POST /paper-question` | Free-form Q&A turn; schema + route + prompt + tests | todo |
-| 5 | FastAPI: `POST /suggest-papers` | Reads user interests, finds matching papers, writes `paper_engagement` queue items, calls generate-paper-engagement | todo |
-| 6 | Next.js: paper engagement UI | `/paper/[id]/page.tsx` + 4 API sub-routes + `PaperView` component + survey route seeding | todo |
-| 7 | Next.js: notebook for papers | Extend `/notebook/[id]` to render paper engagement entries | todo |
-| 8 | Phase 6-rev acceptance | Smoke test + pivot-plan.md status line update | todo |
+| 1 | FastAPI: papers ingestion | `POST /admin/ingest-paper`; schema + route + tests | done |
+| 2 | FastAPI: `POST /generate-paper-engagement` | Pre-generates why-this, concepts, questions; schema + route + prompt + tests | done |
+| 3 | FastAPI: `POST /grade-paper-answer` | Per-question dialogic response; schema + route + prompt + tests | done |
+| 4 | FastAPI: `POST /paper-question` | Free-form Q&A turn; schema + route + prompt + tests | done |
+| 5 | FastAPI: `POST /suggest-papers` | Reads user interests, finds matching papers, writes `paper_engagement` queue items, calls generate-paper-engagement | done |
+| 6 | Next.js: paper engagement UI | `/paper/[id]/page.tsx` + 5 API sub-routes + `PaperView` component + survey route seeding | done |
+| 7 | Next.js: notebook for papers | Extend `/notebook/[id]` to render paper engagement entries | done |
+| 8 | Phase 6-rev acceptance | Smoke test + pivot-plan.md status line update | done |
 
 ---
 

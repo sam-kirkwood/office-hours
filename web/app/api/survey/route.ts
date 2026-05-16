@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { addInterest, generateProblem, updateQueue } from "@/lib/pythonApi";
+import { addInterest, generateProblem, suggestPapers, updateQueue } from "@/lib/pythonApi";
 import type { SurveyV2Payload, NodeRating } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -157,6 +157,13 @@ export async function POST(request: Request) {
       await updateQueue({ userId: user.id });
     } catch (err) {
       console.error("updateQueue failed:", err);
+    }
+
+    // 8. Suggest papers based on user interests (best-effort).
+    try {
+      await suggestPapers({ userId: user.id });
+    } catch (err) {
+      console.error("suggestPapers failed:", err);
     }
 
     return NextResponse.json({ ok: true });

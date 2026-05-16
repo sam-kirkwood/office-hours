@@ -1,5 +1,5 @@
-Status: Phase 5-rev complete. Design-system pass (Phase 9-rev step 1) done early — all existing pages/components use design tokens; see CLAUDE.md Design principles.
-Next step: Phase 6-rev step 1 — FastAPI: papers ingestion endpoint.
+Status: Phase 6-rev complete.
+Next step: Phase 7-rev step 1 — FastAPI: real /update-queue.
 
 ---
 
@@ -199,7 +199,8 @@ RLS: every per-user table (`user_node_states`, `user_interests`, `queue_items`, 
 | `POST /generate-paper-engagement` | Sonnet | Pre-generates why-this, orienting concepts, questions when paper enters queue. |
 | `POST /grade-paper-answer` | Sonnet | Per-question dialogic response. |
 | `POST /paper-question` | Sonnet | Free-form Q&A turn. |
-| `POST /suggest-papers` | Sonnet | Background job; produces paper candidates from interests. v2.1 will use live arXiv. |
+| `POST /suggest-papers` | Haiku | Pool-ranker: scores relevance of papers already in `papers` against `user_interests`; pre-generates engagements; inserts `queue_items`. Does not propose papers not already in the pool. |
+| `POST /propose-papers` | Sonnet | Propose papers from training knowledge: given user's interest nodes and recent engagement history, returns title/authors/year/arXiv ID or DOI/rationale for each candidate; results flow through the shared dedup helper before insertion into `papers`. Expands the pool that `/suggest-papers` then ranks. |
 | `POST /surface-daily` | none (deterministic) | Picks 3 varied items from `queue_items` → writes `surfaced_picks`. |
 | `POST /update-queue` | Haiku/Sonnet | Recompute priority, prune, add refreshers after each attempt/engagement. |
 | `POST /add-interest` | Haiku (dedup) + Sonnet (generate) | The interest-add flow from graph-design.md. |
@@ -260,16 +261,18 @@ Each step is one commit. The pivot-plan status line (top of this file) tracks th
 5. **FastAPI `POST /suggest-papers`** — background job; reads `user_interests`, produces paper candidates.
 6. **Next.js: paper engagement UI** — `web/app/paper/[id]/page.tsx`, `/api/paper/[id]/*` routes. Multi-session resume on `current_question_index`.
 7. **Next.js: notebook entries for papers** — extend the Phase 5-rev notebook to render paper engagements (questions, answers, Q&A turns).
-8. **Phase 6-rev acceptance** — paper loop works including system-suggested papers. Update status line.
+8. **Phase 6-rev acceptance** — paper loop works including system-suggested papers. Update status line. NOTE: Two of the three SPEC.md paper discovery sources are absent from this acceptance: user-provided ingestion (planned in Phase 7-rev step 1) and adjacent surfacing (no planned phase — see Deferred). The "recent papers chosen for you" claim in SPEC.md's lede is not yet true; see F16 and the Deferred section.
 
 ### Phase 7-rev — Adaptation, refreshers, cross-pollination
 
-1. **FastAPI: real `/update-queue`** — after each attempt/engagement, recompute `priority_score`, retire done items, add refreshers to `refresher_schedule`.
-2. **FastAPI: `user_node_states` recomputation** — engagement_count, struggle_score, state transitions (unseen → active → struggling/comfortable).
-3. **FastAPI: refresher surfacing** — refresher items inserted into queue based on `refresher_schedule.due_at`.
-4. **Next.js: explicit request flow** — `/api/queue/request` (user typing "give me more X").
-5. **FastAPI `POST /compute-cross-pollination`** — daily background; produces `suggested_interest` queue items. Gated on first curation having completed.
-6. **Phase 7-rev acceptance** — queue feels responsive; cross-pollination quietly surfaces. Update status line.
+1. **Next.js + FastAPI: user-provided paper ingestion** — Implements SPEC.md paper discovery source 2: "Paste an arXiv URL, DOI, or title. System ingests." New Next.js route `/api/paper/ingest` accepting a URL, DOI, or bare title from a UI affordance in the daily view or paper section. Resolution strategy: arXiv URL/ID → arXiv export API (`export.arxiv.org`, no auth); DOI → CrossRef API (`api.crossref.org`, no auth); bare title → `ILIKE` against `papers.title` then title-only insert if no match. Promote the existing `/admin/ingest-paper` dedup logic into a shared helper callable from both the admin and user-facing routes. On success, immediately queues a `paper_engagement` for the user. Without this step, the "recent papers chosen for you" claim in SPEC.md is not true — system-suggested papers depend on operator-ingested content and Claude's training knowledge (cutoff ~August 2025). Also verify at this step that the empty-queue fallback from F17 is in place.
+2. **FastAPI `POST /propose-papers`** — Implements SPEC.md paper discovery source 1 for the training-knowledge mechanism. Sonnet is given the user's interest nodes and recent engagement history and proposes candidate papers from its training knowledge: title, authors, year, arXiv ID or DOI if known, and a one-line rationale. Each proposed paper flows through the shared dedup helper from step 1 before insertion into `papers`, so a paper Claude proposes that already exists is not duplicated — the existing row is reused. **Runtime relationship with `/suggest-papers`:** `/propose-papers` expands the pool (new titles into `papers`); `/suggest-papers` selects from the pool (ranks existing `papers` rows against user interests). They are complementary, not overlapping. `/propose-papers` fires per-user on a background trigger (after `/add-interest` or on a periodic schedule); `/suggest-papers` then ranks the expanded pool for that user. Dedup at ingestion time ensures no duplicate `papers` rows regardless of which discovery source proposed a title first.
+3. **FastAPI: real `/update-queue`** — after each attempt/engagement, recompute `priority_score`, retire done items, add refreshers to `refresher_schedule`. Fix the `/suggest-papers` pre-filter (F16) before or as part of this step.
+4. **FastAPI: `user_node_states` recomputation** — engagement_count, struggle_score, state transitions (unseen → active → struggling/comfortable).
+5. **FastAPI: refresher surfacing** — refresher items inserted into queue based on `refresher_schedule.due_at`.
+6. **Next.js: explicit request flow** — `/api/queue/request` (user typing "give me more X").
+7. **FastAPI `POST /compute-cross-pollination`** — daily background; produces `suggested_interest` queue items. Gated on first curation having completed.
+8. **Phase 7-rev acceptance** — user-provided paper ingestion works; propose-from-knowledge expands the pool automatically; queue feels responsive; cross-pollination quietly surfaces. Update status line.
 
 ### Phase 8-rev — Weekly curation & operator surfaces
 
@@ -290,7 +293,23 @@ Each step is one commit. The pivot-plan status line (top of this file) tracks th
 
 ### Deferred (v2.1+)
 
-Live arXiv search, bespoke D3 megagraph visualisation, notebook calendar view, return-after-absence prompts, BYO API key, notebook export, hand-authored problems, per-user difficulty calibration.
+**Operator-only ingestion until Phase 7-rev step 1.** Paper ingestion is operator-only (`/admin/ingest-paper`) until user-provided ingestion ships. Between Phase 6-rev and Phase 7-rev step 1, there is no path for users to add papers they found themselves.
+
+**Three paper-discovery mechanisms — keep them named and distinct.** SPEC.md § Paper discovery lists three sources; they land in different phases and must not be conflated:
+1. **Propose-from-knowledge (`/propose-papers`)** — Sonnet proposes titles from its training knowledge; ships in Phase 7-rev step 2. Bounded by training cutoff (~August 2025). Genuinely recent papers (post-cutoff) are not reachable by this mechanism.
+2. **User-provided (`/api/paper/ingest`)** — user pastes an arXiv URL, DOI, or bare title; ships in Phase 7-rev step 1. User-initiated; resolves a resource the user already has. Compensates for the training cutoff on any paper the user can name.
+3. **Live search (v2.1)** — background job querying arXiv/Semantic Scholar APIs without user action; deferred. The only mechanism that proactively surfaces post-cutoff papers without user involvement. Not the same as user-provided ingestion.
+
+**Adjacent surfacing (no planned phase).** SPEC.md paper discovery source 3 — "Papers mentioned in other papers' engagements, or referenced in problem context, become bookmarks or suggestions" — is not planned in any current phase. It requires the engagement-generation prompt to surface paper references and a mechanism to materialise them as bookmarks. This discovery source is absent from v2 and deferred to v2.1 at earliest.
+
+**SPEC.md claim status (revised).**
+- *"System-suggested. Claude proposes papers based on the user's interests and recent work."* (§ Paper discovery, source 1) — **Accurate after Phase 7-rev step 2.** The mechanism is `/propose-papers` (Sonnet, training knowledge). `/suggest-papers` alone is a pool-ranker and does not satisfy this claim on its own.
+- *"For v2, Claude proposes from its training knowledge."* (§ Paper discovery, closing sentence) — **Accurate after Phase 7-rev step 2.**
+- *"The papers are recent and chosen for you"* (lede, first paragraph) — "chosen for you" via training-knowledge proposal is **accurate after Phase 7-rev step 2**. "Recent" is not guaranteed: training-knowledge proposals are bounded by cutoff (~August 2025), so post-cutoff papers are unreachable. The full claim holds only after Phase 7-rev step 1 (user-provided ingestion) or v2.1 live search. Do not correct the SPEC lede — it describes the intent — but do not use it as a launch claim until Phase 7-rev step 1 ships.
+- *"User-provided. Paste an arXiv URL, DOI, or title. System ingests."* (§ Paper discovery, source 2) — **Not true until Phase 7-rev step 1.**
+- *"Adjacent surfacing. Papers mentioned in other papers' engagements..."* (§ Paper discovery, source 3) — **No planned phase; see above.**
+
+**Bespoke D3 megagraph visualisation, notebook calendar view, return-after-absence prompts, BYO API key, notebook export, hand-authored problems, per-user difficulty calibration.** Unchanged from ARCHITECTURE.md deferred list.
 
 ---
 
@@ -320,7 +339,7 @@ Items resolved before implementation started. Deferred items are flagged with th
 
 **F12 — Hint click logging:** Server-side. `attempts.hint_levels_used` (already a `smallint[]`) is written each time a hint is opened via the problem API, not only at submit. Implement in step 5-rev.4.
 
-**F13 — Timezone handling:** `refresher_schedule.due_at` stored as `timestamptz`; resolved against the user's IANA timezone. Add `profiles.timezone text` column in step 4-rev.1 (alongside the `nodes` schema migration is fine). Implement surfacing resolution in step 7-rev.3.
+**F13 — Timezone handling:** `refresher_schedule.due_at` stored as `timestamptz`; resolved against the user's IANA timezone. Add `profiles.timezone text` column in step 4-rev.1 (alongside the `nodes` schema migration is fine). Implement surfacing resolution in step 7-rev.5 (refresher surfacing; renumbered from 7-rev.3 by the addition of user-provided ingestion as step 7-rev.1, then again from 7-rev.4 by the addition of `/propose-papers` as step 7-rev.2).
 
 **F14 — Race-safety on `/add-interest` dedup:** Unique constraint on `nodes.slug` (enforced in step 4-rev.1). On slug-collision at insert time, fold the collision into a `curation_proposals` merge row rather than erroring. Implement in step 4-rev.7.
 
@@ -340,4 +359,8 @@ Items resolved before implementation started. Deferred items are flagged with th
 
 `ref_id` is nullable (some queue item kinds could in principle be content-free placeholders), but in practice all five kinds above populate it.
 
-**F10 — What user action writes `user_interests` with `added_via='cross_pollination'`.** Cross-pollination produces a `suggested_interest` queue item. The follow-on write to `user_interests` must be triggered by a specific user action (accept / first engage / bookmark → promote). Decide the trigger and whether `dismissed` items should also write a row (with a different state) before implementing step 7-rev.5.
+**F10 — What user action writes `user_interests` with `added_via='cross_pollination'`.** Cross-pollination produces a `suggested_interest` queue item. The follow-on write to `user_interests` must be triggered by a specific user action (accept / first engage / bookmark → promote). Decide the trigger and whether `dismissed` items should also write a row (with a different state) before implementing step 7-rev.6.
+
+**F16 — `/suggest-papers` unbounded candidate set.** The current implementation loads all `papers` rows (`SELECT id, title, abstract_md`) and passes full abstracts to Haiku for relevance scoring. This is the same unbounded-candidate-set problem as the dedup flow in `/add-interest`, which we deliberately pre-filtered with a Postgres trigram/LIKE step before the Haiku call. The fix: before the Haiku call in `/suggest-papers`, run a Postgres pre-filter — `WHERE to_tsvector('english', title || ' ' || coalesce(abstract_md, '')) @@ websearch_to_tsquery('english', <interest_titles_concatenated>)` (or `ILIKE ANY (ARRAY[...])` as a simpler fallback), limited to 20 rows. This caps Haiku input at O(20) regardless of pool growth and mirrors the pattern already in the dedup flow. Implement as part of Phase 7-rev step 3 (real `/update-queue`, which calls `/suggest-papers` as a follow-on action).
+
+**F17 — New-user empty-queue fallback.** F8 addresses fewer-than-3 eligible items but not a fully empty queue. A new user whose `/add-interest` calls all fail (network error, prompt failure), or who completes the survey with no free-text intent, could reach `/daily` with zero queue items. The `/add-interest` flow is the primary defence — it synchronously inserts a starter problem or paper per interest when called from survey submission. Secondary fallback: if `queue_items` is empty at surfacing time, insert one `concept_review` queue item pointing to a foundation node matching the user's interests (or the calculus foundation node if no interests exist). This requires no LLM call and creates a non-empty queue. Verify during Phase 7-rev step 1 that this fallback is in place; it may already be partially covered by the Phase 4-rev skeleton but should be tested explicitly on a fresh account with forced `/add-interest` failure.

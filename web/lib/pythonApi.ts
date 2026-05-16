@@ -152,3 +152,17 @@ export async function surfaceDaily(
 ): Promise<SurfaceDailyResponse> {
   return pythonPost("/surface-daily", { user_id: args.userId });
 }
+
+interface SuggestPapersArgs {
+  userId: string;
+}
+
+interface SuggestPapersResponse {
+  suggested: Array<{ paper_id: string; queue_item_id: string }>;
+}
+
+export async function suggestPapers(
+  args: SuggestPapersArgs,
+): Promise<SuggestPapersResponse> {
+  return pythonPost("/suggest-papers", { user_id: args.userId });
+}

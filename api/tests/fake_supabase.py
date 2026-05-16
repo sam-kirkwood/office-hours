@@ -44,6 +44,14 @@ class FakeQuery:
         self._filters.append(("is_", col, val))
         return self
 
+    def ilike(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("ilike", col, val))
+        return self
+
+    def in_(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("in_", col, val))
+        return self
+
     def contains(self, col: str, val: Any) -> FakeQuery:
         self._filters.append(("contains", col, val))
         return self
@@ -77,6 +85,11 @@ class FakeTable:
 
     def update(self, payload: Any) -> FakeQuery:
         q = FakeQuery(self._name, "update", self._client)
+        q._payload = payload
+        return q
+
+    def upsert(self, payload: Any, **_kwargs: Any) -> FakeQuery:
+        q = FakeQuery(self._name, "upsert", self._client)
         q._payload = payload
         return q
 

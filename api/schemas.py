@@ -141,3 +141,96 @@ class GradeSolutionRequest(BaseModel):
 class GradeSolutionResponse(BaseModel):
     grade_response_md: str
     notebook_entry_id: UUID
+
+
+# ---------------------------------------------------------------------------
+# /admin/ingest-paper
+# ---------------------------------------------------------------------------
+
+
+class IngestPaperRequest(BaseModel):
+    title: str
+    authors_json: list[str]
+    year: int
+    abstract_md: str
+    arxiv_id: str | None = None
+    doi: str | None = None
+    external_url: str | None = None
+
+
+class IngestPaperResponse(BaseModel):
+    paper_id: UUID
+    created: bool
+
+
+# ---------------------------------------------------------------------------
+# /generate-paper-engagement
+# ---------------------------------------------------------------------------
+
+
+class GeneratePaperEngagementRequest(BaseModel):
+    user_id: UUID
+    paper_id: UUID
+
+
+class GeneratedEngagement(BaseModel):
+    """Strict shape the Sonnet engagement-generation call must return as JSON."""
+
+    why_this_md: str
+    orienting_concepts_json: list[str]
+    questions_json: list[dict]  # [{id, kind, prompt_md, order}]
+
+
+class GeneratePaperEngagementResponse(BaseModel):
+    engagement_id: UUID
+
+
+# ---------------------------------------------------------------------------
+# /grade-paper-answer
+# ---------------------------------------------------------------------------
+
+
+class GradePaperAnswerRequest(BaseModel):
+    user_id: UUID
+    engagement_id: UUID
+    question_id: str  # uuid string from questions_json[*].id
+    user_response_md: str
+
+
+class GradePaperAnswerResponse(BaseModel):
+    claude_response_md: str
+    next_question_index: int  # updated current_question_index; -1 = all done
+
+
+# ---------------------------------------------------------------------------
+# /paper-question
+# ---------------------------------------------------------------------------
+
+
+class PaperQuestionRequest(BaseModel):
+    user_id: UUID
+    engagement_id: UUID
+    user_message_md: str
+
+
+class PaperQuestionResponse(BaseModel):
+    claude_response_md: str
+    turn_index: int
+
+
+# ---------------------------------------------------------------------------
+# /suggest-papers
+# ---------------------------------------------------------------------------
+
+
+class SuggestPapersRequest(BaseModel):
+    user_id: UUID
+
+
+class SuggestedPaper(BaseModel):
+    paper_id: UUID
+    queue_item_id: UUID
+
+
+class SuggestPapersResponse(BaseModel):
+    suggested: list[SuggestedPaper]

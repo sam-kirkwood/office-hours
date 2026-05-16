@@ -1,5 +1,7 @@
 # Phase 5-rev — execution plan
 
+> **Status: COMPLETE.** This document is a closed execution and decision record. Do not use it as an active plan. Current work is tracked in `docs/pivot-plan.md`.
+
 Forward-looking plan for Phase 5-rev. Source-of-truth for the product is
 [../SPEC.md](../SPEC.md), [../ARCHITECTURE.md](../ARCHITECTURE.md),
 [../graph-design.md](../graph-design.md), and [../personas.md](../personas.md).

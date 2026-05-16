@@ -134,6 +134,12 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
               {KIND_CTA[item.kind]} →
             </Link>
           </Button>
+        ) : item.kind === "paper_engagement" && item.ref_id ? (
+          <Button asChild size="sm" variant="secondary">
+            <Link href={`/paper/${item.queue_item_id}`}>
+              {KIND_CTA[item.kind]} →
+            </Link>
+          </Button>
         ) : item.kind === "suggested_interest" ? (
           <Button asChild size="sm" variant="secondary">
             <Link href="/skill-tree">View in skill tree →</Link>

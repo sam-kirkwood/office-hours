@@ -180,3 +180,58 @@ export interface NotebookEntry {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Paper types (Phase 6-rev)
+// ---------------------------------------------------------------------------
+
+export interface Paper {
+  id: string;
+  title: string;
+  authors_json: string[];
+  year: number | null;
+  arxiv_id: string | null;
+  doi: string | null;
+  external_url: string | null;
+  abstract_md: string | null;
+  created_at: string;
+}
+
+export interface PaperQuestion {
+  id: string;
+  kind: "comprehension" | "critical" | "connective";
+  prompt_md: string;
+  order: number;
+}
+
+export interface PaperEngagement {
+  id: string;
+  user_id: string;
+  paper_id: string;
+  why_this_md: string | null;
+  orienting_concepts_json: string[];
+  questions_json: PaperQuestion[];
+  state: "pending" | "in_progress" | "completed";
+  current_question_index: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface PaperAnswer {
+  id: string;
+  engagement_id: string;
+  question_id: string;
+  user_response_md: string | null;
+  claude_response_md: string | null;
+  submitted_at: string | null;
+}
+
+export interface PaperQaTurn {
+  id: string;
+  engagement_id: string;
+  turn_index: number;
+  user_message_md: string;
+  claude_response_md: string | null;
+  created_at: string;
+}
