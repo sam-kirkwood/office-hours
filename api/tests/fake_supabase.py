@@ -56,6 +56,26 @@ class FakeQuery:
         self._filters.append(("contains", col, val))
         return self
 
+    def lt(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("lt", col, val))
+        return self
+
+    def lte(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("lte", col, val))
+        return self
+
+    def gt(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("gt", col, val))
+        return self
+
+    def gte(self, col: str, val: Any) -> FakeQuery:
+        self._filters.append(("gte", col, val))
+        return self
+
+    def text_search(self, col: str, query: str, **_kwargs: Any) -> FakeQuery:
+        self._filters.append(("text_search", col, query))
+        return self
+
     def limit(self, _n: int) -> FakeQuery:
         return self
 
@@ -92,6 +112,9 @@ class FakeTable:
         q = FakeQuery(self._name, "upsert", self._client)
         q._payload = payload
         return q
+
+    def delete(self) -> FakeQuery:
+        return FakeQuery(self._name, "delete", self._client)
 
 
 

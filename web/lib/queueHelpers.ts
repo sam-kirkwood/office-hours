@@ -19,6 +19,8 @@ function toItem(raw: {
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
+  subject_kind?: string | null;
+  subject_queue_item_id?: string | null;
 }): SurfacedQueueItem {
   return {
     queue_item_id: (raw.id ?? raw.queue_item_id)!,
@@ -27,6 +29,8 @@ function toItem(raw: {
     added_reason: raw.added_reason,
     time_estimate_minutes_low: raw.time_estimate_minutes_low,
     time_estimate_minutes_high: raw.time_estimate_minutes_high,
+    subject_kind: raw.subject_kind ?? null,
+    subject_queue_item_id: raw.subject_queue_item_id ?? null,
   };
 }
 
@@ -46,29 +50,36 @@ export async function getOrSurfacePick(
 
   if (openPick) {
     const ids: string[] = openPick.queue_item_ids as string[];
-    if (ids.length === 0) {
-      return { pick_id: openPick.id as string, items: [], more_coming: true };
+
+    if (ids.length > 0) {
+      const { data: rows } = await supabase
+        .from("queue_items")
+        .select(
+          "id, kind, ref_id, added_reason, time_estimate_minutes_low, time_estimate_minutes_high, state",
+        )
+        .in("id", ids);
+
+      const active = (rows ?? []).filter(
+        (r) => !["done", "dismissed", "skipped"].includes(r.state as string),
+      );
+
+      if (active.length > 0) {
+        return {
+          pick_id: openPick.id as string,
+          items: active.map(toItem),
+          more_coming: active.length < 3,
+        };
+      }
     }
 
-    const { data: rows } = await supabase
-      .from("queue_items")
-      .select(
-        "id, kind, ref_id, added_reason, time_estimate_minutes_low, time_estimate_minutes_high, state",
-      )
-      .in("id", ids);
-
-    const active = (rows ?? []).filter(
-      (r) => !["done", "dismissed", "skipped"].includes(r.state as string),
-    );
-
-    return {
-      pick_id: openPick.id as string,
-      items: active.map(toItem),
-      more_coming: active.length < 3,
-    };
+    // Pick is stale (all items consumed or empty) — close it and surface fresh below.
+    await supabase
+      .from("surfaced_picks")
+      .update({ replaced_at: new Date().toISOString() })
+      .eq("id", openPick.id as string);
   }
 
-  // 2. No open pick — call Python /surface-daily.
+  // 2. No open pick (or stale pick just closed) — call Python /surface-daily.
   try {
     const result = await surfaceDaily({ userId });
     return {

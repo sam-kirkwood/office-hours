@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { updateQueue } from "@/lib/pythonApi";
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL!;
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN!;
@@ -52,6 +53,14 @@ export async function POST(
     .update({ state: "in_progress", updated_at: new Date().toISOString() })
     .eq("id", queueItemId)
     .eq("state", "surfaced");
+
+  if (data.next_question_index === -1) {
+    updateQueue({
+      userId: user.id,
+      trigger: "engagement_complete",
+      refId: engagement_id,
+    }).catch(() => null);
+  }
 
   return NextResponse.json(data);
 }

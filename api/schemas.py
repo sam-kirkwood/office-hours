@@ -84,6 +84,9 @@ class SurfacedItem(BaseModel):
     added_reason: str | None = None
     time_estimate_minutes_low: int | None = None
     time_estimate_minutes_high: int | None = None
+    # Populated for kind='refresher' so the client can link back to original content
+    subject_kind: str | None = None            # 'attempt' | 'engagement'
+    subject_queue_item_id: UUID | None = None  # original queue item for the link
 
 
 class SurfaceDailyResponse(BaseModel):
@@ -98,10 +101,14 @@ class SurfaceDailyResponse(BaseModel):
 
 class UpdateQueueRequest(BaseModel):
     user_id: UUID
+    trigger: str  # 'attempt_submit' | 'engagement_complete' | 'interest_add'
+    ref_id: UUID | None = None  # the attempt_id or engagement_id that triggered this
 
 
 class UpdateQueueResponse(BaseModel):
-    ok: bool
+    items_reweighted: int
+    refreshers_scheduled: int
+    items_pruned: int
 
 
 # ---------------------------------------------------------------------------
@@ -279,3 +286,17 @@ class ProposePapersResponse(BaseModel):
     papers_added: int        # count of new papers inserted
     papers_reused: int       # count of proposals that matched existing rows
     queue_items_added: int   # may be < papers_added if engagement already exists
+
+
+# ---------------------------------------------------------------------------
+# /compute-cross-pollination
+# ---------------------------------------------------------------------------
+
+
+class ComputeCrossPollinationRequest(BaseModel):
+    pass  # runs for all active users; no per-user scoping
+
+
+class ComputeCrossPollinationResponse(BaseModel):
+    suggestions_created: int
+    reason: str  # 'no_curation_yet' | 'ok'

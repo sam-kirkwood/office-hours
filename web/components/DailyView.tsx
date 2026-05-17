@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import AddPaperForm from "@/components/AddPaperForm";
+import RequestBox from "@/components/RequestBox";
 import type { QueueResult, SurfacedQueueItem } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -80,16 +81,14 @@ export default function DailyView({ initialResult }: Props) {
     <div className="mx-auto max-w-2xl px-5 py-12">
       <div className="mb-8 flex items-baseline justify-between">
         <h1 className="text-xl font-semibold text-foreground">Up next</h1>
-        {hasItems && (
-          <button
-            type="button"
-            onClick={handleReroll}
-            disabled={rerolling}
-            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
-          >
-            {rerolling ? "Finding alternatives…" : "Show me something else"}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleReroll}
+          disabled={rerolling}
+          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
+        >
+          {rerolling ? "Finding alternatives…" : "Show me something else"}
+        </button>
       </div>
 
       {rerollError && (
@@ -107,8 +106,9 @@ export default function DailyView({ initialResult }: Props) {
         </div>
       )}
 
-      <div className="mt-8 pt-6 border-t border-border">
+      <div className="mt-8 pt-6 border-t border-border space-y-4">
         <AddPaperForm />
+        <RequestBox />
       </div>
     </div>
   );
@@ -120,6 +120,38 @@ export default function DailyView({ initialResult }: Props) {
 
 function QueueCard({ item }: { item: SurfacedQueueItem }) {
   const time = timeRange(item.time_estimate_minutes_low, item.time_estimate_minutes_high);
+  const [interestStatus, setInterestStatus] = useState<
+    "idle" | "loading" | "added" | "dismissed"
+  >("idle");
+
+  async function handleAddToInterests() {
+    if (!item.ref_id) return;
+    setInterestStatus("loading");
+    try {
+      await fetch("/api/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node_id: item.ref_id, added_via: "cross_pollination" }),
+      });
+      setInterestStatus("added");
+    } catch {
+      setInterestStatus("idle");
+    }
+  }
+
+  async function handleDismiss() {
+    setInterestStatus("loading");
+    try {
+      await fetch("/api/queue/bookmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queue_item_id: item.queue_item_id }),
+      });
+      setInterestStatus("dismissed");
+    } catch {
+      setInterestStatus("idle");
+    }
+  }
 
   return (
     <div className="rounded-md border border-border bg-card px-5 py-5">
@@ -145,10 +177,48 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
               {KIND_CTA[item.kind]} →
             </Link>
           </Button>
-        ) : item.kind === "suggested_interest" ? (
-          <Button asChild size="sm" variant="secondary">
-            <Link href="/skill-tree">View in skill tree →</Link>
+        ) : item.kind === "refresher" && item.subject_queue_item_id ? (
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="border-[var(--forest)] text-[var(--forest)] hover:bg-[var(--forest-subtle)]"
+          >
+            <Link
+              href={
+                item.subject_kind === "engagement"
+                  ? `/paper/${item.subject_queue_item_id}`
+                  : `/problem/${item.subject_queue_item_id}`
+              }
+            >
+              Revisit this →
+            </Link>
           </Button>
+        ) : item.kind === "suggested_interest" ? (
+          interestStatus === "added" ? (
+            <p className="text-sm text-muted-foreground">Added to your interests.</p>
+          ) : interestStatus === "dismissed" ? (
+            <p className="text-sm text-muted-foreground">Got it — won&apos;t show again soon.</p>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={interestStatus === "loading"}
+                onClick={handleAddToInterests}
+              >
+                Add to interests
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={interestStatus === "loading"}
+                onClick={handleDismiss}
+              >
+                Not for me
+              </Button>
+            </div>
+          )
         ) : (
           <span className="text-sm text-muted-foreground">
             {KIND_CTA[item.kind] ?? "Open"} — coming soon

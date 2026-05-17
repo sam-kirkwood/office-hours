@@ -51,10 +51,14 @@ interface AddInterestResponse {
 
 interface UpdateQueueArgs {
   userId: string;
+  trigger: "attempt_submit" | "engagement_complete" | "interest_add";
+  refId?: string;
 }
 
 interface UpdateQueueResponse {
-  ok: boolean;
+  items_reweighted: number;
+  refreshers_scheduled: number;
+  items_pruned: number;
 }
 
 interface SurfacedItemRaw {
@@ -144,7 +148,11 @@ export async function addInterest(
 export async function updateQueue(
   args: UpdateQueueArgs,
 ): Promise<UpdateQueueResponse> {
-  return pythonPost("/update-queue", { user_id: args.userId });
+  return pythonPost("/update-queue", {
+    user_id: args.userId,
+    trigger: args.trigger,
+    ref_id: args.refId ?? null,
+  });
 }
 
 export async function surfaceDaily(

@@ -1,5 +1,5 @@
-Status: Phase 7-rev step 2 complete.
-Next step: Phase 7-rev step 3 — FastAPI: real /update-queue.
+Status: Phase 7-rev complete.
+Next step: Phase 8-rev step 1 — FastAPI: /generate-curation-report.
 
 ---
 
@@ -308,6 +308,8 @@ Each step is one commit. The pivot-plan status line (top of this file) tracks th
 - *"The papers are recent and chosen for you"* (lede, first paragraph) — "chosen for you" via training-knowledge proposal is **accurate after Phase 7-rev step 2**. "Recent" is not guaranteed: training-knowledge proposals are bounded by cutoff (~August 2025), so post-cutoff papers are unreachable. The full claim holds only after Phase 7-rev step 1 (user-provided ingestion) or v2.1 live search. Do not correct the SPEC lede — it describes the intent — but do not use it as a launch claim until Phase 7-rev step 1 ships.
 - *"User-provided. Paste an arXiv URL, DOI, or title. System ingests."* (§ Paper discovery, source 2) — **Not true until Phase 7-rev step 1.**
 - *"Adjacent surfacing. Papers mentioned in other papers' engagements..."* (§ Paper discovery, source 3) — **No planned phase; see above.**
+
+**Paper request via RequestBox should trigger `/propose-papers` for niche topics.** Currently `POST /api/queue/request` with `kind_hint="paper"` only calls `/suggest-papers`, which ranks papers already in the `papers` table. For niche or novel topics the pool will be empty and the user sees "check back soon" with nothing actually added. The fix: when `kind_hint="paper"` and `resolvedNodeId` is available, call `/propose-papers` first (to expand the pool with Sonnet-proposed titles for that specific node) before calling `/suggest-papers` to rank and queue. Optionally, if no existing `user_interest` covers the resolved node, add it (same as the explicit-request flow does today). This ensures "paper on Fourier series" always returns something rather than silently no-oping. Deferred to a v2.0 polish step; implement before launch.
 
 **Bespoke D3 megagraph visualisation, notebook calendar view, return-after-absence prompts, BYO API key, notebook export, hand-authored problems, per-user difficulty calibration.** Unchanged from ARCHITECTURE.md deferred list.
 

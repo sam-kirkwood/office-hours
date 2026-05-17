@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { gradeSolution } from "@/lib/pythonApi";
+import { gradeSolution, updateQueue } from "@/lib/pythonApi";
 
 export async function POST(
   request: Request,
@@ -44,6 +44,12 @@ export async function POST(
     .from("queue_items")
     .update({ state: "done", updated_at: new Date().toISOString() })
     .eq("id", queueItemId);
+
+  updateQueue({
+    userId: user.id,
+    trigger: "attempt_submit",
+    refId: attempt_id,
+  }).catch(() => null);
 
   return NextResponse.json({
     grade_response_md: result.grade_response_md,

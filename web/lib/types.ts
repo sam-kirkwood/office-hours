@@ -106,6 +106,9 @@ export interface SurfacedQueueItem {
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
+  // Set by server for refresher items; used to construct the back-link
+  subject_kind?: string | null;
+  subject_queue_item_id?: string | null;
 }
 
 export interface QueueResult {

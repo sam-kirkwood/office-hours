@@ -152,9 +152,9 @@ export async function POST(request: Request) {
       console.error("queue seeding failed:", err);
     }
 
-    // 7. Initialise the queue (stub — real logic in Phase 7-rev).
+    // 7. Recompute the queue after all interests are added.
     try {
-      await updateQueue({ userId: user.id });
+      await updateQueue({ userId: user.id, trigger: "interest_add" });
     } catch (err) {
       console.error("updateQueue failed:", err);
     }

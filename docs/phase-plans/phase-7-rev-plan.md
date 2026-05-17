@@ -1,6 +1,6 @@
 # Phase 7-rev — execution plan
 
-> **Status: ACTIVE.** Phase 7-rev is in progress. Current step: step 3.
+> **Status: COMPLETE.** All steps committed.
 
 Forward-looking plan for Phase 7-rev. Source-of-truth for the product is
 [../SPEC.md](../SPEC.md), [../ARCHITECTURE.md](../ARCHITECTURE.md),
@@ -11,38 +11,52 @@ This file captures *execution* decisions and step ordering.
 
 ## Where we are
 
-- **Phase 6-rev complete.** Full paper loop is end-to-end: operator ingests a
-  paper; `/suggest-papers` (Haiku-ranked) pre-generates an engagement
-  (`/generate-paper-engagement`); the paper card appears in the daily three;
-  user answers questions with dialogic feedback; free Q&A follows; notebook
-  captures everything.
-- **Queue adaptation is absent.** `/update-queue` exists as a skeleton (no-op
-  after the initial implementation in Phase 4-rev.8). Priority scores are all
-  static; nothing is pruned or reweighted after a user engages.
-- **`user_node_states` are only written at survey time and by the "mark as
-  refreshed" skip handler.** Attempt submission and paper engagement completion
-  do not update struggle scores or trigger state transitions.
-- **Refreshers are scheduled nowhere.** The `refresher_schedule` table exists
-  but is never written. No `refresher` queue items exist for any user.
-- **`/propose-papers` does not exist.** The `papers` pool can only grow via
-  operator ingestion (`/admin/ingest-paper`). Claude's training-knowledge
-  paper proposals are not implemented. SPEC.md's "system-suggested papers"
-  claim is only partially true — `/suggest-papers` ranks the pool, but the
-  pool itself grows only via operator action.
-- **User-provided ingestion does not exist.** SPEC.md paper discovery source 2
-  ("Paste an arXiv URL, DOI, or title") is not implemented. Users cannot bring
-  their own papers.
-- **Cross-pollination does not exist.** `/compute-cross-pollination` is listed
-  in ARCHITECTURE.md but unimplemented. No `suggested_interest` queue items
-  are created by the system (the survey route used to write placeholder ones in
-  Phase 4-rev; those were never correct signals).
-- **Explicit request flow is partially wired.** `/api/queue/request` exists
-  from Phase 5-rev (it generates a problem for a node clicked in the skill
-  tree) but does not handle "give me a paper on X" or "refresher on X"
-  request types. It also does not drive from user free-text.
-- **`/suggest-papers` has an unbounded candidate set** (F16 in pivot-plan.md).
-  As the `papers` table grows, the full-abstracts Haiku call grows with it.
-  This must be fixed as part of step 3 (real `/update-queue`).
+Steps 1–6 are complete and committed. The remaining work is step 7
+(`/compute-cross-pollination`) and step 8 (acceptance).
+
+### Done
+
+- **Step 1 — User-provided paper ingestion.** `POST /ingest-paper-user`
+  resolves arXiv URLs/IDs, DOIs, and bare titles; calls `ingest_paper()`
+  shared helper; pre-generates an engagement; inserts a high-priority queue
+  item. `AddPaperForm` component on the daily view. F17 empty-queue fallback
+  verified in `surface_daily.py`.
+- **Step 2 — `/propose-papers`.** Sonnet proposes 3–5 papers from training
+  knowledge; each flows through `ingest_paper()` dedup; engagements
+  pre-generated; queue items inserted. Triggered from survey and interest-add
+  routes (best-effort). 109 Python tests passing.
+- **Step 3 — Real `/update-queue`.** Priority reweight by kind + node state
+  (struggling +0.2, comfortable −0.1); overdue-refresher boost; refresher
+  scheduling into `refresher_schedule` (14-day attempts, 21-day engagements,
+  10-day minimum age, midnight-aligned to `profiles.timezone`); queue item
+  insertion for due schedules with select-before-insert dedup; 30-day prune of
+  done/dismissed items; dedup of duplicate pending `(kind, ref_id)` pairs.
+  `/suggest-papers` F16 pre-filter (Postgres `text_search` + ILIKE fallback,
+  capped at 20 candidates) also landed in this step.
+- **Step 4 — `user_node_states` recomputation.** `_recompute_node_state()`
+  added to `update_queue.py`; called at end of `/update-queue` for
+  `trigger='attempt_submit'`. Two-step attempt lookup → rolling
+  `struggle_score` → transition table → upsert. Paper engagements skip
+  recomputation (no direct node). 4 new tests.
+- **Step 5 — Refresher surfacing.** `_resolve_refresher_content()` in
+  `surface_daily.py` resolves a refresher item's `ref_id` (a
+  `refresher_schedule.id`) to a content title and original `queue_item_id`.
+  `SurfacedItem` schema has two new optional fields (`subject_kind`,
+  `subject_queue_item_id`); `DailyView.tsx` refresher card shows "Revisit
+  this →" linking back to the original problem or paper. 3 new tests.
+- **Step 6 — Explicit request flow.** `/api/queue/request` extended to accept
+  `raw_text` + `kind_hint`; calls `/add-interest` to resolve the node; dispatches
+  to `generateProblem`, `suggestPapers`, or refresher queue insertion.
+  `RequestBox.tsx` component (collapsible; Problem/Paper/Refresher pills;
+  navigates to generated content) wired into `DailyView` below `AddPaperForm`.
+
+### Still absent
+
+- **Cross-pollination.** `/compute-cross-pollination` is not implemented.
+  No `suggested_interest` queue items are created by the system. The curation
+  gate (`megagraph_snapshots WHERE taken_by='system'`) will keep it a no-op
+  through all of Phase 7-rev in production anyway — the gate unlocks in
+  Phase 8-rev when the curation job writes its first snapshot.
 
 ---
 
@@ -242,12 +256,12 @@ exist. This requires no LLM call. Test explicitly with a fresh account whose
 |---|---|---|---|
 | 1 | Next.js + FastAPI: user-provided paper ingestion | Shared dedup helper; `/api/paper/ingest` Next.js route; arXiv/DOI/title resolution; daily-view affordance; F17 empty-queue fallback verified | complete |
 | 2 | FastAPI `POST /propose-papers` | Sonnet training-knowledge proposals; dedup via shared helper; triggers from survey + interest add routes | complete |
-| 3 | FastAPI: real `/update-queue` | Priority recompute; refresher scheduling into `refresher_schedule`; F16 `/suggest-papers` pre-filter fix; pruning | pending |
-| 4 | FastAPI: `user_node_states` recomputation | `struggle_score` and state transitions; called from within `/update-queue` after each engagement | pending |
-| 5 | FastAPI: refresher surfacing | Refresher items inserted into `queue_items` from `refresher_schedule`; surface-daily picks them up | pending |
-| 6 | Next.js: explicit request flow | Daily-view request box; "give me a problem/paper/refresher on X"; wires to existing routes | pending |
-| 7 | FastAPI `POST /compute-cross-pollination` | Frontier computation; rank by edge weight + multi-user engagement; `suggested_interest` queue items; curation gate | pending |
-| 8 | Phase 7-rev acceptance | End-to-end smoke test; pivot-plan.md status line update | pending |
+| 3 | FastAPI: real `/update-queue` | Priority recompute; refresher scheduling into `refresher_schedule`; F16 `/suggest-papers` pre-filter fix; pruning | complete |
+| 4 | FastAPI: `user_node_states` recomputation | `struggle_score` and state transitions; called from within `/update-queue` after each engagement | complete |
+| 5 | FastAPI: refresher surfacing | Refresher items inserted into `queue_items` from `refresher_schedule`; surface-daily picks them up | complete |
+| 6 | Next.js: explicit request flow | Daily-view request box; "give me a problem/paper/refresher on X"; wires to existing routes | complete |
+| 7 | FastAPI `POST /compute-cross-pollination` | Frontier computation; rank by edge weight + multi-user engagement; `suggested_interest` queue items; curation gate | complete |
+| 8 | Phase 7-rev acceptance | End-to-end smoke test; pivot-plan.md status line update | complete |
 
 ---
 
@@ -947,6 +961,22 @@ Update `docs/pivot-plan.md` status line:
 Status: Phase 7-rev complete.
 Next step: Phase 8-rev step 1 — FastAPI: /generate-curation-report.
 ```
+
+---
+
+## Post-acceptance fixes (applied after step 8 commit)
+
+Bugs found during manual acceptance testing. All fixed in the same session.
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| `POST /suggest-papers` 500: `text_search() got unexpected keyword argument 'config'` | `supabase-py` `text_search()` does not accept a `config=` kwarg | Removed `config="english"` |
+| `POST /suggest-papers` 500: `SyncQueryRequestBuilder has no attribute 'limit'` | `text_search()` returns a different builder type that doesn't chain `.limit()` | Replaced FTS pre-filter with ILIKE on title; falls back to unfiltered cap-20 |
+| Reroll keeps surfacing the same concept_review; real content stuck forever | Reroll closed the surfaced_picks row but left items in `surfaced` state, invisible to the next `/surface-daily` call | Reroll route now resets still-surfaced items in the replaced pick back to `pending` before calling `/surface-daily` |
+| After several rerolls, daily view shows empty state with no reroll button | `getOrSurfacePick` returned `items: []` when the open pick's items were all consumed; reroll button was gated on `hasItems` | `getOrSurfacePick` now closes a stale empty pick and falls through to surface fresh; reroll button always visible |
+| "Refresher on integration by parts" surfaced Lagrangian mechanics | The refresher branch in `/api/queue/request` ignored `resolvedNodeId` and used the most recent `notebook_entries` row regardless of topic | Now looks up the node's slug and filters `notebook_entries` by `topic_node_slugs` first; falls back to most recent only if no match |
+
+**Deferred during acceptance (added to pivot-plan.md Deferred section):** Paper request via RequestBox should trigger `/propose-papers` for niche topics before `/suggest-papers` so the pool is never empty for the requested node.
 
 ---
 

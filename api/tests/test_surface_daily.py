@@ -186,20 +186,172 @@ def test_surface_daily_writes_surfaced_picks_row(client: TestClient, fakes) -> N
 
 
 # ---------------------------------------------------------------------------
-# /update-queue: always returns {ok: true}
+# /surface-daily: refresher resolution (step 5)
+# ---------------------------------------------------------------------------
+
+
+def _refresher_item(priority: float = 0.9) -> dict:
+    return {
+        "id": str(uuid4()),
+        "kind": "refresher",
+        "ref_id": str(uuid4()),
+        "state": "pending",
+        "priority_score": priority,
+        "time_estimate_minutes_low": 10,
+        "time_estimate_minutes_high": 30,
+        "added_reason": None,
+    }
+
+
+def test_refresher_item_appears_when_due(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    sched_id = str(uuid4())
+    attempt_id = str(uuid4())
+    problem_id = str(uuid4())
+    node_id = str(uuid4())
+    orig_qi_id = str(uuid4())
+
+    r_item = _refresher_item()
+    r_item["ref_id"] = sched_id
+
+    supabase.respond("queue_items", "select", lambda _: [r_item])
+    supabase.respond(
+        "refresher_schedule", "select",
+        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
+    )
+    supabase.respond(
+        "attempts", "select",
+        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
+    )
+    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
+    supabase.respond("nodes", "select", lambda _: [{"title": "Real Analysis"}])
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["kind"] == "refresher"
+
+
+def test_refresher_resolved_to_content_title(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    sched_id = str(uuid4())
+    attempt_id = str(uuid4())
+    problem_id = str(uuid4())
+    node_id = str(uuid4())
+    orig_qi_id = str(uuid4())
+
+    r_item = _refresher_item()
+    r_item["ref_id"] = sched_id
+
+    supabase.respond("queue_items", "select", lambda _: [r_item])
+    supabase.respond(
+        "refresher_schedule", "select",
+        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
+    )
+    supabase.respond(
+        "attempts", "select",
+        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
+    )
+    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
+    supabase.respond("nodes", "select", lambda _: [{"title": "Complex Analysis"}])
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["added_reason"] == "A refresher on Complex Analysis."
+    assert item["subject_kind"] == "attempt"
+    assert item["subject_queue_item_id"] == orig_qi_id
+
+
+def test_refresher_priority_above_problem(client: TestClient, fakes) -> None:
+    """Refresher (0.9) surfaces when competing with problems (0.5/0.3/0.2)."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    sched_id = str(uuid4())
+    attempt_id = str(uuid4())
+    problem_id = str(uuid4())
+    node_id = str(uuid4())
+    orig_qi_id = str(uuid4())
+
+    r_item = _refresher_item(priority=0.9)
+    r_item["ref_id"] = sched_id
+    p1 = _item("problem", priority=0.5)
+    p2 = _item("problem", priority=0.3)
+    p3 = _item("problem", priority=0.2)
+
+    # Items ordered by priority desc (as the DB query would return)
+    supabase.respond("queue_items", "select", lambda _: [r_item, p1, p2, p3])
+    supabase.respond(
+        "refresher_schedule", "select",
+        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
+    )
+    supabase.respond(
+        "attempts", "select",
+        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
+    )
+    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
+    supabase.respond("nodes", "select", lambda _: [{"title": "Topology"}])
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    kinds = [it["kind"] for it in body["items"]]
+    assert "refresher" in kinds
+
+
+# ---------------------------------------------------------------------------
+# /update-queue smoke tests (full coverage in test_update_queue.py)
 # ---------------------------------------------------------------------------
 
 
 def test_update_queue_missing_bearer_returns_401(client: TestClient) -> None:
-    response = client.post("/update-queue", json={"user_id": str(uuid4())})
+    response = client.post(
+        "/update-queue",
+        json={"user_id": str(uuid4()), "trigger": "interest_add"},
+    )
     assert response.status_code == 401
 
 
-def test_update_queue_returns_ok(client: TestClient) -> None:
+def test_update_queue_returns_ok(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    user_id = str(uuid4())
+    supabase.respond("queue_items", "select", lambda _: [])
+    supabase.respond("notebook_entries", "select", lambda _: [])
+    supabase.respond("refresher_schedule", "select", lambda _: [])
+    supabase.respond("profiles", "select", lambda _: [])
+    supabase.respond("queue_items", "delete", lambda _: [])
+
     response = client.post(
         "/update-queue",
-        json={"user_id": str(uuid4())},
+        json={"user_id": user_id, "trigger": "interest_add"},
         headers=AUTH_HEADERS,
     )
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    data = response.json()
+    assert data["items_reweighted"] == 0
+    assert data["refreshers_scheduled"] == 0
+    assert data["items_pruned"] == 0

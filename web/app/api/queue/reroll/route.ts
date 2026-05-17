@@ -10,12 +10,30 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    // 1. Mark current open pick as replaced.
-    await supabase
+    // 1. Find the current open pick.
+    const { data: currentPick } = await supabase
       .from("surfaced_picks")
-      .update({ replaced_at: new Date().toISOString() })
+      .select("id, queue_item_ids")
       .eq("user_id", user.id)
-      .is("replaced_at", null);
+      .is("replaced_at", null)
+      .maybeSingle();
+
+    if (currentPick) {
+      const ids = (currentPick.queue_item_ids ?? []) as string[];
+      // Reset still-surfaced items to pending so surface-daily can pick them up again.
+      // Items already done/dismissed/skipped are left as-is.
+      if (ids.length > 0) {
+        await supabase
+          .from("queue_items")
+          .update({ state: "pending" })
+          .in("id", ids)
+          .eq("state", "surfaced");
+      }
+      await supabase
+        .from("surfaced_picks")
+        .update({ replaced_at: new Date().toISOString() })
+        .eq("id", currentPick.id);
+    }
 
     // 2. Create a new pick.
     const result = await surfaceDaily({ userId: user.id });

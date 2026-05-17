@@ -91,8 +91,30 @@ def suggest_papers(
         )
         interest_titles = [n["title"] for n in (nodes_resp.data or [])]
 
-    # 3. Load all papers
-    papers_resp = supabase.table("papers").select("id, title, abstract_md").execute()
+    # 3. Load papers — pre-filter by ILIKE to cap Haiku input (F16)
+    if interest_titles:
+        papers_resp = (
+            supabase.table("papers")
+            .select("id, title, abstract_md")
+            .ilike("title", f"%{interest_titles[0]}%")
+            .limit(20)
+            .execute()
+        )
+        if not papers_resp.data:
+            # No title match on the first interest — load any papers up to the cap
+            papers_resp = (
+                supabase.table("papers")
+                .select("id, title, abstract_md")
+                .limit(20)
+                .execute()
+            )
+    else:
+        papers_resp = (
+            supabase.table("papers")
+            .select("id, title, abstract_md")
+            .limit(20)
+            .execute()
+        )
     papers: list[dict] = papers_resp.data or []
 
     if not papers:
