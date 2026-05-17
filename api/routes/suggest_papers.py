@@ -91,17 +91,19 @@ def suggest_papers(
         )
         interest_titles = [n["title"] for n in (nodes_resp.data or [])]
 
-    # 3. Load papers — pre-filter by ILIKE to cap Haiku input (F16)
+    # 3. Load papers — pre-filter by ILIKE across ALL interest titles (F16: ILIKE ANY).
+    # Cap the candidate set at 20 rows before passing to Haiku.
     if interest_titles:
+        filter_parts = [f"title.ilike.%{t}%" for t in interest_titles]
         papers_resp = (
             supabase.table("papers")
             .select("id, title, abstract_md")
-            .ilike("title", f"%{interest_titles[0]}%")
+            .or_(",".join(filter_parts))
             .limit(20)
             .execute()
         )
         if not papers_resp.data:
-            # No title match on the first interest — load any papers up to the cap
+            # No title match on any interest — load any papers up to the cap
             papers_resp = (
                 supabase.table("papers")
                 .select("id, title, abstract_md")
@@ -174,24 +176,41 @@ def suggest_papers(
             logger.warning("generate_engagement_for_paper failed for paper_id=%s; skipping", paper_id)
             continue
 
-        matching_title = interest_titles[0] if interest_titles else "your interests"
-        queue_resp = (
+        # #23: skip if a queue item for this engagement already exists (concurrent dedup)
+        existing_qi_resp = (
             supabase.table("queue_items")
-            .insert(
-                {
-                    "user_id": user_id,
-                    "kind": "paper_engagement",
-                    "ref_id": engagement_id,
-                    "state": "pending",
-                    "priority_score": 0.4,
-                    "added_reason": f"A paper related to your interest in {matching_title}",
-                    "time_estimate_minutes_low": 20,
-                    "time_estimate_minutes_high": 45,
-                }
-            )
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("kind", "paper_engagement")
+            .eq("ref_id", engagement_id)
+            .in_("state", ["pending", "surfaced", "in_progress"])
+            .limit(1)
             .execute()
         )
-        queue_item_id = queue_resp.data[0]["id"]
+        if existing_qi_resp.data:
+            logger.debug("queue item already exists for engagement_id=%s; skipping", engagement_id)
+            queue_item_id = existing_qi_resp.data[0]["id"]
+        else:
+            interest_label = (
+                " and ".join(interest_titles[:2]) if interest_titles else "your interests"
+            )
+            queue_resp = (
+                supabase.table("queue_items")
+                .insert(
+                    {
+                        "user_id": user_id,
+                        "kind": "paper_engagement",
+                        "ref_id": engagement_id,
+                        "state": "pending",
+                        "priority_score": 0.4,
+                        "added_reason": f"A paper related to your interest in {interest_label}",
+                        "time_estimate_minutes_low": 20,
+                        "time_estimate_minutes_high": 45,
+                    }
+                )
+                .execute()
+            )
+            queue_item_id = queue_resp.data[0]["id"]
         suggested.append(
             SuggestedPaper(paper_id=UUID(paper_id), queue_item_id=UUID(queue_item_id))
         )

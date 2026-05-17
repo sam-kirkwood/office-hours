@@ -13,15 +13,20 @@ def build_dedup_system_prompt() -> str:
         "Be aggressive about matching: prefer 'same' over 'new' whenever the topic is clearly "
         "the same subject, even if phrased differently, more specifically, or as part of a "
         "longer multi-topic expression. "
-        'Return ONLY a JSON object: {"verdict": "same"|"related"|"new", '
+        'Return ONLY a JSON object: {"verdict": "same"|"related"|"new"|"split"|"vague", '
         '"matched_node_slug": null|"string", "reason": "string"}. '
         'Use "same" when the interest covers the same subject area as an existing node, '
         "even if the user's phrasing adds minor specificity or scope. "
         'Use "related" only when the topic is genuinely adjacent but distinct — meaningfully '
         "different level, domain, or non-overlapping focus. "
         'Use "new" only when no existing node is even remotely relevant. '
+        'Use "split" when the expression clearly bundles two or more distinct topics that '
+        "should each be separate interests (e.g. 'quantum mechanics and thermodynamics'). "
+        "In reason, list the distinct topics separated by semicolons. "
+        'Use "vague" only when the expression is so ambiguous that a specific node cannot be '
+        "determined (e.g. 'advanced physics'). In reason, write a clarifying question. "
         "Never invent a slug not present in the candidate list. "
-        "matched_node_slug must be null for a new verdict."
+        "matched_node_slug must be null for new, split, and vague verdicts."
     )
 
 

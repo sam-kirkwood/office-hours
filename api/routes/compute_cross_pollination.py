@@ -166,7 +166,8 @@ def compute_cross_pollination(
         if top_score <= 0.3:
             continue
 
-        # f. Cooldown: skip if we already suggested this node within 7 days.
+        # f. Cooldown: skip if this exact node was suggested in the last 7 days, OR if
+        #    a node in the same domain was dismissed by the user this week.
         cutoff = (now - timedelta(days=7)).isoformat()
         cooldown_resp = (
             supabase.table("queue_items")
@@ -179,6 +180,39 @@ def compute_cross_pollination(
         )
         if cooldown_resp.data:
             continue
+
+        dismissed_resp = (
+            supabase.table("queue_items")
+            .select("ref_id")
+            .eq("user_id", user_id)
+            .eq("kind", "suggested_interest")
+            .eq("state", "dismissed")
+            .gte("updated_at", cutoff)
+            .execute()
+        )
+        if dismissed_resp.data:
+            dismissed_node_ids = [r["ref_id"] for r in dismissed_resp.data if r.get("ref_id")]
+            if dismissed_node_ids:
+                top_domain_resp = (
+                    supabase.table("nodes")
+                    .select("domain")
+                    .eq("id", top_node_id)
+                    .limit(1)
+                    .execute()
+                )
+                top_domain = (top_domain_resp.data or [{}])[0].get("domain")
+                if top_domain:
+                    dismissed_domains_resp = (
+                        supabase.table("nodes")
+                        .select("domain")
+                        .in_("id", dismissed_node_ids)
+                        .execute()
+                    )
+                    dismissed_domains = {
+                        n["domain"] for n in (dismissed_domains_resp.data or []) if n.get("domain")
+                    }
+                    if top_domain in dismissed_domains:
+                        continue
 
         # g. Insert suggested_interest queue item.
         (

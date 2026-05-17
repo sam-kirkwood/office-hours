@@ -157,6 +157,25 @@ def add_interest(
         # Slug validated but node not found — treat as new (shouldn't happen).
         verdict = DeduplicationVerdict(verdict="new", matched_node_slug=None)
 
+    # 4b. 'split' → user's expression bundles multiple distinct topics. Return early so
+    #     the caller can surface each suggestion individually rather than collapsing them
+    #     into a single (incorrect) new node.
+    if verdict.verdict == "split":
+        logger.info("Dedup verdict=split for raw_text=%r; reason=%r", body.raw_text, verdict.reason)
+        return AddInterestResponse(
+            verdict="split",
+            clarification_prompt=verdict.reason,
+        )
+
+    # 4c. 'vague' → expression is too ambiguous to map to a node. Return early so the
+    #     caller can prompt the user for clarification.
+    if verdict.verdict == "vague":
+        logger.info("Dedup verdict=vague for raw_text=%r; reason=%r", body.raw_text, verdict.reason)
+        return AddInterestResponse(
+            verdict="vague",
+            clarification_prompt=verdict.reason,
+        )
+
     # 5. 'related' or 'new' → Sonnet generates the new node.
     related_slug = verdict.matched_node_slug if verdict.verdict == "related" else None
 

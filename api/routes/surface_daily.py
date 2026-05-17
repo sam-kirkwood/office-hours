@@ -40,7 +40,7 @@ def _resolve_refresher_content(
     """
     ref_id = item.get("ref_id")
     if not ref_id:
-        return "Time to revisit something you've worked on.", None, None
+        return "Run through this again to reinforce it.", None, None
 
     sched_resp = (
         supabase.table("refresher_schedule")
@@ -63,7 +63,7 @@ def _resolve_refresher_content(
             .execute()
         )
         if not att_resp.data:
-            return "Time to revisit a problem.", "attempt", None
+            return "Run through this problem again to reinforce it.", "attempt", None
         att = att_resp.data[0]
         prob_resp = (
             supabase.table("problems")
@@ -95,7 +95,7 @@ def _resolve_refresher_content(
             .execute()
         )
         if not eng_resp.data:
-            return "Time to revisit a paper.", "engagement", None
+            return "Run through this paper again to reinforce it.", "engagement", None
         paper_resp = (
             supabase.table("papers")
             .select("title")

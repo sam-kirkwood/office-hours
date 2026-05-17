@@ -44,7 +44,7 @@ class AddInterestRequest(BaseModel):
 class DeduplicationVerdict(BaseModel):
     """Haiku dedup call output."""
 
-    verdict: str  # 'same' | 'related' | 'new'
+    verdict: str  # 'same' | 'related' | 'new' | 'split' | 'vague'
     matched_node_slug: str | None = None
     reason: str | None = None
 
@@ -62,10 +62,11 @@ class GeneratedInterestNode(BaseModel):
 
 
 class AddInterestResponse(BaseModel):
-    node_id: UUID
-    node_slug: str
-    verdict: str  # 'same' | 'related' | 'new'
-    user_interest_id: UUID
+    node_id: UUID | None = None
+    node_slug: str | None = None
+    verdict: str  # 'same' | 'related' | 'new' | 'split' | 'vague'
+    user_interest_id: UUID | None = None
+    clarification_prompt: str | None = None  # for 'split' and 'vague' verdicts
 
 
 # ---------------------------------------------------------------------------

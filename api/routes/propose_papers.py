@@ -167,20 +167,36 @@ def propose_papers(
             )
             continue
 
-        # d. Insert queue item
-        supabase.table("queue_items").insert(
-            {
-                "user_id": user_id,
-                "kind": "paper_engagement",
-                "ref_id": engagement_id,
-                "state": "pending",
-                "priority_score": 0.4,
-                "added_reason": candidate.rationale,
-                "time_estimate_minutes_low": 20,
-                "time_estimate_minutes_high": 45,
-            }
-        ).execute()
-        queue_items_added += 1
+        # d. Insert queue item — skip if one already exists for this engagement (#23)
+        existing_qi_resp = (
+            supabase.table("queue_items")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("kind", "paper_engagement")
+            .eq("ref_id", engagement_id)
+            .in_("state", ["pending", "surfaced", "in_progress"])
+            .limit(1)
+            .execute()
+        )
+        if existing_qi_resp.data:
+            logger.debug(
+                "/propose-papers: queue item already exists for engagement=%s; skipping insert",
+                engagement_id,
+            )
+        else:
+            supabase.table("queue_items").insert(
+                {
+                    "user_id": user_id,
+                    "kind": "paper_engagement",
+                    "ref_id": engagement_id,
+                    "state": "pending",
+                    "priority_score": 0.4,
+                    "added_reason": candidate.rationale,
+                    "time_estimate_minutes_low": 20,
+                    "time_estimate_minutes_high": 45,
+                }
+            ).execute()
+            queue_items_added += 1
 
     return ProposePapersResponse(
         papers_added=papers_added,

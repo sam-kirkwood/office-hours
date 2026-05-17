@@ -1,6 +1,6 @@
 # Phase 9-rev — execution plan
 
-> **Status: Step 1 complete.** Note-intake triage done (15 new drift items added, all deferred to Phase 10). Core philosophy fixes applied: #6, S5, S6, S7 → `done`. Next: Step 2 — backend API correctness.
+> **Status: Step 2 complete.** Backend API correctness: #18–#23 all `done`. Also fixed S5 trailing copy in surface_daily.py and update_queue.py. Next: Step 3 — skill tree security fix + panel completeness.
 
 Forward-looking plan for Phase 9-rev. Source of truth for the product is
 [../SPEC.md](../SPEC.md), [../ARCHITECTURE.md](../ARCHITECTURE.md),

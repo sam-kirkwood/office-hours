@@ -31,10 +31,9 @@ _THRESHOLDS = {
 
 
 def _recompute_node_state(supabase: Client, user_id: str, node_id: str) -> None:
-    """Recompute struggle_score and state for one user/node after an attempt.
+    """Recompute struggle_score and state for one user/node after a problem attempt.
 
     Two-step join: problems for node → attempts for those problems (last 5).
-    Paper engagements are handled separately; this is called only for attempt_submit.
     """
     now_str = datetime.now(timezone.utc).isoformat()
 
@@ -352,7 +351,7 @@ def update_queue(
                     "ref_id": sched_id,
                     "state": "pending",
                     "priority_score": 0.9,
-                    "added_reason": f"Time to revisit your {subject_kind}.",
+                    "added_reason": f"Run through this again to reinforce it.",
                     "time_estimate_minutes_low": 10,
                     "time_estimate_minutes_high": 30,
                 })
@@ -415,9 +414,8 @@ def update_queue(
         items_pruned += 1
 
     # ------------------------------------------------------------------
-    # 7. Recompute user_node_states for the triggering node
+    # 7. Recompute user_node_states for the triggering engagement
     # ------------------------------------------------------------------
-    # Only for attempt_submit: engagement_complete papers have no direct node.
     if body.trigger == "attempt_submit" and body.ref_id:
         try:
             att_resp = (
@@ -441,6 +439,51 @@ def update_queue(
                             _recompute_node_state(supabase, user_id, node_id)
         except Exception:
             logger.exception("_recompute_node_state failed; continuing")
+
+    elif body.trigger == "engagement_complete" and body.ref_id:
+        # Paper engagements have no single topic_node_id. Update engagement_count
+        # for all of the user's interested nodes — paper completion is a general
+        # reinforcement signal across the user's interest graph.
+        try:
+            ui_resp = (
+                supabase.table("user_interests")
+                .select("node_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            for ui in (ui_resp.data or []):
+                ni = ui["node_id"]
+                ns_resp = (
+                    supabase.table("user_node_states")
+                    .select("state, engagement_count")
+                    .eq("user_id", user_id)
+                    .eq("node_id", ni)
+                    .execute()
+                )
+                current = (ns_resp.data or [{}])[0]
+                current_state: str = current.get("state") or "unseen"
+                engagement_count: int = (current.get("engagement_count") or 0) + 1
+                new_state = current_state
+                if current_state in ("bookmarked", "comfortable"):
+                    pass
+                elif current_state == "unseen":
+                    new_state = "active"
+                (
+                    supabase.table("user_node_states")
+                    .upsert(
+                        {
+                            "user_id": user_id,
+                            "node_id": ni,
+                            "state": new_state,
+                            "engagement_count": engagement_count,
+                            "last_engaged_at": now_str,
+                        },
+                        on_conflict="user_id,node_id",
+                    )
+                    .execute()
+                )
+        except Exception:
+            logger.exception("engagement_complete node state update failed; continuing")
 
     return UpdateQueueResponse(
         items_reweighted=items_reweighted,

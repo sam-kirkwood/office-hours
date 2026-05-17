@@ -214,33 +214,62 @@ def ingest_paper_user(
             doi=meta.get("doi"),
         )
 
-    # Generate paper engagement
-    engagement_id = generate_engagement_for_paper(
-        supabase=supabase,
-        anthropic=anthropic,
-        user_id=user_id,
-        paper_id=paper_id,
-    )
-
-    # Insert queue item (high priority — user-initiated)
-    display_title = meta.get("title") or raw_input
-    queue_resp = (
-        supabase.table("queue_items")
-        .insert(
-            {
-                "user_id": user_id,
-                "kind": "paper_engagement",
-                "ref_id": engagement_id,
-                "state": "pending",
-                "priority_score": 0.8,
-                "added_reason": f"A paper you added: {display_title}",
-                "time_estimate_minutes_low": 20,
-                "time_estimate_minutes_high": 45,
-            }
-        )
+    # #22: check for existing engagement before generating (re-submission dedup)
+    existing_eng_resp = (
+        supabase.table("paper_engagements")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("paper_id", paper_id)
+        .limit(1)
         .execute()
     )
-    queue_item_id = queue_resp.data[0]["id"]
+    if existing_eng_resp.data:
+        engagement_id = existing_eng_resp.data[0]["id"]
+        logger.info(
+            "paper_engagement already exists for user=%s paper=%s; reusing id=%s",
+            user_id, paper_id, engagement_id,
+        )
+    else:
+        engagement_id = generate_engagement_for_paper(
+            supabase=supabase,
+            anthropic=anthropic,
+            user_id=user_id,
+            paper_id=paper_id,
+        )
+
+    display_title = meta.get("title") or raw_input
+
+    # #23: skip queue insert if item already exists for this engagement
+    existing_qi_resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("kind", "paper_engagement")
+        .eq("ref_id", engagement_id)
+        .in_("state", ["pending", "surfaced", "in_progress"])
+        .limit(1)
+        .execute()
+    )
+    if existing_qi_resp.data:
+        queue_item_id = existing_qi_resp.data[0]["id"]
+    else:
+        queue_resp = (
+            supabase.table("queue_items")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "kind": "paper_engagement",
+                    "ref_id": engagement_id,
+                    "state": "pending",
+                    "priority_score": 0.8,
+                    "added_reason": f"A paper you added: {display_title}",
+                    "time_estimate_minutes_low": 20,
+                    "time_estimate_minutes_high": 45,
+                }
+            )
+            .execute()
+        )
+        queue_item_id = queue_resp.data[0]["id"]
 
     return IngestPaperUserResponse(
         paper_id=UUID(paper_id),
