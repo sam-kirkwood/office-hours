@@ -9,23 +9,12 @@ export default async function RootPage() {
 
   if (!user) redirect("/signin");
 
-  const { data: activePlan } = await supabase
-    .from("user_plans")
+  const { data: survey } = await supabase
+    .from("surveys")
     .select("id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .maybeSingle();
 
-  if (activePlan) redirect("/daily");
-
-  const { data: pendingPlan } = await supabase
-    .from("user_plans")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("status", "pending_review")
-    .maybeSingle();
-
-  if (pendingPlan) redirect("/plan");
-
-  redirect("/survey");
+  if (survey) redirect("/daily");
+  else redirect("/survey");
 }

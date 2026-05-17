@@ -211,3 +211,12 @@ export async function proposePapers(
 ): Promise<ProposePapersResponse> {
   return pythonPost("/propose-papers", { user_id: args.userId });
 }
+
+interface GenerateCurationReportResponse {
+  proposals_created: number;
+  since: string;
+}
+
+export async function generateCurationReport(): Promise<GenerateCurationReportResponse> {
+  return pythonPost("/generate-curation-report", {});
+}

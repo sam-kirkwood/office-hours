@@ -300,3 +300,26 @@ class ComputeCrossPollinationRequest(BaseModel):
 class ComputeCrossPollinationResponse(BaseModel):
     suggestions_created: int
     reason: str  # 'no_curation_yet' | 'ok'
+
+
+# ---------------------------------------------------------------------------
+# /generate-curation-report
+# ---------------------------------------------------------------------------
+
+
+class GenerateCurationReportRequest(BaseModel):
+    pass  # system-level; no user_id — called by the operator UI
+
+
+class CurationProposalOutput(BaseModel):
+    kind: str  # merge|split|rename|promote|demote|add_edge|deprecate
+    payload_json: dict  # shape per D2 in phase-8-rev-plan.md
+
+
+class CurationReportLLMOutput(BaseModel):
+    proposals: list[CurationProposalOutput]
+
+
+class GenerateCurationReportResponse(BaseModel):
+    proposals_created: int
+    since: str  # ISO timestamp of the input window start

@@ -77,6 +77,16 @@ export async function getOrSurfacePick(
       .from("surfaced_picks")
       .update({ replaced_at: new Date().toISOString() })
       .eq("id", openPick.id as string);
+
+    // Reset any items from this pick that are still 'surfaced' back to 'pending'
+    // so surface-daily can re-pick them. Items already done/dismissed/skipped stay as-is.
+    if (ids.length > 0) {
+      await supabase
+        .from("queue_items")
+        .update({ state: "pending" })
+        .in("id", ids)
+        .eq("state", "surfaced");
+    }
   }
 
   // 2. No open pick (or stale pick just closed) — call Python /surface-daily.

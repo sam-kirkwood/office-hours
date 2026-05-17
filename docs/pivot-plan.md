@@ -1,5 +1,5 @@
-Status: Phase 7-rev complete.
-Next step: Phase 8-rev step 1 — FastAPI: /generate-curation-report.
+Status: Phase 8-rev complete.
+Next step: Phase 9-rev step 1 — Mobile polish.
 
 ---
 

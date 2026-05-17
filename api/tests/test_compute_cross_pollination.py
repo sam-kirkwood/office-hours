@@ -194,6 +194,7 @@ def test_threshold_not_met_skips(client: TestClient, fakes) -> None:
 # ---------------------------------------------------------------------------
 
 
+
 def test_cooldown_prevents_duplicate(client: TestClient, fakes) -> None:
     supabase, _ = fakes
     user_id = str(uuid4())
@@ -279,3 +280,24 @@ def test_already_engaged_node_not_suggested(client: TestClient, fakes) -> None:
 
     inserts = [c for c in supabase.calls if c.table == "queue_items" and c.op == "insert"]
     assert len(inserts) == 0
+
+
+# ---------------------------------------------------------------------------
+# Gate opens — megagraph_snapshots row present (taken_by='system' from apply)
+#
+# The gate check only tests for any row in megagraph_snapshots. Once a system
+# snapshot exists the gate should return reason='ok', not 'no_curation_yet'.
+# ---------------------------------------------------------------------------
+
+
+def test_after_snapshot_written_by_system_gate_opens(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    supabase.respond("megagraph_snapshots", "select", lambda _: [{"id": str(uuid4())}])
+    supabase.respond("user_interests", "select", lambda _: [])  # no users → 0 suggestions
+
+    resp = client.post("/compute-cross-pollination", json={}, headers=AUTH_HEADERS)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["reason"] == "ok"            # gate open, not "no_curation_yet"
+    assert data["suggestions_created"] == 0  # no users, but gate is open
