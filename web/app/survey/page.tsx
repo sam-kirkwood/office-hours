@@ -18,7 +18,7 @@ export default async function SurveyPage() {
     .order("difficulty_hint");
 
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen bg-background">
       <SurveyForm nodes={(nodes ?? []) as Node[]} />
     </main>
   );

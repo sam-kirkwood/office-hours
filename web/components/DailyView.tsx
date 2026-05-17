@@ -40,12 +40,6 @@ function KindBadge({ kind }: { kind: string }) {
   return <Badge variant="ghost">{label}</Badge>;
 }
 
-function timeRange(low: number | null, high: number | null): string | null {
-  if (!low && !high) return null;
-  if (low && high && low !== high) return `${low}–${high} min`;
-  return `${low ?? high} min`;
-}
-
 // ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
@@ -119,7 +113,6 @@ export default function DailyView({ initialResult }: Props) {
 // ---------------------------------------------------------------------------
 
 function QueueCard({ item }: { item: SurfacedQueueItem }) {
-  const time = timeRange(item.time_estimate_minutes_low, item.time_estimate_minutes_high);
   const [interestStatus, setInterestStatus] = useState<
     "idle" | "loading" | "added" | "dismissed"
   >("idle");
@@ -157,7 +150,6 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
     <div className="rounded-md border border-border bg-card px-5 py-5">
       <div className="mb-3 flex items-center gap-2.5">
         <KindBadge kind={item.kind} />
-        {time && <span className="text-xs text-muted-foreground">{time}</span>}
       </div>
 
       <p className="font-serif text-sm leading-relaxed text-foreground">
@@ -255,7 +247,7 @@ function defaultDescription(kind: string): string {
     problem: "A problem is ready for you.",
     paper_engagement: "A paper is queued for reading.",
     concept_review: "A concept is ready for review.",
-    refresher: "Time to revisit something you've worked on.",
+    refresher: "Run through this again — reinforcing what you know is just as valuable as learning something new.",
     suggested_interest: "A new topic has been suggested based on your interests.",
   };
   return defaults[kind] ?? "An item is waiting.";
