@@ -166,3 +166,40 @@ export async function suggestPapers(
 ): Promise<SuggestPapersResponse> {
   return pythonPost("/suggest-papers", { user_id: args.userId });
 }
+
+interface IngestPaperArgs {
+  userId: string;
+  rawInput: string;
+}
+
+interface IngestPaperResponse {
+  paper_id: string;
+  queue_item_id: string;
+  created: boolean;
+  engagement_id: string;
+}
+
+export async function ingestPaper(
+  args: IngestPaperArgs,
+): Promise<IngestPaperResponse> {
+  return pythonPost("/ingest-paper-user", {
+    user_id: args.userId,
+    raw_input: args.rawInput,
+  });
+}
+
+interface ProposePapersArgs {
+  userId: string;
+}
+
+interface ProposePapersResponse {
+  papers_added: number;
+  papers_reused: number;
+  queue_items_added: number;
+}
+
+export async function proposePapers(
+  args: ProposePapersArgs,
+): Promise<ProposePapersResponse> {
+  return pythonPost("/propose-papers", { user_id: args.userId });
+}

@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { addInterest, generateProblem, suggestPapers, updateQueue } from "@/lib/pythonApi";
+import { addInterest, generateProblem, proposePapers, suggestPapers, updateQueue } from "@/lib/pythonApi";
 import type { SurveyV2Payload, NodeRating } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -164,6 +164,13 @@ export async function POST(request: Request) {
       await suggestPapers({ userId: user.id });
     } catch (err) {
       console.error("suggestPapers failed:", err);
+    }
+
+    // 9. Propose papers from training knowledge (best-effort).
+    try {
+      await proposePapers({ userId: user.id });
+    } catch (err) {
+      console.error("proposePapers failed:", err);
     }
 
     return NextResponse.json({ ok: true });

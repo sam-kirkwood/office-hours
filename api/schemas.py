@@ -234,3 +234,48 @@ class SuggestedPaper(BaseModel):
 
 class SuggestPapersResponse(BaseModel):
     suggested: list[SuggestedPaper]
+
+
+# ---------------------------------------------------------------------------
+# /ingest-paper-user
+# ---------------------------------------------------------------------------
+
+
+class IngestPaperUserRequest(BaseModel):
+    user_id: UUID
+    raw_input: str  # arXiv URL, arXiv ID, DOI, or bare title
+
+
+class IngestPaperUserResponse(BaseModel):
+    paper_id: UUID
+    queue_item_id: UUID
+    created: bool  # False if paper already existed
+    engagement_id: UUID
+
+
+# ---------------------------------------------------------------------------
+# /propose-papers
+# ---------------------------------------------------------------------------
+
+
+class ProposePapersRequest(BaseModel):
+    user_id: UUID
+
+
+class ProposedPaperCandidate(BaseModel):
+    title: str
+    authors: list[str]
+    year: int
+    arxiv_id: str | None = None
+    doi: str | None = None
+    rationale: str  # one sentence; stored in queue_items.added_reason
+
+
+class ProposePapersLLMOutput(BaseModel):
+    candidates: list[ProposedPaperCandidate]  # 3–5 items
+
+
+class ProposePapersResponse(BaseModel):
+    papers_added: int        # count of new papers inserted
+    papers_reused: int       # count of proposals that matched existing rows
+    queue_items_added: int   # may be < papers_added if engagement already exists

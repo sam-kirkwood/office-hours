@@ -1,5 +1,5 @@
-Status: Phase 6-rev complete.
-Next step: Phase 7-rev step 1 — FastAPI: real /update-queue.
+Status: Phase 7-rev step 2 complete.
+Next step: Phase 7-rev step 3 — FastAPI: real /update-queue.
 
 ---
 
@@ -200,7 +200,7 @@ RLS: every per-user table (`user_node_states`, `user_interests`, `queue_items`, 
 | `POST /grade-paper-answer` | Sonnet | Per-question dialogic response. |
 | `POST /paper-question` | Sonnet | Free-form Q&A turn. |
 | `POST /suggest-papers` | Haiku | Pool-ranker: scores relevance of papers already in `papers` against `user_interests`; pre-generates engagements; inserts `queue_items`. Does not propose papers not already in the pool. |
-| `POST /propose-papers` | Sonnet | Propose papers from training knowledge: given user's interest nodes and recent engagement history, returns title/authors/year/arXiv ID or DOI/rationale for each candidate; results flow through the shared dedup helper before insertion into `papers`. Expands the pool that `/suggest-papers` then ranks. |
+| `POST /propose-papers` | Sonnet | **Phase 7-rev step 2.** Propose papers from training knowledge: given user's interest nodes and recent engagement history, returns title/authors/year/arXiv ID or DOI/rationale for each candidate; results flow through the shared dedup helper before insertion into `papers`. Expands the pool that `/suggest-papers` then ranks. |
 | `POST /surface-daily` | none (deterministic) | Picks 3 varied items from `queue_items` → writes `surfaced_picks`. |
 | `POST /update-queue` | Haiku/Sonnet | Recompute priority, prune, add refreshers after each attempt/engagement. |
 | `POST /add-interest` | Haiku (dedup) + Sonnet (generate) | The interest-add flow from graph-design.md. |

@@ -107,17 +107,36 @@ def log_llm_call(
 
 
 def _extract_json(text: str) -> str:
-    """Strip optional ```json fences and surrounding whitespace."""
+    """Strip optional ```json fences and extract the JSON object.
+
+    Handles three cases Claude produces in practice:
+      1. Clean JSON with no fences.
+      2. JSON wrapped in ```...``` fences.
+      3. JSON followed by trailing prose (e.g. "Note: …") — extract by
+         walking matched braces so trailing text is silently dropped.
+    """
     stripped = text.strip()
     if stripped.startswith("```"):
-        # Drop the opening fence (``` or ```json) up to the first newline,
-        # then drop a trailing fence if present.
         first_newline = stripped.find("\n")
         if first_newline != -1:
             stripped = stripped[first_newline + 1 :]
         if stripped.endswith("```"):
             stripped = stripped[: -len("```")]
-    return stripped.strip()
+    stripped = stripped.strip()
+
+    # Find the JSON object boundaries so trailing prose is ignored.
+    start = stripped.find("{")
+    if start == -1:
+        return stripped
+    depth = 0
+    for i, ch in enumerate(stripped[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return stripped[start : i + 1]
+    return stripped
 
 
 def _extract_usage(response) -> tuple[int, int, int, int]:

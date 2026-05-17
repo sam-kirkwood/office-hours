@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import AddPaperForm from "@/components/AddPaperForm";
 import type { QueueResult, SurfacedQueueItem } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,10 @@ export default function DailyView({ initialResult }: Props) {
           {more_coming && <MoreComingCard />}
         </div>
       )}
+
+      <div className="mt-8 pt-6 border-t border-border">
+        <AddPaperForm />
+      </div>
     </div>
   );
 }

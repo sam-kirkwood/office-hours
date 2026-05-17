@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { addInterest } from "@/lib/pythonApi";
+import { addInterest, proposePapers } from "@/lib/pythonApi";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -20,6 +20,8 @@ export async function POST(request: Request) {
       rawText: raw_text.trim(),
       addedVia: "explicit_request",
     });
+
+    proposePapers({ userId: user.id }).catch(() => null);
 
     return NextResponse.json(result);
   } catch (err) {
