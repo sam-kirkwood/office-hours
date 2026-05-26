@@ -204,9 +204,14 @@ interface Props {
     isUserNode: boolean;
     onClose: () => void;
   }) => React.ReactNode;
+  // Optional legend override. Pass a node to render instead of the default;
+  // pass `null` to render no legend at all. Callers like the Stage 7
+  // confirmation use a simplified two-entry legend keyed to that surface's
+  // visual contract.
+  legend?: React.ReactNode | null;
 }
 
-export default function SkillTreeView({ graphData, renderPanel }: Props) {
+export default function SkillTreeView({ graphData, renderPanel, legend }: Props) {
   const [rfNodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -279,7 +284,7 @@ export default function SkillTreeView({ graphData, renderPanel }: Props) {
         />
       </ReactFlow>
 
-      <Legend />
+      {legend === undefined ? <Legend /> : legend}
 
       {selectedEntry &&
         (renderPanel ? (

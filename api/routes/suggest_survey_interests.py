@@ -1,8 +1,8 @@
 """POST /survey/suggest-interests — Stage 3 of the onboarding survey.
 
 Returns 6–10 interest-node suggestion tiles based on the user's Stage 1
-domain chips, Stage 2 foundation marks, and the megagraph's prerequisite
-edges. Heuristic shortlist + Haiku rerank (see
+per-domain background (chips, sub-areas, relationship cards) and Stage 2
+foundation marks. Heuristic shortlist + Haiku rerank (see
 survey-and-difficulty-design.md §1.4 and docs/phase-plans/phase-10-rev-plan.md
 Step 2c).
 """
@@ -10,6 +10,7 @@ Step 2c).
 from __future__ import annotations
 
 import logging
+import re
 from uuid import UUID
 
 from anthropic import Anthropic
@@ -35,6 +36,21 @@ SHORTLIST_MAX = 20
 SUGGESTION_MIN = 6
 SUGGESTION_MAX = 10
 
+# Stage 1 domain chip → database `nodes.domain` value. Engineering /
+# computation feed into "applied"; biology / chemistry have no foundation
+# tiles yet but their sub-areas still flow into the Haiku prompt.
+_CHIP_TO_DB_DOMAIN: dict[str, str] = {
+    "mathematics": "math",
+    "physics": "physics",
+    "engineering": "applied",
+    "computation": "applied",
+}
+
+
+def _tokenise(text: str) -> set[str]:
+    """Lowercase word tokens of length >= 3 — used for cheap text overlap."""
+    return {t for t in re.findall(r"[a-z]+", text.lower()) if len(t) >= 3}
+
 
 @router.post(
     "/survey/suggest-interests",
@@ -48,10 +64,22 @@ def suggest_survey_interests(
 ) -> SuggestSurveyInterestsResponse:
     user_id = str(body.user_id)
     marked_ids = {str(nid) for nid in body.marked_foundation_node_ids}
-    domain_chips = [d.strip() for d in body.domain_chips if d and d.strip()]
 
-    # Load the user's existing interests so we don't re-suggest something
-    # they've already accepted in an earlier add-interest segment.
+    # ---- Project the per-domain input into the signals we use ---------------
+    chip_keys = [d.key for d in body.domains]
+    db_domains = {
+        _CHIP_TO_DB_DOMAIN[k] for k in chip_keys if k in _CHIP_TO_DB_DOMAIN
+    }
+    # Flat sub-area label list across all picked domains. Used both for the
+    # text-overlap heuristic and to render the Haiku prompt's per-domain block.
+    all_subarea_labels: list[str] = []
+    for d in body.domains:
+        all_subarea_labels.extend(d.subarea_labels or [])
+    subarea_tokens: set[str] = set()
+    for label in all_subarea_labels:
+        subarea_tokens |= _tokenise(label)
+
+    # Existing user_interests — never suggest something the user already has.
     existing_resp = (
         supabase.table("user_interests")
         .select("node_id")
@@ -61,8 +89,6 @@ def suggest_survey_interests(
     existing_interest_ids = {ui["node_id"] for ui in (existing_resp.data or [])}
 
     # ---- Heuristic shortlist ------------------------------------------------
-    # All interest-kind nodes; filter to ones whose domain matches the chips
-    # (or all of them if no chips were selected — defensive fallback).
     nodes_resp = (
         supabase.table("nodes")
         .select("id, slug, title, description_md, domain, kind")
@@ -71,15 +97,18 @@ def suggest_survey_interests(
         .execute()
     )
     interest_nodes: list[dict] = nodes_resp.data or []
-    if domain_chips:
-        interest_nodes = [n for n in interest_nodes if n["domain"] in domain_chips]
+    if db_domains:
+        # Defensive fallback: if no chips map to a db domain (e.g. user picked
+        # only bio + chem), keep the whole pool — the Haiku prompt still has
+        # the bio/chem signal to rank with.
+        scoped = [n for n in interest_nodes if n["domain"] in db_domains]
+        if scoped:
+            interest_nodes = scoped
     interest_nodes = [n for n in interest_nodes if n["id"] not in existing_interest_ids]
 
     candidate_ids = [n["id"] for n in interest_nodes]
 
-    # Score each candidate by the count of prerequisite edges from a
-    # marked-foundation node into it.
-    overlap_count: dict[str, int] = {nid: 0 for nid in candidate_ids}
+    prereq_overlap: dict[str, int] = {nid: 0 for nid in candidate_ids}
     if candidate_ids and marked_ids:
         edges_resp = (
             supabase.table("edges")
@@ -90,14 +119,29 @@ def suggest_survey_interests(
         )
         for edge in edges_resp.data or []:
             if edge["source_node_id"] in marked_ids:
-                overlap_count[edge["target_node_id"]] += 1
+                prereq_overlap[edge["target_node_id"]] += 1
 
+    # Sub-area text overlap: count how many sub-area tokens appear in the
+    # node's title or description. Cheap signal but does meaningful work —
+    # "condensed-matter" picks up nodes mentioning condensed in their text.
     for n in interest_nodes:
-        n["prereq_overlap_count"] = overlap_count.get(n["id"], 0)
+        n["prereq_overlap_count"] = prereq_overlap.get(n["id"], 0)
+        if subarea_tokens:
+            text = ((n.get("title") or "") + " " + (n.get("description_md") or "")).lower()
+            n["subarea_overlap_count"] = sum(
+                1 for tok in subarea_tokens if tok in text
+            )
+        else:
+            n["subarea_overlap_count"] = 0
 
-    # Order: prereq overlap first, then title for stable secondary sort.
+    # Order: combined overlap, prereq weighted slightly higher than sub-area
+    # text-match (prereq is structural, sub-area is keyword-y). Then title for
+    # a stable secondary sort.
     interest_nodes.sort(
-        key=lambda n: (-n["prereq_overlap_count"], n["title"].lower())
+        key=lambda n: (
+            -(2 * n["prereq_overlap_count"] + n["subarea_overlap_count"]),
+            n["title"].lower(),
+        )
     )
     shortlist = interest_nodes[:SHORTLIST_MAX]
 
@@ -105,20 +149,14 @@ def suggest_survey_interests(
         return SuggestSurveyInterestsResponse(suggestions=[])
 
     # ---- Haiku rerank -------------------------------------------------------
-    # Load the user's surveys row for background context (relationship cards,
-    # short text). The route is called from the Stage 3 page, which has
-    # already persisted Stage 1 + 2.
     survey_resp = (
         supabase.table("surveys")
-        .select("background_json, free_text_intent")
+        .select("free_text_intent")
         .eq("user_id", user_id)
         .limit(1)
         .execute()
     )
-    survey_row = (survey_resp.data or [{}])[0]
-    background = survey_row.get("background_json") or {}
-    relationship_cards = list(background.get("relationship_cards") or [])
-    short_text = survey_row.get("free_text_intent") or ""
+    short_text = (survey_resp.data or [{}])[0].get("free_text_intent") or ""
 
     marked_titles: list[str] = []
     if marked_ids:
@@ -136,8 +174,7 @@ def suggest_survey_interests(
         model=HAIKU_MODEL,
         system_prompt=build_system_prompt(),
         user_prompt=build_user_prompt(
-            domain_chips=domain_chips,
-            relationship_cards=relationship_cards,
+            domains=[d.model_dump() for d in body.domains],
             short_text=short_text,
             marked_foundation_titles=marked_titles,
             shortlist=shortlist,
@@ -147,7 +184,8 @@ def suggest_survey_interests(
         user_id=user_id,
         request_summary={
             "shortlist_size": len(shortlist),
-            "domain_chips": domain_chips,
+            "chips": chip_keys,
+            "subarea_count": len(all_subarea_labels),
             "marked_foundations": len(marked_ids),
         },
         temperature=0,

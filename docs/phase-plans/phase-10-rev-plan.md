@@ -214,49 +214,121 @@ skill tree.
 Files: `api/routes/add_interest.py`, new prompts in `api/prompts/`,
 `api/schemas.py`.
 
-#### 2c — Onboarding survey UI (the seven stages)
+#### 2c — Onboarding survey UI (Stages 1, 2, 3, 6, 7) ✅ DONE
 
-Rewrite the survey flow under `web/app/survey/` and `web/components/`:
+The seven-stage survey was wired as five route-segmented pages under
+`/survey/<stage>` plus per-stage POST routes under `/api/survey/<stage>`.
+Stages 4 and 5 (add-interest dialog + concept tour) were intentionally
+stubbed server-side — that work landed under Step 2d below.
 
-- **Stage 1 (Background page):** domain chips + relationship cards +
-  optional short text. Single page.
-- **Stage 2 (Foundation tiles):** tappable grid grouped by domain. Two-state
-  toggle (unmarked / refresh). Tile label framing adapts to the relationship
-  card from Stage 1.
-- **Stage 3 (Interest suggestions):** 6–10 megagraph-sourced suggestion
-  tiles + "anything else?" free-text input.
-- **Stage 4 (Add-interest dialog):** invokes the add-interest API for each
-  selected interest in sequence (or batched where the parse returns
-  related-but-distinct).
-- **Stage 5 (Concept tour):** per-interest three-state self-report
-  (Familiar / Refresh / New to me). Deduplicated across sequential tours.
-- **Stage 6 (Mode balance):** single slider, optional, pre-set on strong
-  signals.
-- **Stage 7 (Confirmation):** rendered megagraph slice with tappable nodes.
-  Interest nodes have Delete and Edit actions; foundation nodes are
-  read-only.
+Shape:
+- Stage 1 went through a mid-session redesign after testing surfaced that
+  global domain chips + a single global relationship card was too coarse
+  (users came out with similar-feeling queues). Stage 1 now carries
+  per-domain detail: each picked domain gets its own sub-area chip block
+  and its own relationship card. See
+  [survey-and-difficulty-design.md §1.2](../survey-and-difficulty-design.md)
+  for the spec and [web/lib/surveyDomains.ts](../../web/lib/surveyDomains.ts)
+  for the canonical chip vocabulary.
+- Stage 2 tile label framing is now keyed per-db-domain off the Stage 1
+  relationship card (math tiles can read one way while physics tiles read
+  another).
+- Stage 3 suggestions use a heuristic shortlist (domain filter + prereq
+  overlap with marked foundations + sub-area token overlap, scoring
+  `2 × prereq + subarea`) then Haiku rerank with the full per-domain
+  context surfaced verbatim in the prompt.
+- Stage 7 confirmation reuses `SkillTreeView` with an injected legend and
+  a survey-specific node panel (Delete on interests works; Edit is stubbed
+  with a 2d marker).
+- Route-per-stage shell gates the user back to the earliest incomplete
+  stage on reload via `surveys.completed_stages`.
 
-`/api/survey/route.ts` now writes:
-- `surveys` row with `comfort_responses_json` populated from Stage 5
-- `user_interests` rows (via Stage 4 add-interest API) with `intent_context`
-- `user_node_states` rows from Stage 2 tile marks and Stage 5 concept tour
-- `surveys.mode_balance` from Stage 6
+Schema: one additive migration ([`20250019_phase10_survey_v2_shape.sql`](../../supabase/migrations/20250019_phase10_survey_v2_shape.sql))
+added `surveys.background_json`, `surveys.completed_stages`,
+`surveys.pending_interests_json`. JSONB shape for background:
+`{domains: [{key, subareas, relationship}]}`.
 
-Files: `web/app/survey/page.tsx`, `web/components/SurveyForm.tsx` (likely
-broken up into stage components), `web/app/api/survey/route.ts`.
+Stage 4 + 5 stub: [/api/survey/interests](../../web/app/api/survey/interests/route.ts)
+runs `parseAddInterest` + `resolveAddInterest` server-side, best-guess
+per segment, ignoring the concept tour data. Marked `TODO(2d)`.
 
-#### 2d — Post-onboarding add-interest UI
+Admin reset: `POST /api/survey/reset` (admin-gated via
+`ADMIN_EMAIL`) wipes the user's survey + interests + node states + queue
+items so the seven-stage flow can be re-walked from scratch. A small
+"Restart (admin)" button is rendered in the survey layout and on the
+`/survey` redirector when the user is signed in as the admin.
 
-Wire the same add-interest flow as a panel/modal triggered from:
+UX details polished mid-session:
+- Stage 1 sub-area copy clarified ("anything you've studied, encounter at
+  work, or are curious about").
+- Stage 2 copy clarified what "unmarked" means ("not a judgement, not a
+  commitment").
+- Stage 6 slider redesigned: radix track + thumb (no `Range` fill) so the
+  position reads as a single dot; label shows the majority side
+  ("60% problems" / "Even split" / "60% papers") rather than always
+  reporting papers %.
+- Stage 7 legend simplified from six categories to two ("Your interests &
+  foundations to refresh" / "Nearby"); interest user_nodes are
+  synthetically given `state: "active"` so they visually unify with
+  marked foundations.
 
-- The "Curious about something specific?" input box on the daily tab
-  (Section 2.7 — three cases: new topic, existing topic one-off, concept
-  request).
-- The skill-tree node panel's "add to interests" action (existing affordance,
-  now routed through the dialog rather than direct insertion).
+Cross-pollination path (`/api/interest` POST with
+`added_via=cross_pollination`) was updated to write `intent_context`
+(canned: "Surfaced via cross-pollination from adjacent interests") so the
+NOT NULL constraint added in 20250018 stops biting that path.
 
-Files: `web/components/DailyView.tsx`, `web/components/NodePanel.tsx`, new
-add-interest panel component.
+Known gap (intentionally deferred): no problem queue items are generated
+post-survey — the deleted v1 `/api/survey/route.ts` used to seed 2
+problems via `generateProblem` but the route was removed in this step.
+Paper engagement queue items still populate via `suggestPapers` +
+`proposePapers`. Problem seeding belongs to the curriculum curator in
+Step 3; not worth restoring a placeholder.
+
+Files shipped: 1 migration, 1 Python route + prompt + schema additions,
+9 web pages/components under `web/app/survey/` and `web/components/survey/`,
+6 web API routes under `web/app/api/survey/`, a `surveyDomains.ts` /
+`surveyState.ts` helper pair, and a small `SkillTreeView` change adding an
+optional `legend` prop.
+
+#### 2d — Add-interest dialog UI (Stage 4 + Stage 5 + post-onboarding)
+
+Build the real add-interest dialog UI (parse → mirror-back / path picks →
+resolve) and the concept-tour UI, then deploy them across all three surfaces
+that need them:
+
+1. **Stage 4 (onboarding):** replaces the server-side best-guess stub in
+   [/api/survey/interests](../../web/app/api/survey/interests/route.ts).
+   For each pending interest from Stage 3 (tile slug or free-text segment),
+   surface the parse result — mirror-back, optional follow-up for specific
+   intents, path options for ambiguous intents — and call /resolve once the
+   user confirms. Multi-segment input from /parse runs through the dialog
+   in sequence with deduplication across the batch.
+2. **Stage 5 (onboarding):** for each resolved interest, render the
+   concept_tour tiles returned by /resolve. Three-state self-report
+   (Familiar / Refresh / New to me); writes `user_node_states` and populates
+   `surveys.comfort_responses_json`. Deduplicate tiles across sequential
+   tours per §1.6.5.
+3. **Post-onboarding panel/modal:** the same dialog + tour component
+   triggered from:
+   - The "Curious about something specific?" input box on the daily tab
+     ([survey-and-difficulty-design.md §2.7](../survey-and-difficulty-design.md)
+     — three cases: new topic, existing topic one-off, concept request).
+   - The skill-tree node panel's "Add to interests" action (currently calls
+     the legacy /api/interest path; route through the dialog instead).
+   - The Stage 7 confirmation panel's "Edit" action (currently stubbed).
+
+The dialog should be one reusable React component with a `presentation` prop
+controlling its chrome ("full-page" for onboarding, "modal/panel" for
+post-onboarding). The /parse + /resolve API contract is already in place
+from Step 2b; this step is pure UI plus the wiring described above.
+
+Files (estimated): new `web/components/add-interest/Dialog.tsx`,
+`web/components/add-interest/ConceptTour.tsx`, updates to
+`web/app/api/survey/interests/route.ts` (call client-side instead of
+server-side stub), `web/components/DailyView.tsx`,
+`web/components/NodePanel.tsx`, `web/components/survey/SurveyNodePanel.tsx`
+(wire Edit), `web/lib/pythonApi.ts` (remove the `addInterest` shim once all
+callers route through the dialog).
 
 #### 2e — Profile page (initial surface)
 

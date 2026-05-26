@@ -25,8 +25,14 @@ export function getAdminClient(): SupabaseClient {
   return createAdminClient(url, key);
 }
 
+export interface SurveyDomainEntryDraft {
+  key: string;
+  subareas: string[];
+  relationship: string | null;
+}
+
 export interface SurveyDraft {
-  background_json: { domain_chips?: string[]; relationship_cards?: string[] };
+  background_json: { domains: SurveyDomainEntryDraft[] };
   free_text_intent: string;
   node_ratings_json: Record<string, "refresh">;
   pending_interests_json: { tile_slugs?: string[]; free_text?: string };
@@ -35,13 +41,43 @@ export interface SurveyDraft {
 }
 
 export const EMPTY_DRAFT: SurveyDraft = {
-  background_json: {},
+  background_json: { domains: [] },
   free_text_intent: "",
   node_ratings_json: {},
   pending_interests_json: {},
   mode_balance: 0.5,
   completed_stages: [],
 };
+
+// Accepts the new shape ({domains: []}) and silently upgrades the pre-2c-tweak
+// shape ({domain_chips, relationship_cards}) so rows from earlier test runs
+// still load. Old shape's relationship_cards[] (a global list) is dropped —
+// it can't be re-attributed per-domain reliably.
+function normaliseBackground(raw: unknown): { domains: SurveyDomainEntryDraft[] } {
+  if (!raw || typeof raw !== "object") return { domains: [] };
+  const obj = raw as Record<string, unknown>;
+  if (Array.isArray(obj.domains)) {
+    const domains = (obj.domains as unknown[])
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
+      .map((d) => ({
+        key: String(d.key ?? ""),
+        subareas: Array.isArray(d.subareas)
+          ? (d.subareas as unknown[]).filter((s): s is string => typeof s === "string")
+          : [],
+        relationship: typeof d.relationship === "string" ? d.relationship : null,
+      }))
+      .filter((d) => d.key.length > 0);
+    return { domains };
+  }
+  // Upgrade the pre-tweak shape: one entry per chip, no sub-areas, no
+  // relationship (the old global cards aren't safely per-domain).
+  const chips = Array.isArray(obj.domain_chips) ? obj.domain_chips : [];
+  return {
+    domains: chips
+      .filter((c): c is string => typeof c === "string")
+      .map((key) => ({ key, subareas: [], relationship: null })),
+  };
+}
 
 export async function loadSurveyDraft(
   admin: SupabaseClient,
@@ -54,9 +90,9 @@ export async function loadSurveyDraft(
     )
     .eq("user_id", userId)
     .maybeSingle();
-  if (!data) return { ...EMPTY_DRAFT };
+  if (!data) return { ...EMPTY_DRAFT, background_json: { domains: [] } };
   return {
-    background_json: data.background_json ?? {},
+    background_json: normaliseBackground(data.background_json),
     free_text_intent: data.free_text_intent ?? "",
     node_ratings_json: data.node_ratings_json ?? {},
     pending_interests_json: data.pending_interests_json ?? {},

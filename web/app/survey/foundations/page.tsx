@@ -6,15 +6,8 @@ import {
   loadSurveyDraft,
 } from "@/lib/surveyState";
 import FoundationsGrid from "@/components/survey/FoundationsGrid";
+import { CHIP_TO_DB_DOMAIN, type DomainKey } from "@/lib/surveyDomains";
 import type { Node } from "@/lib/types";
-
-// Stage 1 chips → database `nodes.domain` mapping. Chips outside math/physics
-// don't directly foreground anything in Stage 2 (those domains have no
-// foundation nodes yet); they still flow into the Stage 3 suggestion ranking.
-const CHIP_TO_DOMAIN: Record<string, string> = {
-  physics: "physics",
-  mathematics: "math",
-};
 
 export default async function FoundationsPage() {
   const supabase = await createClient();
@@ -42,16 +35,35 @@ export default async function FoundationsPage() {
     .filter(([, v]) => v === "refresh")
     .map(([slug]) => slug);
 
-  const chips = draft.background_json?.domain_chips ?? [];
+  // Build per-db-domain relationship lookup from the Stage 1 domain entries.
+  // Multiple chips can map to the same db domain (engineering, computation →
+  // applied) — first-wins.
+  const relationshipByDomain: Record<string, string | null> = {
+    math: null,
+    physics: null,
+    applied: null,
+  };
+  for (const entry of draft.background_json.domains) {
+    const db = CHIP_TO_DB_DOMAIN[entry.key as DomainKey];
+    if (!db) continue;
+    if (relationshipByDomain[db] == null && entry.relationship) {
+      relationshipByDomain[db] = entry.relationship;
+    }
+  }
+
   const foregroundDomains = Array.from(
-    new Set(chips.map((c) => CHIP_TO_DOMAIN[c]).filter((d): d is string => Boolean(d))),
+    new Set(
+      draft.background_json.domains
+        .map((d) => CHIP_TO_DB_DOMAIN[d.key as DomainKey])
+        .filter((d): d is string => Boolean(d)),
+    ),
   );
 
   return (
     <FoundationsGrid
       foundationNodes={foundationNodes}
       initialRefreshSlugs={initialRefreshSlugs}
-      relationshipCards={draft.background_json?.relationship_cards ?? []}
+      relationshipByDomain={relationshipByDomain}
       foregroundDomains={foregroundDomains}
     />
   );

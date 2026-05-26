@@ -9,7 +9,9 @@ import type { Node } from "@/lib/types";
 interface Props {
   foundationNodes: Node[];
   initialRefreshSlugs: string[];
-  relationshipCards: string[]; // drives label framing per §1.3.4
+  // Per-db-domain relationship card from Stage 1, e.g. {math: "curious",
+  // physics: "studied_reconnecting"}. Drives tile-label framing per §1.3.4.
+  relationshipByDomain: Record<string, string | null>;
   foregroundDomains: string[]; // domains highlighted from Stage 1 chips
 }
 
@@ -21,10 +23,15 @@ const DOMAIN_LABELS: Record<string, string> = {
 
 const DIFFICULTY_ORDER: Record<string, number> = { intro: 0, core: 1, advanced: 2 };
 
-function describeLabel(relationshipCards: string[]): { marked: string; unmarked: string } {
-  const isCurious =
-    relationshipCards.length === 1 && relationshipCards[0] === "curious";
-  if (isCurious) {
+// "Curious" or "follow_field" leans toward the "new to this?" framing (these
+// suggest the user is approaching the material fresh or as an observer rather
+// than re-engaging with material they once knew). Everything else (including
+// no relationship set) defaults to the refresh framing.
+function describeLabel(relationship: string | null | undefined): {
+  marked: string;
+  unmarked: string;
+} {
+  if (relationship === "curious" || relationship === "follow_field") {
     return { marked: "New to this", unmarked: "Know this? Tap to flag as new." };
   }
   return {
@@ -36,15 +43,13 @@ function describeLabel(relationshipCards: string[]): { marked: string; unmarked:
 export default function FoundationsGrid({
   foundationNodes,
   initialRefreshSlugs,
-  relationshipCards,
+  relationshipByDomain,
   foregroundDomains,
 }: Props) {
   const router = useRouter();
   const [marked, setMarked] = useState<Set<string>>(new Set(initialRefreshSlugs));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const labels = describeLabel(relationshipCards);
 
   const grouped = useMemo(() => {
     const byDomain: Record<string, Node[]> = {};
@@ -99,34 +104,43 @@ export default function FoundationsGrid({
       <div className="mb-6">
         <h1 className="font-serif text-2xl text-foreground">Which foundations would you like to revisit?</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Tap any topic you&apos;d like to brush up on. Skip if none jump out — we&apos;ll calibrate as we go.
+          Tap topics you&apos;d like to brush up on. Anything you don&apos;t mark
+          just stays unspecified — not a judgement, not a commitment — and
+          we&apos;ll calibrate as you engage. Skip the step entirely if nothing
+          fits.
         </p>
       </div>
 
-      {grouped.foreground.map((domain) => (
-        <DomainSection
-          key={domain}
-          domain={domain}
-          emphasis="primary"
-          nodes={grouped.byDomain[domain]}
-          marked={marked}
-          onToggle={toggle}
-          markedLabel={labels.marked}
-          unmarkedLabel={labels.unmarked}
-        />
-      ))}
-      {grouped.background.map((domain) => (
-        <DomainSection
-          key={domain}
-          domain={domain}
-          emphasis="quiet"
-          nodes={grouped.byDomain[domain]}
-          marked={marked}
-          onToggle={toggle}
-          markedLabel={labels.marked}
-          unmarkedLabel={labels.unmarked}
-        />
-      ))}
+      {grouped.foreground.map((domain) => {
+        const labels = describeLabel(relationshipByDomain[domain]);
+        return (
+          <DomainSection
+            key={domain}
+            domain={domain}
+            emphasis="primary"
+            nodes={grouped.byDomain[domain]}
+            marked={marked}
+            onToggle={toggle}
+            markedLabel={labels.marked}
+            unmarkedLabel={labels.unmarked}
+          />
+        );
+      })}
+      {grouped.background.map((domain) => {
+        const labels = describeLabel(relationshipByDomain[domain]);
+        return (
+          <DomainSection
+            key={domain}
+            domain={domain}
+            emphasis="quiet"
+            nodes={grouped.byDomain[domain]}
+            marked={marked}
+            onToggle={toggle}
+            markedLabel={labels.marked}
+            unmarkedLabel={labels.unmarked}
+          />
+        );
+      })}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 

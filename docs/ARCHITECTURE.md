@@ -92,10 +92,13 @@ changes; **DEPRECATED** tables remain present briefly during migration.
 
 - `users` — unchanged
 - `surveys` **CHANGED**
-  - `free_text_intent` (replaces `desired_topics_json`)
-  - `node_ratings_json` — `{node_slug: "interested" | "comfortable" | "refresh"}`, partial coverage expected
-  - `comfort_responses_json`
+  - `free_text_intent` — Stage 1 optional background blurb (semantics shifted from v1's "interest expression")
+  - `background_json` — Stage 1 per-domain selections: `{domains: [{key, subareas, relationship}]}`; canonical sub-area + relationship vocabulary lives in [web/lib/surveyDomains.ts](../web/lib/surveyDomains.ts)
+  - `node_ratings_json` — `{node_slug: "refresh"}` for Stage 2 foundation tile marks; unmarked tiles produce no entry
+  - `pending_interests_json` — `{tile_slugs, free_text}` from Stage 3, cleared once `user_interests` rows are written by Stage 4
+  - `comfort_responses_json` — populated by Stage 5 concept tour responses
   - `mode_balance` — float 0.0 to 1.0
+  - `completed_stages` — TEXT[], ordered list of stages the user has finished; drives the route-per-stage gate
   - `updated_at`
 
 ### Graph (replaces canonical_topics / canonical_edges)

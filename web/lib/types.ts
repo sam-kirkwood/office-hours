@@ -55,8 +55,18 @@ export interface UserInterest {
 export type FoundationMark = "refresh";
 export type FoundationMarks = Record<string, FoundationMark>; // keyed by node slug
 
-// Stage 1 of the v2 survey: domain chips + relationship cards + optional text.
-export type SurveyDomain = "physics" | "mathematics" | "engineering" | "computation" | "biology" | "chemistry";
+// Stage 1 of the v2 survey: per-domain background. The user picks one or more
+// domains; for each, they may also pick sub-area chips and a relationship card
+// (both optional). Sub-areas sharpen Stage 3 suggestions; the per-domain
+// relationship card drives Stage 2 tile-label framing and (in 2d) Stage 4
+// dialog tone for interests resolved in that domain.
+export type SurveyDomain =
+  | "physics"
+  | "mathematics"
+  | "engineering"
+  | "computation"
+  | "biology"
+  | "chemistry";
 
 export type SurveyRelationshipCard =
   | "studied_reconnecting"
@@ -64,9 +74,14 @@ export type SurveyRelationshipCard =
   | "curious"
   | "follow_field";
 
+export interface SurveyDomainEntry {
+  key: SurveyDomain;
+  subareas: string[]; // sub-area chip keys, e.g. "condensed-matter"
+  relationship: SurveyRelationshipCard | null;
+}
+
 export interface SurveyBackground {
-  domain_chips: SurveyDomain[];
-  relationship_cards: SurveyRelationshipCard[];
+  domains: SurveyDomainEntry[];
 }
 
 export type SurveyStage =

@@ -348,9 +348,16 @@ export interface SurveyInterestSuggestion {
   why_suggested_md: string;
 }
 
+export interface SurveyDomainInput {
+  key: string;
+  label: string;
+  subareaLabels: string[];
+  relationshipLabel: string | null;
+}
+
 interface SuggestSurveyInterestsArgs {
   userId: string;
-  domainChips: string[];
+  domains: SurveyDomainInput[];
   markedFoundationNodeIds: string[];
 }
 
@@ -363,7 +370,12 @@ export async function suggestSurveyInterests(
 ): Promise<SuggestSurveyInterestsResponse> {
   return pythonPost("/survey/suggest-interests", {
     user_id: args.userId,
-    domain_chips: args.domainChips,
+    domains: args.domains.map((d) => ({
+      key: d.key,
+      label: d.label,
+      subarea_labels: d.subareaLabels,
+      relationship_label: d.relationshipLabel,
+    })),
     marked_foundation_node_ids: args.markedFoundationNodeIds,
   });
 }

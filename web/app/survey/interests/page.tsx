@@ -6,6 +6,7 @@ import {
   loadSurveyDraft,
 } from "@/lib/surveyState";
 import { suggestSurveyInterests } from "@/lib/pythonApi";
+import { buildDomainInputs } from "@/lib/surveyDomains";
 import InterestSuggestions from "@/components/survey/InterestSuggestions";
 import type { SurveyInterestSuggestion } from "@/lib/pythonApi";
 
@@ -35,13 +36,13 @@ export default async function InterestsPage() {
     for (const n of nodes ?? []) markedFoundationNodeIds.push(n.id as string);
   }
 
-  const domainChips = draft.background_json?.domain_chips ?? [];
+  const domains = buildDomainInputs(draft.background_json.domains);
 
   let suggestions: SurveyInterestSuggestion[] = [];
   try {
     const resp = await suggestSurveyInterests({
       userId: user.id,
-      domainChips,
+      domains,
       markedFoundationNodeIds,
     });
     suggestions = resp.suggestions;

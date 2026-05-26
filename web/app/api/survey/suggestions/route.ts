@@ -1,12 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { getAdminClient } from "@/lib/surveyState";
+import { getAdminClient, loadSurveyDraft } from "@/lib/surveyState";
 import { suggestSurveyInterests } from "@/lib/pythonApi";
+import { buildDomainInputs } from "@/lib/surveyDomains";
 
 // GET /api/survey/suggestions
-// Reads the user's persisted Stage 1 + Stage 2 selections from the surveys
-// row and the user_node_states, then asks the Python /survey/suggest-interests
-// route to rerank a shortlist of interest-kind nodes into 6–10 tiles.
+// Reads the user's persisted Stage 1 + Stage 2 selections and asks the Python
+// /survey/suggest-interests endpoint to rerank a shortlist of interest-kind
+// nodes into 6–10 tiles. Per-domain sub-areas and relationship cards are
+// expanded into the payload so the Haiku rerank prompt can use the signal.
 
 export async function GET() {
   const supabase = await createClient();
@@ -17,19 +19,9 @@ export async function GET() {
 
   try {
     const admin = getAdminClient();
+    const draft = await loadSurveyDraft(admin, user.id);
 
-    const { data: survey } = await admin
-      .from("surveys")
-      .select("background_json, node_ratings_json")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const background = (survey?.background_json ?? {}) as {
-      domain_chips?: string[];
-    };
-    const ratings = (survey?.node_ratings_json ?? {}) as Record<string, string>;
-
-    const refreshSlugs = Object.entries(ratings)
+    const refreshSlugs = Object.entries(draft.node_ratings_json)
       .filter(([, v]) => v === "refresh")
       .map(([slug]) => slug);
 
@@ -42,13 +34,11 @@ export async function GET() {
       for (const n of nodes ?? []) markedFoundationNodeIds.push(n.id as string);
     }
 
-    const domainChips = (background.domain_chips ?? []).filter(
-      (s): s is string => typeof s === "string",
-    );
+    const domains = buildDomainInputs(draft.background_json.domains);
 
     const result = await suggestSurveyInterests({
       userId: user.id,
-      domainChips,
+      domains,
       markedFoundationNodeIds,
     });
 

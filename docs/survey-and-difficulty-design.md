@@ -33,29 +33,46 @@ The survey has seven stages. Several are optional or abbreviated based on what t
 
 ### 1.2 Stage 1 — Background page
 
-A single page with three elements presented in order.
+A single page with three sections, the middle one revealed progressively as the user picks domains. Two earlier rounds of testing surfaced that a single global pick (one set of domain chips + one set of relationship cards covering everything) was too coarse — users genuinely have different relationships with different areas, and the survey was ending up producing similar-feeling queues across distinct users. This stage was redesigned to carry per-domain signal.
 
-#### 1.2.1 Domain tags (multi-select chips)
+#### 1.2.1 Domain chips (multi-select)
 
 Broad area chips: Physics, Mathematics, Engineering, Computation, Biology, Chemistry.
 
-The user taps one or more. No competence level is implied. Purpose: determines which foundation nodes are foregrounded in Stage 2 and shapes interest suggestions in Stage 3.
+The user taps one or more. No competence level is implied. Picking a domain reveals a sub-block for that domain (see 1.2.2).
 
-#### 1.2.2 Relationship cards (single or multi-select)
+Biology and chemistry chips don't have foundation nodes in the megagraph yet, but they still feed Stage 3 suggestions (chem background tilts toward materials-physics-adjacent topics; bio background tilts toward biophysics / neuroscience interest nodes) and the add-interest dialog priors in Stage 4.
 
-Four short cards describing the user's relationship to the material:
+#### 1.2.2 Per-domain detail (sub-areas + relationship card)
 
-- "I studied this area and want to reconnect with it"
+For each picked domain, the user is offered:
+
+**Sub-area chips** (multi-select, 4–9 options per domain). The user picks anything they've studied, encounter at work, or are curious about — the chip says "this is relevant", not any one thing about competence. Sub-areas are the primary personalisation signal: they sharpen Stage 3 suggestion ranking (Haiku rerank receives the labels verbatim) and become priors that the add-interest dialog can pull in.
+
+The canonical sub-area lists live in [web/lib/surveyDomains.ts](../web/lib/surveyDomains.ts) as the single source of truth — that file is read by the form, the foundations stage, the Python suggestion payload builder, and the Haiku rerank prompt. The list at the time of writing:
+
+| Domain | Sub-areas |
+|---|---|
+| Physics | classical mechanics · electromagnetism · quantum · relativity · thermo & stat mech · condensed matter · particle/HEP · astro & cosmology · fluids |
+| Mathematics | calculus & analysis · linear algebra · ODEs & PDEs · probability & stats · discrete & algebra · geometry & topology · numerical & applied |
+| Engineering | mechanical · electrical · civil · materials · chemical · software |
+| Computation | algorithms & DS · machine learning · theory of computation · systems · scientific computing · data analysis |
+| Biology | molecular & cell · neuroscience · physiology · ecology & evolution · genomics |
+| Chemistry | organic · inorganic · physical · analytical · biochem |
+
+**Relationship card** (single-select per domain). Four cards describing how the user relates to *that area specifically* — not a global stance:
+
+- "I studied this and want to reconnect with it"
 - "I encounter this in my work and want to go deeper"
 - "I'm curious and want to understand it better"
 - "I follow this field and want to engage more actively"
 
-Purpose: shapes tone and framing in subsequent stages. "Reconnecting" tilts toward refresh-oriented content. "Curious" tilts toward exploratory and paper-friendly content. Does not imply any competence level.
+Optional. Different domains can have different cards (e.g. "reconnecting" with maths, "curious" about biology).
 
-The selection feeds into:
-- Stage 2: tile label framing ("comfortable with this?" vs "know this?")
-- Stage 4: system mirror-back tone
-- Stage 6: mode balance pre-set, if the selection strongly implies a preference
+Per-domain relationship feeds into:
+- Stage 2: tile label framing per-domain (1.3.4 — math tiles can read one way while physics tiles read another)
+- Stage 4: dialog mirror-back tone scoped to whichever domain the resolved interest lives in
+- Stage 6: mode balance pre-set, if any picked relationship strongly implies a preference
 
 #### 1.2.3 Optional short text
 
@@ -64,7 +81,8 @@ No label. Placeholder: *"Anything specific about your background we should know?
 One to two sentences, genuinely optional, no minimum. This is the escape valve for users who want to add nuance (e.g. "condensed matter physicist, been out of research for a few years — calc and EM are rusty"). Comes last, after the structured elements, so it feels like rounding out rather than being interrogated.
 
 **Implementation notes:**
-- If the optional text mentions specific foundation areas as rusty, pre-mark those tiles in Stage 2 for the user to adjust.
+- Stored on `surveys.background_json` as `{domains: [{key, subareas, relationship}]}`. The optional short text reuses the existing `surveys.free_text_intent` column (its semantics shifted from "interest expression" in v1 to "background blurb" in v2).
+- If the optional text mentions specific foundation areas as rusty, pre-mark those tiles in Stage 2 for the user to adjust. (Not yet implemented — v2.1.)
 - The full text is parsed by the Haiku call in Stage 4 alongside whatever the user later types as their interests.
 
 ---
@@ -95,9 +113,11 @@ There is no "new to me" state at the tile level. Topic-level granularity is appr
 
 #### 1.3.4 Tile label framing
 
-The label on each tile adapts to the relationship card from Stage 1:
-- "Reconnecting" → *"comfortable with this?"* / *"want to refresh?"*
-- "Curious" → *"know this?"* / *"new to this?"*
+The label on each tile adapts to the relationship card picked in Stage 1 *for that tile's domain* — math tiles can read one way while physics tiles read another, because the relationship card is per-domain (1.2.2):
+- "Reconnecting" / "Encountering at work" → *"comfortable with this?"* / *"want to refresh?"*
+- "Curious" / "Follow this field" → *"know this?"* / *"new to this?"*
+
+A db-domain has no relationship picked (the user didn't pick that domain, or picked it but skipped the card) → defaults to the refresh framing. The `applied` db-domain receives the relationship from whichever Stage 1 chip the user picked first that maps to it (engineering or computation).
 
 #### 1.3.5 Skippability
 
@@ -599,7 +619,15 @@ The following changes to the existing schema are required by this design. All ot
 
 ### 8.1 `surveys` (CHANGED)
 
-No structural change needed. The existing `comfort_responses_json` field will now be populated from concept tour responses (previously empty). Populate with subtopic-level state from Stage 5.
+Three columns added (migration `20250019_phase10_survey_v2_shape.sql`) to support the route-per-stage shell's progressive draft and the per-domain Stage 1 redesign:
+
+| Field | Type | Notes |
+|---|---|---|
+| `background_json` | JSONB | Stage 1 per-domain selections: `{domains: [{key, subareas, relationship}]}`. Default `'{}'::jsonb`. Read by the foundations stage (tile labels, foregrounding) and by the Python `/survey/suggest-interests` endpoint (Haiku rerank prompt). |
+| `completed_stages` | TEXT[] | Ordered list of survey stages the user has finished. Drives the route-per-stage gate so reload mid-survey resumes correctly. |
+| `pending_interests_json` | JSONB | Stage 3 selections + free text handed to the Stage 4+5 stub (Step 2c) / dialog (Step 2d) at server time. Cleared once `user_interests` rows are written. |
+
+The existing `comfort_responses_json` field will now be populated from concept tour responses (previously empty) — wired by Step 2d when the concept tour UI lands. The existing `free_text_intent` column's semantics shifted in v2 from "interest expression" (v1) to "Stage 1 optional background blurb" (v2).
 
 ### 8.2 `user_interests` (CHANGED)
 

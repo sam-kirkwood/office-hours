@@ -403,9 +403,20 @@ class ComputeCrossPollinationResponse(BaseModel):
 # nodes they marked in Stage 2. Heuristic shortlist + Haiku rerank.
 
 
+class SurveyDomainInput(BaseModel):
+    """One Stage 1 domain entry: the chip key, plus optional sub-area labels
+    and a relationship-card label. Labels (not raw keys) so the Haiku prompt
+    can name signals verbatim without Python re-deriving display strings."""
+
+    key: str  # 'physics' | 'mathematics' | 'engineering' | 'computation' | 'biology' | 'chemistry'
+    label: str
+    subarea_labels: list[str] = Field(default_factory=list)
+    relationship_label: str | None = None
+
+
 class SuggestSurveyInterestsRequest(BaseModel):
     user_id: UUID
-    domain_chips: list[str]  # 'math' | 'physics' | 'applied'
+    domains: list[SurveyDomainInput]
     marked_foundation_node_ids: list[UUID]  # nodes the user marked 'refresh'
 
 

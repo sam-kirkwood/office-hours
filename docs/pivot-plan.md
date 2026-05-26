@@ -1,5 +1,5 @@
-Status: Phase 10-rev Step 1 done (three design docs landed). Step 2a (schema migration) and Step 2b (add-interest dialog API: /parse + /resolve, intent_context populated, concept-tour tiles returned) done; pending dev DB apply.
-Next step: Phase 10-rev step 2c — Onboarding survey UI (seven stages) wired against /add-interest/parse and /add-interest/resolve.
+Status: Phase 10-rev Step 1 done (three design docs landed). Step 2a (schema migration), Step 2b (add-interest dialog API: /parse + /resolve, intent_context populated, concept-tour tiles returned), and Step 2c (seven-stage onboarding survey UI — Stages 1, 2, 3, 6, 7 plus Stage 1 per-domain redesign mid-session) done. Stages 4 + 5 are intentionally stubbed server-side pending Step 2d. Migration 20250019 added the survey-shape columns. Admin "Restart (admin)" affordance exists for iterative testing.
+Next step: Phase 10-rev step 2d — add-interest dialog UI (Stage 4 + Stage 5 + post-onboarding panel triggered from daily tab and skill tree). See [docs/phase-plans/phase-10-rev-handover-2d.md](phase-plans/phase-10-rev-handover-2d.md).
 
 ---
 
