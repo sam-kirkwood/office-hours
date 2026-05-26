@@ -1,4 +1,13 @@
-"""Tests for POST /add-interest."""
+"""Tests for the add-interest dialog endpoints.
+
+Covers the happy paths and the contract the next UI session depends on:
+  - /parse: auth, single-segment specific, single-segment ambiguous.
+  - /resolve: auth, link-to-existing path, generate-new path with concept tour.
+
+Full edge-case coverage (slug-collision races, title collision into existing
+node, hallucinated dedup slugs, multi-interest splitting) will be added when
+the UI sessions wire the dialog up — see docs/phase-plans/phase-10-rev-plan.md.
+"""
 
 import json
 from uuid import uuid4
@@ -15,26 +24,30 @@ from tests.fake_supabase import FakeSupabase
 INTERNAL_TOKEN = "test-internal-token"
 AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
 
-# ---------------------------------------------------------------------------
-# Shared fixtures
-# ---------------------------------------------------------------------------
-
-EXISTING_NODE_ID = str(uuid4())
-EXISTING_NODE = {
-    "id": EXISTING_NODE_ID,
+CALCULUS_ID = str(uuid4())
+LINALG_ID = str(uuid4())
+CALCULUS_NODE = {
+    "id": CALCULUS_ID,
     "slug": "calculus-1",
     "title": "Calculus 1",
+    "kind": "foundation",
     "description_md": "Limits, derivatives, integrals.",
+    "subtopics_json": [
+        "Rules for differentiation",
+        "Integration techniques",
+        "Sequences and series",
+    ],
 }
-
-VALID_GENERATED_NODE = {
-    "title": "Fourier Analysis",
-    "slug": "fourier-analysis",
-    "description_md": "Decomposing functions into sinusoids.",
-    "domain": "math",
-    "difficulty_hint": "core",
-    "subtopics": ["Fourier series", "Fourier transform", "Convolution"],
-    "proposed_prerequisite_slugs": ["calculus-1"],
+LINALG_NODE = {
+    "id": LINALG_ID,
+    "slug": "linear-algebra",
+    "title": "Linear Algebra",
+    "kind": "foundation",
+    "description_md": "Vectors, matrices, eigenstructure.",
+    "subtopics_json": [
+        {"slug": "matrix-multiplication", "title": "Matrix multiplication"},
+        {"slug": "eigenvalues", "title": "Eigenvalues and eigenvectors"},
+    ],
 }
 
 
@@ -55,304 +68,428 @@ def client(fakes) -> TestClient:  # noqa: ARG001
     return TestClient(app)
 
 
-def _base_request(raw_text: str = "I want to learn Fourier analysis") -> dict:
-    return {
-        "user_id": str(uuid4()),
-        "raw_text": raw_text,
-        "added_via": "survey",
-    }
-
-
-def _prime_nodes(supabase: FakeSupabase, nodes: list[dict] | None = None) -> None:
-    supabase.respond("nodes", "select", lambda _: nodes if nodes is not None else [EXISTING_NODE])
-
-
 def _prime_llm_calls(supabase: FakeSupabase) -> None:
     supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# /add-interest/parse
 # ---------------------------------------------------------------------------
 
 
-def test_missing_bearer_returns_401(client: TestClient) -> None:
-    response = client.post("/add-interest", json=_base_request())
-    assert response.status_code == 401
-
-
-def test_wrong_bearer_returns_401(client: TestClient) -> None:
-    response = client.post(
-        "/add-interest",
-        json=_base_request(),
-        headers={"Authorization": "Bearer wrong"},
+def test_parse_missing_bearer_returns_401(client: TestClient) -> None:
+    resp = client.post(
+        "/add-interest/parse",
+        json={"user_id": str(uuid4()), "raw_text": "hi", "added_via": "survey"},
     )
-    assert response.status_code == 401
+    assert resp.status_code == 401
+
+
+def test_parse_specific_segment_returns_mirror_back_and_followup(
+    client: TestClient, fakes
+) -> None:
+    supabase, anthropic = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "raw_text_segment": "I want my calculus back",
+                        "specificity": "specific",
+                        "implicit_intent": "refresh",
+                        "mirror_back_md": "Got it — refreshing calculus.",
+                        "optional_followup_md": "Want to tell me more?",
+                        "path_options": [],
+                        "dedup": {
+                            "verdict": "same",
+                            "matched_node_slug": "calculus-1",
+                        },
+                        "draft_intent_context": "refresh calculus foundations",
+                    }
+                ]
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/parse",
+        json={
+            "user_id": str(uuid4()),
+            "raw_text": "I want my calculus back",
+            "added_via": "survey",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["segments"]) == 1
+    seg = body["segments"][0]
+    assert seg["specificity"] == "specific"
+    assert seg["implicit_intent"] == "refresh"
+    assert seg["optional_followup_md"] == "Want to tell me more?"
+    assert seg["path_options"] == []
+    assert seg["dedup"]["verdict"] == "same"
+    assert seg["dedup"]["matched_node_slug"] == "calculus-1"
+    assert seg["draft_intent_context"] == "refresh calculus foundations"
+
+    # Haiku call pinned to temperature=0 (classification).
+    assert len(anthropic.messages.calls) == 1
+    assert anthropic.messages.calls[0].get("temperature") == 0
+
+
+def test_parse_ambiguous_segment_returns_path_options(client: TestClient, fakes) -> None:
+    supabase, anthropic = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "raw_text_segment": "I want to learn semiconductors",
+                        "specificity": "ambiguous",
+                        "implicit_intent": "teach",
+                        "mirror_back_md": "That covers a few angles — which sounds closest?",
+                        "optional_followup_md": None,
+                        "path_options": [
+                            {
+                                "key": "transistors-and-circuits",
+                                "label_md": "How transistors and circuits actually work",
+                                "draft_intent_context": "devices-and-circuits angle, teach intent",
+                            },
+                            {
+                                "key": "deeper-physics",
+                                "label_md": "The deeper physics of why semiconductors behave this way",
+                                "draft_intent_context": "solid-state-physics angle, teach intent",
+                            },
+                        ],
+                        "dedup": {"verdict": "new", "matched_node_slug": None},
+                        "draft_intent_context": "semiconductors, teach intent",
+                    }
+                ]
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/parse",
+        json={
+            "user_id": str(uuid4()),
+            "raw_text": "I want to learn semiconductors",
+            "added_via": "survey",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    seg = resp.json()["segments"][0]
+    assert seg["specificity"] == "ambiguous"
+    assert seg["optional_followup_md"] is None
+    assert len(seg["path_options"]) == 2
+    assert seg["path_options"][0]["key"] == "transistors-and-circuits"
+    assert seg["dedup"]["verdict"] == "new"
+    assert seg["dedup"]["matched_node_slug"] is None
+
+
+def test_parse_drops_hallucinated_dedup_slug(client: TestClient, fakes) -> None:
+    supabase, anthropic = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "raw_text_segment": "foo",
+                        "specificity": "specific",
+                        "implicit_intent": "teach",
+                        "mirror_back_md": "...",
+                        "optional_followup_md": "Want to tell me more?",
+                        "path_options": [],
+                        "dedup": {
+                            "verdict": "same",
+                            "matched_node_slug": "does-not-exist",
+                        },
+                        "draft_intent_context": "...",
+                    }
+                ]
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/parse",
+        json={"user_id": str(uuid4()), "raw_text": "foo", "added_via": "survey"},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    seg = resp.json()["segments"][0]
+    assert seg["dedup"]["verdict"] == "new"
+    assert seg["dedup"]["matched_node_slug"] is None
 
 
 # ---------------------------------------------------------------------------
-# same verdict — no Sonnet call, user_interests written
+# /add-interest/resolve
 # ---------------------------------------------------------------------------
 
 
-def test_same_verdict_links_user_no_sonnet(client: TestClient, fakes) -> None:
+def test_resolve_missing_bearer_returns_401(client: TestClient) -> None:
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "x",
+            "final_intent_text": "x",
+            "intent_context": "x",
+        },
+    )
+    assert resp.status_code == 401
+
+
+def test_resolve_existing_slug_links_without_sonnet(client: TestClient, fakes) -> None:
     supabase, anthropic = fakes
     ui_id = str(uuid4())
 
-    _prime_nodes(supabase, [EXISTING_NODE])
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    # Concept tour: prereq edges for the linked node — none in this minimal fixture.
+    supabase.respond("edges", "select", lambda _: [])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "I want my calculus back",
+            "final_intent_text": "Refresh calculus foundations",
+            "intent_context": "refresh calculus foundations",
+            "existing_node_slug": "calculus-1",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["user_interest_id"] == ui_id
+    assert body["node_id"] == CALCULUS_ID
+    assert body["node_slug"] == "calculus-1"
+    assert body["verdict"] == "same"
+    assert body["intent_context"] == "refresh calculus foundations"
+    assert body["starter_preview_md"].startswith("Your first item will be:")
+
+    # No Anthropic calls — link path skips Sonnet.
+    assert anthropic.messages.calls == []
+
+    # user_interests insert carries intent_context.
+    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
+    assert len(ui_inserts) == 1
+    payload = ui_inserts[0].payload
+    assert payload["node_id"] == CALCULUS_ID
+    assert payload["intent_context"] == "refresh calculus foundations"
+    assert payload["added_via"] == "survey"
+
+
+def test_resolve_unknown_existing_slug_returns_400(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "x",
+            "final_intent_text": "x",
+            "intent_context": "x",
+            "existing_node_slug": "no-such-node",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 400
+
+
+def test_resolve_new_node_writes_intent_context_and_tour(client: TestClient, fakes) -> None:
+    supabase, anthropic = fakes
+    new_node_id = str(uuid4())
+    ui_id = str(uuid4())
+
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [CALCULUS_NODE, LINALG_NODE],
+    )
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond(
+        "edges",
+        "select",
+        lambda _: [
+            {
+                "source_node_id": CALCULUS_ID,
+                "edge_kind": "prerequisite",
+                "target_node_id": new_node_id,
+            },
+            {
+                "source_node_id": LINALG_ID,
+                "edge_kind": "prerequisite",
+                "target_node_id": new_node_id,
+            },
+        ],
+    )
     _prime_llm_calls(supabase)
     supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
 
     anthropic.queue(
         json.dumps(
-            {"verdict": "same", "matched_node_slug": "calculus-1", "reason": "exact match"}
+            {
+                "title": "Kalman Filters",
+                "slug": "kalman-filters",
+                "description_md": "Recursive state estimators.",
+                "domain": "applied",
+                "difficulty_hint": "core",
+                "subtopics": [
+                    "Linear-Gaussian model",
+                    "Kalman gain",
+                    "Extended Kalman filter",
+                ],
+                "proposed_prerequisite_slugs": ["calculus-1", "linear-algebra"],
+                "entry_point_preview_md": (
+                    "a conceptual entrance to recursive state estimation"
+                ),
+            }
         )
     )
 
-    response = client.post("/add-interest", json=_base_request("calculus"), headers=AUTH_HEADERS)
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "explicit_request",
+            "raw_text": "I want to learn Kalman filters",
+            "final_intent_text": "Learn Kalman filters for state estimation",
+            "intent_context": "applied-engineering angle, teach intent",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["node_id"] == new_node_id
+    assert body["node_slug"] == "kalman-filters"
+    assert body["verdict"] == "new"
+    assert body["intent_context"] == "applied-engineering angle, teach intent"
+    assert "recursive state estimation" in body["starter_preview_md"]
 
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["node_id"] == EXISTING_NODE_ID
-    assert body["node_slug"] == "calculus-1"
-    assert body["verdict"] == "same"
-    assert body["user_interest_id"] == ui_id
-
-    # Only one Anthropic call (Haiku dedup); Sonnet must NOT be called.
+    # Sonnet called once.
     assert len(anthropic.messages.calls) == 1
 
-    # user_interests must be written.
-    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
-    assert len(ui_inserts) == 1
-    assert ui_inserts[0].payload["node_id"] == EXISTING_NODE_ID
-
-    # No new nodes inserted.
-    assert not any(c.table == "nodes" and c.op == "insert" for c in supabase.calls)
-
-    # Haiku call used temperature=0 (classification).
-    assert anthropic.messages.calls[0].get("temperature") == 0
-
-
-# ---------------------------------------------------------------------------
-# new verdict — Sonnet called, node inserted, edges inserted
-# ---------------------------------------------------------------------------
-
-
-def test_new_verdict_creates_node_and_edges(client: TestClient, fakes) -> None:
-    supabase, anthropic = fakes
-    new_node_id = str(uuid4())
-    ui_id = str(uuid4())
-
-    _prime_nodes(supabase, [EXISTING_NODE])
-    _prime_llm_calls(supabase)
-    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
-    supabase.respond("edges", "insert", lambda _: [])
-    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
-
-    # Haiku says 'new', Sonnet generates the node.
-    anthropic.queue(json.dumps({"verdict": "new", "matched_node_slug": None}))
-    anthropic.queue(json.dumps(VALID_GENERATED_NODE))
-
-    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["node_id"] == new_node_id
-    assert body["node_slug"] == "fourier-analysis"
-    assert body["verdict"] == "new"
-
-    # Two LLM calls: Haiku dedup + Sonnet generate.
-    assert len(anthropic.messages.calls) == 2
-
-    # Node inserted with correct shape.
+    # Node was inserted with kind='interest' and the generated payload.
     node_inserts = [c for c in supabase.calls if c.table == "nodes" and c.op == "insert"]
     assert len(node_inserts) == 1
-    payload = node_inserts[0].payload
-    assert payload["slug"] == "fourier-analysis"
-    assert payload["kind"] == "interest"
-    assert payload["domain"] == "math"
+    assert node_inserts[0].payload["slug"] == "kalman-filters"
+    assert node_inserts[0].payload["kind"] == "interest"
 
-    # Prerequisite edge inserted: calculus-1 → fourier-analysis.
+    # Prerequisite edges inserted: calculus-1 → new, linear-algebra → new.
     edge_inserts = [c for c in supabase.calls if c.table == "edges" and c.op == "insert"]
     assert len(edge_inserts) == 1
     edges = edge_inserts[0].payload
-    assert isinstance(edges, list)
-    assert len(edges) == 1
-    assert edges[0]["source_node_id"] == EXISTING_NODE_ID
-    assert edges[0]["target_node_id"] == new_node_id
-    assert edges[0]["edge_kind"] == "prerequisite"
+    assert {e["source_node_id"] for e in edges} == {CALCULUS_ID, LINALG_ID}
+    assert all(e["edge_kind"] == "prerequisite" for e in edges)
 
-    # Sonnet does NOT pin temperature.
-    assert "temperature" not in anthropic.messages.calls[1]
-
-
-# ---------------------------------------------------------------------------
-# slug collision — curation_proposals written, no edges inserted
-# ---------------------------------------------------------------------------
-
-
-def test_slug_collision_writes_curation_proposal(client: TestClient, fakes) -> None:
-    supabase, anthropic = fakes
-    existing_id = str(uuid4())
-    ui_id = str(uuid4())
-
-    # First nodes select: load candidates. Second: fetch existing node after collision.
-    node_select_responses: list[list[dict]] = [
-        [EXISTING_NODE],
-        [{"id": existing_id, "slug": "fourier-analysis"}],
-    ]
-    supabase.respond("nodes", "select", lambda _: node_select_responses.pop(0))
-
-    _prime_llm_calls(supabase)
-    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
-    supabase.respond("curation_proposals", "insert", lambda _: [{"id": str(uuid4())}])
-
-    class FakeUniqueViolation(Exception):
-        code = "23505"
-
-    supabase.respond("nodes", "insert", lambda _: FakeUniqueViolation("duplicate key"))
-
-    anthropic.queue(json.dumps({"verdict": "new", "matched_node_slug": None}))
-    anthropic.queue(json.dumps(VALID_GENERATED_NODE))
-
-    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["node_id"] == existing_id
-
-    # Curation proposal written.
-    cp_inserts = [c for c in supabase.calls if c.table == "curation_proposals" and c.op == "insert"]
-    assert len(cp_inserts) == 1
-    assert cp_inserts[0].payload["kind"] == "merge"
-
-    # No edges inserted on race path.
-    assert not any(c.table == "edges" and c.op == "insert" for c in supabase.calls)
-
-    # user_interests still written (linked to existing node).
+    # user_interests row carries intent_context.
     ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
     assert len(ui_inserts) == 1
-    assert ui_inserts[0].payload["node_id"] == existing_id
+    assert ui_inserts[0].payload["intent_context"] == "applied-engineering angle, teach intent"
+    assert ui_inserts[0].payload["added_via"] == "explicit_request"
+
+    # Concept tour: tiles from both foundation prerequisites, mixed string and dict
+    # subtopic shapes both resolved to {name, gloss}.
+    tour = body["concept_tour"]
+    assert len(tour) >= 1
+    names = {t["name"] for t in tour}
+    assert "Rules for differentiation" in names           # string-shape subtopics
+    assert "Matrix multiplication" in names               # dict-shape subtopics
+    # subtopic_key is slugified.
+    diff_tile = next(t for t in tour if t["name"] == "Rules for differentiation")
+    assert diff_tile["subtopic_key"] == "rules-for-differentiation"
+    assert diff_tile["node_slug"] == "calculus-1"
 
 
-# ---------------------------------------------------------------------------
-# related verdict — new node with a 'related' edge to the matched node
-# ---------------------------------------------------------------------------
-
-
-def test_related_verdict_creates_node_with_related_edge(client: TestClient, fakes) -> None:
+def test_resolve_related_slug_writes_related_edge(client: TestClient, fakes) -> None:
     supabase, anthropic = fakes
     new_node_id = str(uuid4())
     ui_id = str(uuid4())
 
-    _prime_nodes(supabase, [EXISTING_NODE])
-    _prime_llm_calls(supabase)
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
     supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
     supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond("edges", "select", lambda _: [])  # empty prereqs → empty tour
+    _prime_llm_calls(supabase)
     supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
 
-    # Haiku says 'related' to calculus-1. Sonnet generates a node with no prerequisites.
     anthropic.queue(
-        json.dumps({"verdict": "related", "matched_node_slug": "calculus-1", "reason": "nearby"})
+        json.dumps(
+            {
+                "title": "Fourier Analysis",
+                "slug": "fourier-analysis",
+                "description_md": "Decomposing functions into sinusoids.",
+                "domain": "math",
+                "difficulty_hint": "core",
+                "subtopics": ["Fourier series", "Fourier transform"],
+                "proposed_prerequisite_slugs": [],
+                "entry_point_preview_md": "a conceptual entrance to Fourier methods",
+            }
+        )
     )
-    related_node = {**VALID_GENERATED_NODE, "proposed_prerequisite_slugs": []}
-    anthropic.queue(json.dumps(related_node))
 
-    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["verdict"] == "related"
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "fourier",
+            "final_intent_text": "Learn Fourier analysis",
+            "intent_context": "math angle, teach intent",
+            "related_node_slug": "calculus-1",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["verdict"] == "related"
 
     edge_inserts = [c for c in supabase.calls if c.table == "edges" and c.op == "insert"]
     assert len(edge_inserts) == 1
     edges = edge_inserts[0].payload
-    assert len(edges) == 1
-    assert edges[0]["source_node_id"] == EXISTING_NODE_ID  # related node
-    assert edges[0]["target_node_id"] == new_node_id
-    assert edges[0]["edge_kind"] == "related"
-
-
-# ---------------------------------------------------------------------------
-# title collision — Sonnet returns a title that already exists; no new insert
-# ---------------------------------------------------------------------------
-
-
-def test_title_collision_links_to_existing_no_new_insert(client: TestClient, fakes) -> None:
-    supabase, anthropic = fakes
-    existing_fourier_id = str(uuid4())
-    ui_id = str(uuid4())
-
-    # DB already has a "Fourier Analysis" node under a different slug.
-    existing_fourier = {
-        "id": existing_fourier_id,
-        "slug": "fourier-analysis-intro",
-        "title": "Fourier Analysis",
-        "description_md": "An intro to Fourier analysis.",
-    }
-    _prime_nodes(supabase, [EXISTING_NODE, existing_fourier])
-    _prime_llm_calls(supabase)
-    supabase.respond("curation_proposals", "insert", lambda _: [{"id": str(uuid4())}])
-    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
-
-    # Haiku says 'new'; Sonnet generates a node whose title duplicates an existing one.
-    anthropic.queue(json.dumps({"verdict": "new", "matched_node_slug": None}))
-    anthropic.queue(json.dumps(VALID_GENERATED_NODE))  # title="Fourier Analysis"
-
-    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["node_id"] == existing_fourier_id
-    assert body["node_slug"] == "fourier-analysis-intro"
-
-    # No new node inserted.
-    assert not any(c.table == "nodes" and c.op == "insert" for c in supabase.calls)
-
-    # Curation proposal written with reason='title_collision'.
-    cp_inserts = [c for c in supabase.calls if c.table == "curation_proposals" and c.op == "insert"]
-    assert len(cp_inserts) == 1
-    assert cp_inserts[0].payload["kind"] == "merge"
-    assert cp_inserts[0].payload["payload_json"]["reason"] == "title_collision"
-
-    # user_interests linked to the existing node.
-    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
-    assert len(ui_inserts) == 1
-    assert ui_inserts[0].payload["node_id"] == existing_fourier_id
-
-
-# ---------------------------------------------------------------------------
-# hallucinated slug — falls back to 'new', Sonnet still called
-# ---------------------------------------------------------------------------
-
-
-def test_hallucinated_slug_treated_as_new(client: TestClient, fakes) -> None:
-    supabase, anthropic = fakes
-    new_node_id = str(uuid4())
-    ui_id = str(uuid4())
-
-    _prime_nodes(supabase, [EXISTING_NODE])
-    _prime_llm_calls(supabase)
-    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
-    supabase.respond("edges", "insert", lambda _: [])
-    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
-
-    # Haiku returns a slug that is not in the candidate set.
-    anthropic.queue(
-        json.dumps({"verdict": "same", "matched_node_slug": "nonexistent-topic", "reason": "?"})
+    assert any(
+        e["source_node_id"] == CALCULUS_ID
+        and e["target_node_id"] == new_node_id
+        and e["edge_kind"] == "related"
+        for e in edges
     )
-    # Falls back to 'new'; Sonnet is called.
-    anthropic.queue(json.dumps({**VALID_GENERATED_NODE, "proposed_prerequisite_slugs": []}))
 
-    response = client.post("/add-interest", json=_base_request(), headers=AUTH_HEADERS)
 
-    assert response.status_code == 200, response.text
-    body = response.json()
-    # Treated as 'new' — a new node was created, not linked to the hallucinated slug.
-    assert body["node_id"] == new_node_id
-    assert body["verdict"] == "new"
+def test_resolve_rejects_both_existing_and_related(client: TestClient, fakes) -> None:
+    supabase, _ = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
 
-    # Sonnet was called (two total: Haiku + Sonnet).
-    assert len(anthropic.messages.calls) == 2
-
-    # A new node was inserted (not a user_interest link to an existing one).
-    assert any(c.table == "nodes" and c.op == "insert" for c in supabase.calls)
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "x",
+            "final_intent_text": "x",
+            "intent_context": "x",
+            "existing_node_slug": "calculus-1",
+            "related_node_slug": "calculus-1",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 400

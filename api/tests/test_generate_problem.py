@@ -16,6 +16,7 @@ AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
 
 VALID_PROBLEM_JSON = json.dumps(
     {
+        "title": "Speed of light from Maxwell",
         "statement_md": "Compute the speed of light.",
         "solution_md": "Use Maxwell's equations to derive $c = 1/\\sqrt{\\mu_0 \\epsilon_0}$.",
         "rubric_md": (

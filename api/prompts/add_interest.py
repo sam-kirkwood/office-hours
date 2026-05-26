@@ -1,66 +1,145 @@
-"""Prompts for POST /add-interest.
+"""Prompts for the add-interest dialog (survey-and-difficulty-design.md §2).
 
-Both system prompts are short and stable so prompt-cache applies across calls.
-Dynamic data (raw_text, candidate list, existing slugs) travels in the user message.
+Two flows:
+
+  /parse   — Haiku. Splits raw_text into segments, classifies each as
+             specific|ambiguous, classifies implicit intent, runs dedup
+             against a candidate slice of the megagraph, and writes the
+             mirror-back + path options.
+
+  /resolve — Sonnet. Only invoked when the resolved interest needs a new
+             interest node (dedup verdict = 'new' or 'related'). Generates
+             the node and a one-sentence entry-point preview.
+
+System prompts are short and stable so the prompt cache applies across
+calls. All dynamic data (raw_text, candidates, slugs) goes in the user
+message.
 """
 
 from __future__ import annotations
 
 
-def build_dedup_system_prompt() -> str:
+# ---------------------------------------------------------------------------
+# /parse — Haiku parse
+# ---------------------------------------------------------------------------
+
+
+def build_parse_system_prompt() -> str:
     return (
-        "You are deduplicating a user's interest expression against an existing knowledge graph. "
-        "Be aggressive about matching: prefer 'same' over 'new' whenever the topic is clearly "
-        "the same subject, even if phrased differently, more specifically, or as part of a "
-        "longer multi-topic expression. "
-        'Return ONLY a JSON object: {"verdict": "same"|"related"|"new"|"split"|"vague", '
-        '"matched_node_slug": null|"string", "reason": "string"}. '
-        'Use "same" when the interest covers the same subject area as an existing node, '
-        "even if the user's phrasing adds minor specificity or scope. "
-        'Use "related" only when the topic is genuinely adjacent but distinct — meaningfully '
-        "different level, domain, or non-overlapping focus. "
-        'Use "new" only when no existing node is even remotely relevant. '
-        'Use "split" when the expression clearly bundles two or more distinct topics that '
-        "should each be separate interests (e.g. 'quantum mechanics and thermodynamics'). "
-        "In reason, list the distinct topics separated by semicolons. "
-        'Use "vague" only when the expression is so ambiguous that a specific node cannot be '
-        "determined (e.g. 'advanced physics'). In reason, write a clarifying question. "
-        "Never invent a slug not present in the candidate list. "
-        "matched_node_slug must be null for new, split, and vague verdicts."
+        "You analyse a learner's free-text expression of what they want to study, "
+        "split it into distinct interests where appropriate, and report back in "
+        "a structured JSON object that a follow-up UI will render.\n"
+        "\n"
+        "Return ONLY a JSON object of this exact shape:\n"
+        '{"segments": [\n'
+        "  {\n"
+        '    "raw_text_segment": "string",\n'
+        '    "specificity": "specific" | "ambiguous",\n'
+        '    "implicit_intent": "teach" | "refresh" | "consolidate",\n'
+        '    "mirror_back_md": "string",\n'
+        '    "optional_followup_md": "string" | null,\n'
+        '    "path_options": [\n'
+        '      {"key": "kebab-slug", "label_md": "string", "draft_intent_context": "string"}\n'
+        "    ],\n"
+        '    "dedup": {"verdict": "same" | "related" | "new", "matched_node_slug": "string" | null},\n'
+        '    "draft_intent_context": "string"\n'
+        "  }\n"
+        "]}\n"
+        "\n"
+        "Rules:\n"
+        "- If the user names two or more clearly distinct subjects (e.g. "
+        "  'quantum mechanics AND thermodynamics'), produce one segment per "
+        "  subject. Coarse-grained is fine when the megagraph is sparse; only "
+        "  split when the subjects are genuinely separate, not when one is a "
+        "  subtopic of the other.\n"
+        "- specificity='specific' when the user has named the angle they care "
+        "  about (e.g. 'I want to follow LIGO papers', 'I want my ODEs back'). "
+        "  specificity='ambiguous' when the topic is broad enough that several "
+        "  legitimate angles exist (e.g. 'I want to learn semiconductors').\n"
+        "- implicit_intent infers from language: 'I want my X back' → refresh; "
+        "  'I want to learn X' / 'I'm curious about X' → teach; 'I want harder "
+        "  problems on X' / 'I want to go deeper' → consolidate.\n"
+        "- mirror_back_md is one or two short sentences in natural language. "
+        "  Use the user's own words where possible. No data summary, no labels.\n"
+        "- For specific segments: set optional_followup_md to a short, "
+        "  skippable invitation (e.g. 'Want to tell me more about what draws "
+        "  you to this?'). Leave path_options as [].\n"
+        "- For ambiguous segments: leave optional_followup_md null and provide "
+        "  3 to 5 path_options, each with a short kebab-case key, a label of "
+        "  at most 80 characters in natural language, and a draft_intent_context "
+        "  that captures what the resolved intent would be if the user picks "
+        "  that path. Always end with an implicit 'or something else' — do not "
+        "  add an explicit other option, the UI will provide one.\n"
+        "- dedup.verdict = 'same' when the segment clearly maps to one of the "
+        "  candidate nodes. 'related' when the topic is adjacent but distinct "
+        "  (different level, different sub-area). 'new' when no candidate is "
+        "  even remotely relevant. Never invent a slug not in the candidate "
+        "  list. matched_node_slug must be null for 'new'.\n"
+        "- draft_intent_context is a short text string (one or two clauses) "
+        "  capturing the user's path + intent if they accept the parse without "
+        "  clarifying. Examples: 'research-following angle, papers-heavy'; "
+        "  'devices-and-circuits angle, teach intent'; 'refresh ODE foundations'. "
+        "  Not a hardcoded enum — write what fits.\n"
+        "- Be calibrated: this is a knowledgeable peer talking, not a survey "
+        "  form. No 'thank you for your response' phrasing."
     )
 
 
-def build_dedup_user_prompt(raw_text: str, candidates: list[dict]) -> str:
+def build_parse_user_prompt(raw_text: str, candidates: list[dict]) -> str:
     if candidates:
         lines = "\n".join(
-            f'- slug="{c["slug"]}" title="{c["title"]}" '
-            f'description="{(c.get("description_md") or "")[:120]}"'
+            f'- slug="{c["slug"]}" title="{c["title"]}" kind="{c.get("kind","")}" '
+            f'desc="{(c.get("description_md") or "")[:120]}"'
             for c in candidates
         )
-        candidates_block = f"Candidate nodes:\n{lines}"
+        candidates_block = f"Candidate nodes (megagraph slice):\n{lines}"
     else:
-        candidates_block = "Candidate nodes: (none)"
-    return f'User expressed interest in: "{raw_text}"\n\n{candidates_block}'
+        candidates_block = "Candidate nodes: (none — graph is empty or no overlap)"
+    return f'User typed: "{raw_text}"\n\n{candidates_block}'
+
+
+# ---------------------------------------------------------------------------
+# /resolve — Sonnet node generation (only for verdict='new' or 'related')
+# ---------------------------------------------------------------------------
 
 
 def build_generate_system_prompt() -> str:
     return (
-        "You are expanding a personalized science learning graph for a working professional. "
-        "Generate a new interest node for the topic the user described. "
-        "Return ONLY a JSON object with these exact keys: "
+        "You are expanding a personalised science learning graph for a working "
+        "professional. Generate a new interest node for the topic the user has "
+        "resolved to. The node lives in a shared megagraph used by ~30 trusted "
+        "users; later operator curation may merge or refine it.\n"
+        "\n"
+        "Return ONLY a JSON object with these exact keys:\n"
         '{"title": "string", "slug": "string", "description_md": "string", '
-        '"domain": "math"|"physics"|"applied", "difficulty_hint": "intro"|"core"|"advanced", '
-        '"subtopics": ["string", ...], "proposed_prerequisite_slugs": ["string", ...]}. '
-        "slug must be lowercase kebab-case ASCII and must not appear in the existing-slugs list. "
-        "title must not exactly match (case-insensitive) any entry in the existing-titles list. "
-        "proposed_prerequisite_slugs must only contain slugs from the existing-slugs list. "
-        "subtopics are short display names (3–6 words), not slugs. "
-        "description_md: 2–3 sentences of plain markdown, no LaTeX."
+        '"domain": "math"|"physics"|"applied", '
+        '"difficulty_hint": "intro"|"core"|"advanced", '
+        '"subtopics": ["string", ...], '
+        '"proposed_prerequisite_slugs": ["string", ...], '
+        '"entry_point_preview_md": "string"}\n'
+        "\n"
+        "Rules:\n"
+        "- slug: lowercase kebab-case ASCII; must not appear in existing-slugs.\n"
+        "- title: case-insensitively distinct from every entry in existing-titles.\n"
+        "- description_md: 2–3 sentences of plain markdown, no LaTeX. Capture "
+        "  what the topic IS and why someone would care, not what level it's "
+        "  taught at.\n"
+        "- subtopics: 4–8 short display names (3–6 words each), the major "
+        "  conceptual chunks of the topic. Not slugs.\n"
+        "- proposed_prerequisite_slugs: only slugs present in existing-slugs. "
+        "  Genuine prerequisites only; do not pad. Empty list is fine.\n"
+        "- entry_point_preview_md: ONE sentence naming what a conceptual "
+        "  entry-point problem or paper for this topic would address. Example: "
+        "  'a conceptual entrance to gravitational-wave detection — what LIGO "
+        "  is measuring and why interferometry works'. The user will see this "
+        "  rendered into 'Your first item will be: …'."
     )
 
 
 def build_generate_user_prompt(
-    raw_text: str,
+    *,
+    final_intent_text: str,
+    intent_context: str,
     existing_slugs: list[str],
     existing_titles: list[str],
     related_slug: str | None,
@@ -68,14 +147,16 @@ def build_generate_user_prompt(
     slugs_block = ", ".join(existing_slugs) if existing_slugs else "(none)"
     titles_block = "; ".join(existing_titles) if existing_titles else "(none)"
     related_note = (
-        f'\nThe user\'s interest is related to the existing node "{related_slug}". '
-        "Generate a distinct node for the new topic; you may include that slug in "
+        f'\nThe resolved interest is related to existing node "{related_slug}". '
+        "Generate a distinct node; you may include that slug in "
         "proposed_prerequisite_slugs if it is genuinely a prerequisite."
         if related_slug
         else ""
     )
     return (
-        f'User expressed interest in: "{raw_text}"{related_note}\n\n'
+        f'Resolved intent: "{final_intent_text}"\n'
+        f'Soft intent context (already stored on the user_interests row): '
+        f'"{intent_context}"{related_note}\n\n'
         f"Existing slugs (your slug must not duplicate any): {slugs_block}\n"
-        f"Existing titles (your title must not exactly match any, case-insensitive): {titles_block}"
+        f"Existing titles (case-insensitively distinct): {titles_block}"
     )

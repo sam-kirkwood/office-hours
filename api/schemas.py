@@ -32,26 +32,97 @@ class HookMatch(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# /add-interest
+# /add-interest/parse and /add-interest/resolve
 # ---------------------------------------------------------------------------
+# The add-interest flow is a dialog (survey-and-difficulty-design.md §2):
+#
+#   1. /parse — Haiku reads the user's raw text, splits it into one or more
+#      distinct interest segments, runs dedup against the megagraph, and
+#      reports specificity + implicit intent. Returns mirror-back text and
+#      (for ambiguous segments) path options. NO database writes.
+#
+#   2. /resolve — the client passes back the final intent text for ONE
+#      segment together with the matched node slug from /parse (when there
+#      was a dedup hit). The server writes the user_interests row, runs
+#      Sonnet generation if a new node is required, and returns the concept
+#      tour tiles for stage 5 of the onboarding survey.
+#
+# Multi-interest input → the client calls /resolve once per segment.
 
 
-class AddInterestRequest(BaseModel):
+# --- /add-interest/parse ----------------------------------------------------
+
+
+class DedupVerdict(BaseModel):
+    """The dedup outcome for one segment of the user's raw text."""
+
+    verdict: str  # 'same' | 'related' | 'new'
+    matched_node_slug: str | None = None  # populated for 'same' and 'related'
+
+
+class PathOption(BaseModel):
+    """One clarifying path offered for an ambiguous segment."""
+
+    key: str               # stable identifier, e.g. 'transistors-and-circuits'
+    label_md: str          # short display label (≤ 80 chars)
+    draft_intent_context: str  # intent_context if the user picks this path
+
+
+class ParsedInterestSegment(BaseModel):
+    """One distinct interest extracted from the user's raw text."""
+
+    raw_text_segment: str       # the portion of raw_text this segment came from
+    specificity: str            # 'specific' | 'ambiguous'
+    implicit_intent: str        # 'teach' | 'refresh' | 'consolidate'
+    mirror_back_md: str         # natural-language echo of the user's intent
+    optional_followup_md: str | None = None  # present for 'specific'
+    path_options: list[PathOption] = Field(default_factory=list)  # for 'ambiguous'
+    dedup: DedupVerdict
+    draft_intent_context: str   # intent_context if user accepts without clarifying
+
+
+class ParsedInterestPayload(BaseModel):
+    """Haiku's structured output for one /parse call. Internal only — wrapped
+    by the route into ParseAddInterestResponse with dedup info attached."""
+
+    segments: list[ParsedInterestSegment]
+
+
+class ParseAddInterestRequest(BaseModel):
     user_id: UUID
     raw_text: str
-    added_via: str  # 'survey' | 'explicit_request'
+    added_via: str  # 'survey' | 'explicit_request' | 'cross_pollination'
 
 
-class DeduplicationVerdict(BaseModel):
-    """Haiku dedup call output."""
+class ParseAddInterestResponse(BaseModel):
+    segments: list[ParsedInterestSegment]
 
-    verdict: str  # 'same' | 'related' | 'new' | 'split' | 'vague'
-    matched_node_slug: str | None = None
-    reason: str | None = None
+
+# --- /add-interest/resolve --------------------------------------------------
+
+
+class ResolveAddInterestRequest(BaseModel):
+    user_id: UUID
+    added_via: str  # 'survey' | 'explicit_request' | 'cross_pollination'
+    raw_text: str                       # original text the user typed (for audit)
+    final_intent_text: str              # synthesized: original + chosen path + extra context
+    intent_context: str                 # the soft text stored on user_interests
+
+    # Echoed back from /parse. Server validates each slug exists in the
+    # megagraph before acting on it. Mutually exclusive — at most one is set.
+    # - existing_node_slug: link the user to this node, no Sonnet call.
+    #   Use when /parse dedup returned 'same'.
+    # - related_node_slug: generate a new node and write a 'related' edge to
+    #   this existing one. Use when /parse dedup returned 'related'.
+    # - Both null: generate a new standalone node. Use when /parse dedup
+    #   returned 'new'.
+    existing_node_slug: str | None = None
+    related_node_slug: str | None = None
 
 
 class GeneratedInterestNode(BaseModel):
-    """Sonnet node-generation call output."""
+    """Sonnet node-generation call output. Only used when /resolve must create
+    a brand-new interest node (no megagraph hit on the resolved intent)."""
 
     title: str
     slug: str  # kebab-case, lowercase, ASCII
@@ -60,14 +131,33 @@ class GeneratedInterestNode(BaseModel):
     difficulty_hint: str  # 'intro' | 'core' | 'advanced'
     subtopics: list[str]  # display names, not slugs
     proposed_prerequisite_slugs: list[str]
+    entry_point_preview_md: str  # one sentence; powers starter_preview_md
 
 
-class AddInterestResponse(BaseModel):
-    node_id: UUID | None = None
-    node_slug: str | None = None
-    verdict: str  # 'same' | 'related' | 'new' | 'split' | 'vague'
-    user_interest_id: UUID | None = None
-    clarification_prompt: str | None = None  # for 'split' and 'vague' verdicts
+class ConceptTourTile(BaseModel):
+    """One subtopic tile for the Stage 5 concept tour.
+
+    Tiles live at the SUBTOPIC level of foundation nodes (see
+    survey-and-difficulty-design.md §1.6.2). subtopic_key is derived from
+    the subtopic name (lowercase kebab-case) and is stable across calls so
+    the client can post tile-level state back.
+    """
+
+    node_id: UUID         # foundation node owning the subtopic
+    node_slug: str
+    subtopic_key: str
+    name: str
+    gloss: str | None = None
+
+
+class ResolveAddInterestResponse(BaseModel):
+    user_interest_id: UUID
+    node_id: UUID
+    node_slug: str
+    verdict: str  # 'same' | 'related' | 'new'
+    intent_context: str
+    starter_preview_md: str
+    concept_tour: list[ConceptTourTile]
 
 
 # ---------------------------------------------------------------------------

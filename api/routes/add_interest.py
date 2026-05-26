@@ -1,22 +1,34 @@
-"""POST /add-interest — dedup then optionally generate a new interest node.
+"""Add-interest dialog routes.
 
-Flow:
-  1. Load all existing nodes as the candidate pool.
-  2. Build a title-similarity shortlist (cap 20) to keep the Haiku prompt bounded.
-  3. Haiku dedup call. Validate the returned slug is in the candidate set.
-  4. 'same' verdict → write user_interests, return immediately.
-  5. 'related' or 'new' → Sonnet generates title/slug/description/edges.
-  6. INSERT the new node (ON CONFLICT DO NOTHING pattern via exception catch).
-     Slug collision → write a curation_proposals merge row; link user to existing node.
-  7. Insert prerequisite edges from proposed_prerequisite_slugs (skip unknowns).
-     Insert a 'related' edge to the matched node when verdict was 'related'.
-  8. Write user_interests row.
-  9. Return AddInterestResponse.
+Two endpoints implement the dialog specified in
+docs/survey-and-difficulty-design.md §2:
+
+  POST /add-interest/parse
+    Read-only. Haiku splits the raw text into one or more interest segments,
+    classifies each as specific|ambiguous, infers implicit intent, and
+    deduplicates each segment against a candidate slice of the megagraph.
+    Returns mirror-back text and (for ambiguous segments) path options.
+    No database writes.
+
+  POST /add-interest/resolve
+    Commits one resolved interest segment. The client passes the final
+    intent text, the soft intent_context, and at most one of:
+      - existing_node_slug → link to that node, no Sonnet call.
+      - related_node_slug  → generate a new node + 'related' edge.
+      - neither            → generate a new standalone node.
+    Writes the user_interests row with intent_context populated. Returns a
+    starter preview string and a 6–10 tile concept tour for stage 5 of the
+    onboarding survey.
+
+Multi-interest input from /parse → the client calls /resolve once per
+segment so the concept tours can be deduplicated across the sequence
+(survey-and-difficulty-design.md §1.6.5).
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from uuid import UUID
 
 from anthropic import Anthropic
@@ -28,10 +40,16 @@ from auth import require_internal_token
 from config import HAIKU_MODEL, SONNET_MODEL
 from prompts import add_interest as prompts
 from schemas import (
-    AddInterestRequest,
-    AddInterestResponse,
-    DeduplicationVerdict,
+    ConceptTourTile,
+    DedupVerdict,
     GeneratedInterestNode,
+    ParseAddInterestRequest,
+    ParseAddInterestResponse,
+    ParsedInterestPayload,
+    ParsedInterestSegment,
+    PathOption,
+    ResolveAddInterestRequest,
+    ResolveAddInterestResponse,
 )
 from supabase_client import get_supabase_client
 
@@ -39,6 +57,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_DEDUP_CANDIDATES = 20
+CONCEPT_TOUR_MIN = 6
+CONCEPT_TOUR_MAX = 10
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _is_unique_violation(exc: Exception) -> bool:
@@ -49,10 +74,10 @@ def _is_unique_violation(exc: Exception) -> bool:
 
 
 def _shortlist(raw_text: str, all_nodes: list[dict]) -> list[dict]:
-    """Return up to MAX_DEDUP_CANDIDATES nodes, prioritising those whose title
-    or slug share tokens with raw_text. Pads with unmatched nodes so Haiku
-    always sees some context even on a completely novel topic."""
-    tokens = set(raw_text.lower().split())
+    """Up to MAX_DEDUP_CANDIDATES nodes ranked by token overlap with raw_text.
+    Always padded with unmatched nodes so Haiku sees some breadth even on a
+    completely novel topic."""
+    tokens = {t for t in raw_text.lower().split() if len(t) > 2}
     matching, rest = [], []
     for node in all_nodes:
         combined = (node["title"] + " " + node["slug"].replace("-", " ")).lower()
@@ -63,12 +88,80 @@ def _shortlist(raw_text: str, all_nodes: list[dict]) -> list[dict]:
     return (matching + rest)[:MAX_DEDUP_CANDIDATES]
 
 
+_SLUG_PUNCT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text: str) -> str:
+    s = _SLUG_PUNCT_RE.sub("-", text.lower()).strip("-")
+    return s or "untitled"
+
+
+def _subtopic_entries(subtopics_json: object) -> list[dict[str, str]]:
+    """nodes.subtopics_json contains either bare strings (newer interest nodes)
+    or {slug, title} dicts (seeded foundation nodes). Normalise to a list of
+    {name, gloss} dicts where gloss may be empty."""
+    if not isinstance(subtopics_json, list):
+        return []
+    entries: list[dict[str, str]] = []
+    for raw in subtopics_json:
+        if isinstance(raw, str):
+            entries.append({"name": raw, "gloss": ""})
+        elif isinstance(raw, dict):
+            name = raw.get("title") or raw.get("name") or raw.get("slug") or ""
+            if not name:
+                continue
+            entries.append({"name": str(name), "gloss": str(raw.get("gloss", ""))})
+    return entries
+
+
+def _validate_dedup_slugs(
+    segments: list[ParsedInterestSegment], candidate_slugs: set[str]
+) -> list[ParsedInterestSegment]:
+    """Drop hallucinated slugs from segment.dedup so the client never sees a
+    slug we don't actually have."""
+    cleaned: list[ParsedInterestSegment] = []
+    for seg in segments:
+        if seg.dedup.matched_node_slug and seg.dedup.matched_node_slug not in candidate_slugs:
+            logger.warning(
+                "Haiku parse returned unknown slug %r for segment %r — dropping to 'new'",
+                seg.dedup.matched_node_slug,
+                seg.raw_text_segment[:60],
+            )
+            seg = seg.model_copy(
+                update={"dedup": DedupVerdict(verdict="new", matched_node_slug=None)}
+            )
+        cleaned.append(seg)
+    return cleaned
+
+
+def _fetch_node_by_slug(supabase: Client, slug: str) -> dict | None:
+    resp = (
+        supabase.table("nodes")
+        .select("id, slug, title, kind, subtopics_json")
+        .eq("slug", slug)
+        .limit(1)
+        .execute()
+    )
+    rows = resp.data or []
+    return rows[0] if rows else None
+
+
 def _upsert_user_interest(
-    supabase: Client, *, user_id: str, node_id: str, added_via: str
+    supabase: Client,
+    *,
+    user_id: str,
+    node_id: str,
+    added_via: str,
+    intent_context: str,
 ) -> UUID:
-    """Insert a user_interests row. On unique violation (duplicate add), fetch
-    and return the existing row's id."""
-    row = {"user_id": user_id, "node_id": node_id, "added_via": added_via}
+    """Insert a user_interests row with intent_context. On unique violation
+    (duplicate add), update the existing row's intent_context and return its id."""
+    row = {
+        "user_id": user_id,
+        "node_id": node_id,
+        "added_via": added_via,
+        "intent_context": intent_context,
+    }
     try:
         result = supabase.table("user_interests").insert(row).execute()
         return UUID(result.data[0]["id"])
@@ -88,96 +181,145 @@ def _upsert_user_interest(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="user_interest unique violation but no row found",
             ) from exc
-        return UUID(existing.data[0]["id"])
+        ui_id = existing.data[0]["id"]
+        # Refresh intent_context on the existing row — the user just resolved
+        # this interest again and may have a more specific context now.
+        supabase.table("user_interests").update({"intent_context": intent_context}).eq(
+            "id", ui_id
+        ).execute()
+        return UUID(ui_id)
+
+
+# ---------------------------------------------------------------------------
+# /add-interest/parse
+# ---------------------------------------------------------------------------
 
 
 @router.post(
-    "/add-interest",
-    response_model=AddInterestResponse,
+    "/add-interest/parse",
+    response_model=ParseAddInterestResponse,
     dependencies=[Depends(require_internal_token)],
 )
-def add_interest(
-    body: AddInterestRequest,
+def parse_add_interest(
+    body: ParseAddInterestRequest,
     supabase: Client = Depends(get_supabase_client),
     anthropic: Anthropic = Depends(get_anthropic_client),
-) -> AddInterestResponse:
+) -> ParseAddInterestResponse:
     user_id = str(body.user_id)
 
-    # 1. Load all existing nodes.
-    nodes_resp = supabase.table("nodes").select("id, slug, title, description_md").execute()
+    nodes_resp = (
+        supabase.table("nodes").select("id, slug, title, kind, description_md").execute()
+    )
     all_nodes: list[dict] = nodes_resp.data or []
-    existing_slugs = [n["slug"] for n in all_nodes]
-    existing_titles = [n["title"] for n in all_nodes]
-    slug_to_id = {n["slug"]: n["id"] for n in all_nodes}
-    title_to_node = {n["title"].strip().lower(): n for n in all_nodes}
-
-    # 2. Shortlist for dedup prompt.
     candidates = _shortlist(body.raw_text, all_nodes)
+    candidate_slugs = {n["slug"] for n in candidates}
 
-    # 3. Haiku dedup call (temperature=0 — classification, not generation).
-    verdict: DeduplicationVerdict = call_json(
+    payload: ParsedInterestPayload = call_json(
         client=anthropic,
         supabase=supabase,
         model=HAIKU_MODEL,
-        system_prompt=prompts.build_dedup_system_prompt(),
-        user_prompt=prompts.build_dedup_user_prompt(body.raw_text, candidates),
-        schema=DeduplicationVerdict,
-        route="add-interest/dedup",
+        system_prompt=prompts.build_parse_system_prompt(),
+        user_prompt=prompts.build_parse_user_prompt(body.raw_text, candidates),
+        schema=ParsedInterestPayload,
+        route="add-interest/parse",
         user_id=user_id,
-        request_summary={"raw_text": body.raw_text[:80], "candidates": len(candidates)},
+        request_summary={
+            "raw_text": body.raw_text[:80],
+            "candidates": len(candidates),
+        },
         temperature=0,
     )
 
-    # Validate matched_node_slug is not hallucinated (must be in the candidate set).
-    candidate_slugs = {n["slug"] for n in candidates}
-    if verdict.matched_node_slug and verdict.matched_node_slug not in candidate_slugs:
+    segments = _validate_dedup_slugs(payload.segments, candidate_slugs)
+
+    # Belt-and-braces: clamp specificity-shaped fields. Haiku occasionally puts
+    # path_options on a 'specific' segment or leaves them empty on 'ambiguous'.
+    cleaned: list[ParsedInterestSegment] = []
+    for seg in segments:
+        update: dict = {}
+        if seg.specificity == "specific":
+            update["path_options"] = []
+            if not seg.optional_followup_md:
+                update["optional_followup_md"] = (
+                    "Want to tell me more about what draws you to this?"
+                )
+        elif seg.specificity == "ambiguous":
+            update["optional_followup_md"] = None
+        cleaned.append(seg.model_copy(update=update) if update else seg)
+
+    return ParseAddInterestResponse(segments=cleaned)
+
+
+# ---------------------------------------------------------------------------
+# /add-interest/resolve
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/add-interest/resolve",
+    response_model=ResolveAddInterestResponse,
+    dependencies=[Depends(require_internal_token)],
+)
+def resolve_add_interest(
+    body: ResolveAddInterestRequest,
+    supabase: Client = Depends(get_supabase_client),
+    anthropic: Anthropic = Depends(get_anthropic_client),
+) -> ResolveAddInterestResponse:
+    user_id = str(body.user_id)
+
+    if body.existing_node_slug and body.related_node_slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="existing_node_slug and related_node_slug are mutually exclusive",
+        )
+
+    nodes_resp = (
+        supabase.table("nodes")
+        .select("id, slug, title, kind, subtopics_json")
+        .execute()
+    )
+    all_nodes: list[dict] = nodes_resp.data or []
+    slug_to_node = {n["slug"]: n for n in all_nodes}
+    title_to_node = {n["title"].strip().lower(): n for n in all_nodes}
+
+    # --- Case 1: link to an existing node (verdict='same' from /parse) ------
+    if body.existing_node_slug:
+        existing = slug_to_node.get(body.existing_node_slug)
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"existing_node_slug {body.existing_node_slug!r} not found",
+            )
+        ui_id = _upsert_user_interest(
+            supabase,
+            user_id=user_id,
+            node_id=existing["id"],
+            added_via=body.added_via,
+            intent_context=body.intent_context,
+        )
+        starter = _starter_preview_for_existing(existing)
+        tour = _concept_tour(supabase, node_id=existing["id"], all_nodes=all_nodes)
+        return ResolveAddInterestResponse(
+            user_interest_id=ui_id,
+            node_id=UUID(existing["id"]),
+            node_slug=existing["slug"],
+            verdict="same",
+            intent_context=body.intent_context,
+            starter_preview_md=starter,
+            concept_tour=tour,
+        )
+
+    # --- Case 2 + 3: generate a new node ------------------------------------
+    related_slug = body.related_node_slug
+    if related_slug and related_slug not in slug_to_node:
         logger.warning(
-            "Haiku dedup returned slug %r not in candidates — treating as 'new'",
-            verdict.matched_node_slug,
+            "related_node_slug %r not in megagraph — dropping the 'related' edge hint",
+            related_slug,
         )
-        verdict = DeduplicationVerdict(
-            verdict="new", matched_node_slug=None, reason=verdict.reason
-        )
+        related_slug = None
 
-    # 4. 'same' → link user to matched node and return.
-    if verdict.verdict == "same" and verdict.matched_node_slug:
-        matched = next(
-            (n for n in all_nodes if n["slug"] == verdict.matched_node_slug), None
-        )
-        if matched:
-            ui_id = _upsert_user_interest(
-                supabase, user_id=user_id, node_id=matched["id"], added_via=body.added_via
-            )
-            return AddInterestResponse(
-                node_id=UUID(matched["id"]),
-                node_slug=matched["slug"],
-                verdict="same",
-                user_interest_id=ui_id,
-            )
-        # Slug validated but node not found — treat as new (shouldn't happen).
-        verdict = DeduplicationVerdict(verdict="new", matched_node_slug=None)
-
-    # 4b. 'split' → user's expression bundles multiple distinct topics. Return early so
-    #     the caller can surface each suggestion individually rather than collapsing them
-    #     into a single (incorrect) new node.
-    if verdict.verdict == "split":
-        logger.info("Dedup verdict=split for raw_text=%r; reason=%r", body.raw_text, verdict.reason)
-        return AddInterestResponse(
-            verdict="split",
-            clarification_prompt=verdict.reason,
-        )
-
-    # 4c. 'vague' → expression is too ambiguous to map to a node. Return early so the
-    #     caller can prompt the user for clarification.
-    if verdict.verdict == "vague":
-        logger.info("Dedup verdict=vague for raw_text=%r; reason=%r", body.raw_text, verdict.reason)
-        return AddInterestResponse(
-            verdict="vague",
-            clarification_prompt=verdict.reason,
-        )
-
-    # 5. 'related' or 'new' → Sonnet generates the new node.
-    related_slug = verdict.matched_node_slug if verdict.verdict == "related" else None
+    existing_slugs = [n["slug"] for n in all_nodes]
+    existing_titles = [n["title"] for n in all_nodes]
 
     generated: GeneratedInterestNode = call_json(
         client=anthropic,
@@ -185,20 +327,22 @@ def add_interest(
         model=SONNET_MODEL,
         system_prompt=prompts.build_generate_system_prompt(),
         user_prompt=prompts.build_generate_user_prompt(
-            raw_text=body.raw_text,
+            final_intent_text=body.final_intent_text,
+            intent_context=body.intent_context,
             existing_slugs=existing_slugs,
             existing_titles=existing_titles,
             related_slug=related_slug,
         ),
         schema=GeneratedInterestNode,
-        route="add-interest/generate",
+        route="add-interest/resolve",
         user_id=user_id,
-        request_summary={"raw_text": body.raw_text[:80], "verdict": verdict.verdict},
+        request_summary={
+            "final_intent_text": body.final_intent_text[:80],
+            "verdict": "related" if related_slug else "new",
+        },
     )
 
-    # 6a. Title collision check — Sonnet may ignore the "no duplicate title" instruction.
-    # If the generated title matches an existing node (case-insensitive), skip the insert
-    # and link the user to the existing node instead.
+    # Title collision — Sonnet ignored "must be case-insensitively distinct".
     title_matched = title_to_node.get(generated.title.strip().lower())
     if title_matched:
         logger.warning(
@@ -214,6 +358,7 @@ def add_interest(
                         "slug": generated.slug,
                         "new_title": generated.title,
                         "raw_text": body.raw_text,
+                        "final_intent_text": body.final_intent_text,
                         "user_id": user_id,
                         "reason": "title_collision",
                     },
@@ -222,16 +367,24 @@ def add_interest(
         except Exception as exc:
             logger.warning("curation_proposals insert failed: %s", exc)
         ui_id = _upsert_user_interest(
-            supabase, user_id=user_id, node_id=title_matched["id"], added_via=body.added_via
+            supabase,
+            user_id=user_id,
+            node_id=title_matched["id"],
+            added_via=body.added_via,
+            intent_context=body.intent_context,
         )
-        return AddInterestResponse(
+        tour = _concept_tour(supabase, node_id=title_matched["id"], all_nodes=all_nodes)
+        return ResolveAddInterestResponse(
+            user_interest_id=ui_id,
             node_id=UUID(title_matched["id"]),
             node_slug=title_matched["slug"],
-            verdict=verdict.verdict,
-            user_interest_id=ui_id,
+            verdict="same",  # we collapsed into the existing node
+            intent_context=body.intent_context,
+            starter_preview_md=_starter_preview_for_existing(title_matched),
+            concept_tour=tour,
         )
 
-    # 6b. Insert node; handle slug collision race.
+    # Insert the new node, handling slug collision races.
     node_row = {
         "slug": generated.slug,
         "title": generated.title,
@@ -242,7 +395,6 @@ def add_interest(
         "subtopics_json": generated.subtopics,
         "created_by_user_id": user_id,
     }
-    node_id: str
     race_collision = False
     try:
         insert_resp = supabase.table("nodes").insert(node_row).execute()
@@ -251,19 +403,13 @@ def add_interest(
         if not _is_unique_violation(exc):
             raise
         race_collision = True
-        existing = (
-            supabase.table("nodes")
-            .select("id, slug")
-            .eq("slug", generated.slug)
-            .limit(1)
-            .execute()
-        )
-        if not existing.data:
+        existing = _fetch_node_by_slug(supabase, generated.slug)
+        if not existing:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="slug collision but existing node not found",
             ) from exc
-        node_id = existing.data[0]["id"]
+        node_id = existing["id"]
         supabase.table("curation_proposals").insert(
             {
                 "kind": "merge",
@@ -271,31 +417,30 @@ def add_interest(
                     "slug": generated.slug,
                     "new_title": generated.title,
                     "raw_text": body.raw_text,
+                    "final_intent_text": body.final_intent_text,
                     "user_id": user_id,
                 },
             }
         ).execute()
 
-    # 7. Insert edges — only when we successfully created the node.
-    # In the race-collision path the winning insert already wrote edges; skip.
     if not race_collision:
         edge_rows: list[dict] = []
         for prereq_slug in generated.proposed_prerequisite_slugs:
-            prereq_id = slug_to_id.get(prereq_slug)
-            if prereq_id:
+            prereq = slug_to_node.get(prereq_slug)
+            if prereq:
                 edge_rows.append(
                     {
-                        "source_node_id": prereq_id,
+                        "source_node_id": prereq["id"],
                         "target_node_id": node_id,
                         "edge_kind": "prerequisite",
                     }
                 )
         if related_slug:
-            related_id = slug_to_id.get(related_slug)
-            if related_id and related_id != node_id:
+            related = slug_to_node.get(related_slug)
+            if related and related["id"] != node_id:
                 edge_rows.append(
                     {
-                        "source_node_id": related_id,
+                        "source_node_id": related["id"],
                         "target_node_id": node_id,
                         "edge_kind": "related",
                     }
@@ -307,14 +452,88 @@ def add_interest(
                 if not _is_unique_violation(exc):
                     raise
 
-    # 8. Write user_interests.
     ui_id = _upsert_user_interest(
-        supabase, user_id=user_id, node_id=node_id, added_via=body.added_via
+        supabase,
+        user_id=user_id,
+        node_id=node_id,
+        added_via=body.added_via,
+        intent_context=body.intent_context,
     )
 
-    return AddInterestResponse(
+    verdict = "related" if related_slug else "new"
+    starter = (
+        f"Your first item will be: {generated.entry_point_preview_md}".rstrip(".") + "."
+    )
+    tour = _concept_tour(supabase, node_id=node_id, all_nodes=all_nodes)
+    return ResolveAddInterestResponse(
+        user_interest_id=ui_id,
         node_id=UUID(node_id),
         node_slug=generated.slug,
-        verdict=verdict.verdict,
-        user_interest_id=ui_id,
+        verdict=verdict,
+        intent_context=body.intent_context,
+        starter_preview_md=starter,
+        concept_tour=tour,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concept tour + starter preview helpers
+# ---------------------------------------------------------------------------
+
+
+def _starter_preview_for_existing(node: dict) -> str:
+    """When the resolved interest links to an existing node, we don't have
+    a Sonnet-generated entry-point preview. Compose a generic one that the
+    next UI session can live with until the curriculum curator (Step 3)
+    surfaces real queue items."""
+    title = node.get("title", "this topic")
+    return f"Your first item will be: a conceptual entrance to {title}."
+
+
+def _concept_tour(
+    supabase: Client, *, node_id: str, all_nodes: list[dict]
+) -> list[ConceptTourTile]:
+    """Build 6–10 subtopic-level tiles drawn from the node's prerequisite
+    foundation nodes (survey-and-difficulty-design.md §1.6.2)."""
+    edges_resp = (
+        supabase.table("edges")
+        .select("source_node_id, edge_kind, target_node_id")
+        .eq("target_node_id", node_id)
+        .eq("edge_kind", "prerequisite")
+        .execute()
+    )
+    prereq_ids: list[str] = [
+        e["source_node_id"] for e in (edges_resp.data or [])
+    ]
+
+    nodes_by_id = {n["id"]: n for n in all_nodes}
+    prereqs = [nodes_by_id[i] for i in prereq_ids if i in nodes_by_id]
+
+    # Surface foundation prerequisites first; concept tour tiles live at the
+    # foundation-subtopic level. Interest-kind prerequisites can supply tiles
+    # only if we'd otherwise come up short.
+    foundation_first = [p for p in prereqs if p.get("kind") == "foundation"] + [
+        p for p in prereqs if p.get("kind") != "foundation"
+    ]
+
+    tiles: list[ConceptTourTile] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for prereq in foundation_first:
+        for entry in _subtopic_entries(prereq.get("subtopics_json")):
+            subtopic_key = _slugify(entry["name"])
+            dedup_key = (prereq["id"], subtopic_key)
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+            tiles.append(
+                ConceptTourTile(
+                    node_id=UUID(prereq["id"]),
+                    node_slug=prereq["slug"],
+                    subtopic_key=subtopic_key,
+                    name=entry["name"],
+                    gloss=entry["gloss"] or None,
+                )
+            )
+            if len(tiles) >= CONCEPT_TOUR_MAX:
+                return tiles
+    return tiles

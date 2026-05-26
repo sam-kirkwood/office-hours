@@ -1,5 +1,5 @@
-Status: Phase 9-rev complete. Post-phase bug fixes applied (reroll title path, concept_review stuck item cleared, problems.title column added).
-Next step: Phase 10-rev step 1 — Survey scoping.
+Status: Phase 10-rev Step 1 done (three design docs landed). Step 2a (schema migration) and Step 2b (add-interest dialog API: /parse + /resolve, intent_context populated, concept-tour tiles returned) done; pending dev DB apply.
+Next step: Phase 10-rev step 2c — Onboarding survey UI (seven stages) wired against /add-interest/parse and /add-interest/resolve.
 
 ---
 
