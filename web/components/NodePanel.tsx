@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import MarkdownLatex from "@/lib/markdown";
-import type { Node, UserNodeState } from "@/lib/types";
+import type { Node, UserNodeState, NotebookEntry } from "@/lib/types";
 
 interface Props {
   node: Node;
@@ -34,15 +34,45 @@ const STATE_LABELS: Record<string, string> = {
   comfortable: "Comfortable",
 };
 
+const ENTRY_KIND_LABELS: Record<string, string> = {
+  problem_attempt: "Problem",
+  paper_engagement: "Paper",
+};
+
 export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [bookmarking, setBookmarking] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [markingComfortable, setMarkingComfortable] = useState(false);
+  const [comfortable, setComfortable] = useState(state?.state === "comfortable");
+  const [requestingPaper, setRequestingPaper] = useState(false);
+  const [history, setHistory] = useState<NotebookEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    setComfortable(state?.state === "comfortable");
+    setBookmarked(false);
+    setError(null);
+    setInfo(null);
+  }, [node.id, state?.state]);
+
+  useEffect(() => {
+    setHistoryLoading(true);
+    fetch(`/api/notebook?topic=${encodeURIComponent(node.slug)}&limit=5`)
+      .then((r) => r.json())
+      .then((data) => setHistory(data.entries ?? []))
+      .catch(() => setHistory([]))
+      .finally(() => setHistoryLoading(false));
+  }, [node.slug]);
 
   async function handleGetProblem() {
     setLoading(true);
     setError(null);
+    setInfo(null);
     try {
       const res = await fetch("/api/queue/request", {
         method: "POST",
@@ -61,6 +91,7 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
   async function handleAddInterest() {
     setAdding(true);
     setError(null);
+    setInfo(null);
     try {
       const res = await fetch("/api/interest", {
         method: "POST",
@@ -73,6 +104,64 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function handleBookmark() {
+    setBookmarking(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await fetch(`/api/node/${node.id}/bookmark`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setBookmarked(data.bookmarked);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setBookmarking(false);
+    }
+  }
+
+  async function handleMarkComfortable() {
+    setMarkingComfortable(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await fetch(`/api/node/${node.id}/comfortable`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Failed");
+      }
+      setComfortable(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setMarkingComfortable(false);
+    }
+  }
+
+  async function handleRequestPaper() {
+    setRequestingPaper(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await fetch("/api/queue/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node_id: node.id, kind_hint: "paper" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      if (data.queue_item_id) {
+        router.push(`/paper/${data.queue_item_id}`);
+      } else {
+        setInfo(data.message ?? "Paper added to your queue.");
+        setRequestingPaper(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+      setRequestingPaper(false);
     }
   }
 
@@ -113,6 +202,12 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
           </div>
         )}
 
+        {node.unlocks_text && (
+          <p className="mb-4 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Unlocks:</span> {node.unlocks_text}
+          </p>
+        )}
+
         {state && (
           <div className="mb-4 text-sm text-muted-foreground">
             {state.engagement_count > 0 && (
@@ -130,7 +225,26 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
           </div>
         )}
 
+        {!historyLoading && history.length > 0 && (
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Your history
+            </p>
+            <ul className="space-y-1.5">
+              {history.map((entry) => (
+                <li key={entry.id} className="text-sm">
+                  <span className="mr-1.5 text-xs text-muted-foreground">
+                    {ENTRY_KIND_LABELS[entry.entry_kind] ?? entry.entry_kind}
+                  </span>
+                  <span className="text-foreground">{entry.title}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
+        {info && <p className="mb-3 text-sm text-muted-foreground">{info}</p>}
 
         <div className="flex flex-col gap-2">
           <Button
@@ -141,6 +255,38 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
           >
             {loading ? "Generating…" : "Get a problem"}
           </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleRequestPaper}
+            disabled={requestingPaper}
+            className="w-full"
+          >
+            {requestingPaper ? "Finding…" : "Request a paper"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleBookmark}
+            disabled={bookmarking}
+            className="w-full"
+          >
+            {bookmarking ? "Saving…" : bookmarked ? "Bookmarked ✓" : "Bookmark"}
+          </Button>
+
+          {!comfortable && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleMarkComfortable}
+              disabled={markingComfortable}
+              className="w-full"
+            >
+              {markingComfortable ? "Saving…" : "Mark as comfortable"}
+            </Button>
+          )}
 
           {!isUserNode && (
             <Button

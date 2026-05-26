@@ -1,5 +1,5 @@
-Status: Phase 8-rev complete.
-Next step: Phase 9-rev step 1 — Mobile polish.
+Status: Phase 9-rev complete. Post-phase bug fixes applied (reroll title path, concept_review stuck item cleared, problems.title column added).
+Next step: Phase 10-rev step 1 — Survey scoping.
 
 ---
 

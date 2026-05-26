@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { surfaceDaily } from "@/lib/pythonApi";
+import { toItem, resolveTitles } from "@/lib/queueHelpers";
 
 export async function POST() {
   const supabase = await createClient();
@@ -37,10 +38,11 @@ export async function POST() {
 
     // 2. Create a new pick.
     const result = await surfaceDaily({ userId: user.id });
+    const items = await resolveTitles(result.items.map(toItem));
     return NextResponse.json({
       pick_id: result.pick_id,
-      items: result.items,
-      more_coming: result.items.length < 3,
+      items,
+      more_coming: items.length < 3,
     });
   } catch (err) {
     // 404 from Python means no pending items left after reroll.

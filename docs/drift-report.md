@@ -24,8 +24,8 @@ Generated: 2026-05-17. Source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-des
 
 | # | Area | Finding | Severity | Status | Notes |
 |---|------|---------|----------|--------|-------|
-| 1 | Queue / Daily | Cards show a static fallback reason ("A problem is ready for you.") instead of a dynamically generated "why this" tied to the user's interests or recent work | `diverged` | `todo` | Conflicts with SPEC.md §Daily experience — "Brief 'why this'…" |
-| 2 | Queue / Daily | Cards show no item title (problem statement title or paper title) — only the mode badge and reason string | `diverged` | `todo` | Conflicts with SPEC.md §Daily experience — "Title and short description." |
+| 1 | Queue / Daily | Cards show a static fallback reason ("A problem is ready for you.") instead of a dynamically generated "why this" tied to the user's interests or recent work | `diverged` | `done` | generate_problem.py now writes interest-tied reason; propose_papers writes LLM rationale; suggest_papers writes interest titles |
+| 2 | Queue / Daily | Cards show no item title (problem statement title or paper title) — only the mode badge and reason string | `diverged` | `done` | queueHelpers.ts resolves problem→node title and paper_engagement→paper title; DailyView displays title prominently |
 | 3 | Queue / Daily | `concept_review` queue items render a "coming soon" placeholder; the click-through is not implemented | `missing` | `todo` | Conflicts with ARCHITECTURE.md §Queue — `kind` enum includes `concept_review` as surfaceable content |
 | 4 | Queue / Daily | Reroll swaps the item but the event is never recorded and never feeds back into `/update-queue` priority reweighting | `missing` | `todo` | Conflicts with SPEC.md §Daily experience — "Repeated rerolls … adjust future queue composition." |
 | 5 | Queue / Daily | `POST /api/queue/request` with `kind_hint="paper"` silently returns nothing for topics not yet in the `papers` table instead of triggering `/propose-papers` | `diverged` | `todo` | Conflicts with SPEC.md §Daily experience — "Find me a paper on [topic]"; docs/pivot-plan.md Deferred note - should bring back into v2|
@@ -33,14 +33,14 @@ Generated: 2026-05-17. Source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-des
 | 7 | Onboarding / Survey | Comfort-calibration step is entirely absent; `SurveyForm.tsx` submits `comfort_responses: {}` hardcoded as empty | `missing` | `todo` | Conflicts with SPEC.md §Onboarding step 3 — "Comfort calibration." |
 | 8 | Onboarding / Survey | Step 1 presents a flat list of nodes rather than an interactive skill-tree exploration view | `diverged` | `todo` | Conflicts with SPEC.md §Onboarding step 2 — "Skill tree exploration … users click around and mark nodes." |
 | 9 | Onboarding / Survey | After submission the app redirects to `/daily` with no confirmation of which interests were created or deduplicated | `diverged` | `todo` | Conflicts with SPEC.md §Adding an interest — "brief confirmation"; docs/graph-design.md §Deduplication |
-| 10 | Skill Tree | `NodePanel` omits `unlocks_text` ("unlocks: X, Y, Z") and the user's problem/paper history on the node | `diverged` | `todo` | Conflicts with docs/graph-design.md §User-facing skill tree view |
-| 11 | Skill Tree | Panel offers only "Get a problem" and "Add to my interests"; bookmark, mark-comfortable, and request-paper affordances are absent | `missing` | `todo` | Conflicts with docs/graph-design.md §User-facing skill tree view — "request problem, request paper, mark as bookmark, mark as comfortable." |
+| 10 | Skill Tree | `NodePanel` omits `unlocks_text` ("unlocks: X, Y, Z") and the user's problem/paper history on the node | `diverged` | `done` | NodePanel now shows unlocks_text and fetches history from /api/notebook?topic={slug} |
+| 11 | Skill Tree | Panel offers only "Get a problem" and "Add to my interests"; bookmark, mark-comfortable, and request-paper affordances are absent | `missing` | `done` | NodePanel now has Bookmark, Mark as comfortable, Request a paper actions via new /api/node/[id]/bookmark and /api/node/[id]/comfortable routes |
 | 12 | Skill Tree | Clicking an edge does nothing; no relationship type is shown | `missing` | `todo` | Conflicts with docs/graph-design.md §User-facing skill tree view — "Click an edge: shows the relationship." |
 | 13 | Skill Tree | No "what's nearby?" affordance to expand the visible adjacent region beyond one hop | `missing` | `todo` | Conflicts with docs/graph-design.md §User-facing skill tree view — "'what's nearby?' prompt expands the region." |
-| 14 | Skill Tree | Skill-tree server component uses the service-role client for regular-user reads, leaking admin privilege scope into a user-facing route | `diverged` | `todo` | Conflicts with docs/phase-plans/phase-8-rev-plan.md §Risks — "Do not use [admin client] for non-admin reads." |
+| 14 | Skill Tree | Skill-tree server component uses the service-role client for regular-user reads, leaking admin privilege scope into a user-facing route | `diverged` | `done` | skill-tree/page.tsx and api/graph/me/route.ts now use the user-scoped createClient(); adminClient import removed |
 | 15 | Admin Curation | Admin nav bar includes a "Users" link not in the phase-8-rev-plan §D10 spec; the plan document was not updated | `diverged` | `dismissed` | Conflicts with docs/phase-plans/phase-8-rev-plan.md §D10 — nav lists "Curation \| Megagraph \| Costs" only. Decided to add as a new feature. |
-| 16 | Admin Curation | Megagraph node click panel does not show aggregate `engagement_count` across users | `missing` | `todo` | Conflicts with docs/phase-plans/phase-8-rev-plan.md §Step 3 — "total `engagement_count` across users." |
-| 17 | Admin Curation | Cost dashboard "Full log" slices to 50 rows with no page-navigation UI | `diverged` | `todo` | Conflicts with docs/phase-plans/phase-8-rev-plan.md §Step 5 — "paginated table (50 rows per page)." |
+| 16 | Admin Curation | Megagraph node click panel does not show aggregate `engagement_count` across users | `missing` | `done` | /api/admin/megagraph now aggregates user_node_states.engagement_count per node_id and includes in response; NodePanel displays it |
+| 17 | Admin Curation | Cost dashboard "Full log" slices to 50 rows with no page-navigation UI | `diverged` | `done` | costs/page.tsx and API route now support page param with prev/next navigation and "Showing X–Y of N" |
 | 18 | API Routes | `suggest_papers.py` pre-filters on `interest_titles[0]` only instead of `ILIKE ANY(ARRAY[...])` across all titles | `diverged` | `done` | Conflicts with docs/pivot-plan.md §F16 — full ILIKE ANY across all interest titles, capped at 20 rows |
 | 19 | API Routes | `update_queue.py` recomputes node state only on `attempt_submit`; completing a paper engagement does not update `user_node_states` | `missing` | `done` | Conflicts with ARCHITECTURE.md §Engaging with a paper step 5; SPEC.md §Adaptation |
 | 20 | API Routes | `compute_cross_pollination.py` cooldown uses `added_at >= cutoff` only; a dismissed suggestion doesn't block re-suggestion of a different node in the same week | `diverged` | `done` | Conflicts with docs/graph-design.md §Cross-pollination — "hold off on similar suggestions for a while." |
@@ -62,6 +62,7 @@ Generated: 2026-05-17. Source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-des
 | 36 | Queue / Daily | Daily page has no explainer for new users about what the queue is or what item types mean | `missing` | `deferred` | Phase 10 — polish-notes intake 2026-05-17 |
 | 37 | Queue / Daily | Queue cards should show item difficulty; time estimate display removed by S7 fix | `missing` | `deferred` | Phase 10 — polish-notes intake 2026-05-17 |
 | 38 | Admin | Admin users page layout shifts in width when a user row is expanded | `diverged` | `deferred` | Phase 10 — polish-notes intake 2026-05-17 |
+| 39 | Queue / Daily | "Get a problem" and "Request a paper" block the UI while the LLM call runs; user is locked out until the response arrives | `diverged` | `deferred` | Phase 10 — fire-and-forget: return immediately with confirmation, item appears in queue; offer "go now" if item is already ready |
 
 ## Spirit and intention gaps (personas.md)
 
@@ -84,17 +85,17 @@ Gaps in tone, framing, or product feel derived from the three persona journeys �
 
 ## Summary
 
-_Updated after polish-notes intake 2026-05-17 (Phase 9-rev step 1). Counts include deferred items._
+_Updated after Phase 9-rev steps 1–5. Counts include deferred items._
 
-| Severity | Count |
-|----------|-------|
-| `missing` | 14 |
-| `diverged` | 18 |
-| `contradicts` | 4 (2 `done`, 2 remaining) |
-| **Spec total** | **38** |
-| — | — |
-| `missing` | 6 |
-| `diverged` | 3 |
-| `contradicts` | 3 (all `done`) |
-| **Spirit total** | **12** |
-| **Grand total** | **50** |
+| Severity | Count | Done |
+|----------|-------|------|
+| `missing` | 14 | 4 (#11, #16, #19, #22) |
+| `diverged` | 18 | 10 (#1, #2, #6, #10, #14, #17, #18, #20, #21, #23) |
+| `contradicts` | 4 | 4 (#6, S5, S6, S7) |
+| **Spec total** | **38** | **14 done** |
+| — | — | — |
+| `missing` | 6 | 0 |
+| `diverged` | 3 | 0 |
+| `contradicts` | 3 | 3 (all done) |
+| **Spirit total** | **12** | **3 done** |
+| **Grand total** | **50** | **17 done** |

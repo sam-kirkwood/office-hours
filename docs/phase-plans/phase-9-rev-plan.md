@@ -1,6 +1,6 @@
 # Phase 9-rev — execution plan
 
-> **Status: Step 2 complete.** Backend API correctness: #18–#23 all `done`. Also fixed S5 trailing copy in surface_daily.py and update_queue.py. Next: Step 3 — skill tree security fix + panel completeness.
+> **Status: Steps 3–5 complete.** All drift items for Phase 9-rev are done. Next: Step 6 — acceptance and pivot-plan update.
 
 Forward-looking plan for Phase 9-rev. Source of truth for the product is
 [../SPEC.md](../SPEC.md), [../ARCHITECTURE.md](../ARCHITECTURE.md),

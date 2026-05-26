@@ -15,6 +15,9 @@ the requested difficulty.
 You MUST respond with a single JSON object — no prose, no markdown fences, no trailing \
 commentary. The object has these fields:
 
+- "title": string. A plain-English title for the problem, 4–8 words. No LaTeX, no \
+symbols, no equations. Should convey what the problem asks without giving it away. \
+Example: "Deriving the Chandrasekhar limit from hydrostatic equilibrium".
 - "statement_md": string. The problem statement in Markdown with LaTeX ($...$ inline, \
 $$...$$ display). Include any necessary diagrams as text.
 - "solution_md": string. A complete worked solution in Markdown with LaTeX, showing \

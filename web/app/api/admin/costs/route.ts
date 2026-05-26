@@ -27,6 +27,8 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const period = searchParams.get("period") ?? "30d";
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+  const PAGE_SIZE = 50;
 
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -78,13 +80,15 @@ export async function GET(request: Request) {
     .map(([model, v]) => ({ model, ...v }))
     .sort((a, b) => b.cost - a.cost);
 
+  const pagedEntries = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const summary: CostSummary = {
     total_cost_usd,
     total_calls,
     by_route,
     by_model,
-    entries: rows,
+    entries: pagedEntries,
   };
 
-  return NextResponse.json(summary);
+  return NextResponse.json({ ...summary, page, page_size: PAGE_SIZE, total_count: rows.length });
 }

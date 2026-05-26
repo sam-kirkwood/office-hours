@@ -241,6 +241,7 @@ def generate_problem(
             "topic_node_id": topic_node_id,
             "difficulty": difficulty,
             "context_hook_id": context_hook_id,
+            "title": generated.title,
             "statement_md": generated.statement_md,
             "solution_md": generated.solution_md,
             "rubric_md": generated.rubric_md,
@@ -274,13 +275,27 @@ def generate_problem(
             supabase.table("problem_hints").insert(hint_rows).execute()
 
     # 8. Queue item (always written — cache hit, race win, or race loss)
+    ui_resp = (
+        supabase.table("user_interests")
+        .select("id")
+        .eq("user_id", str(body.user_id))
+        .eq("node_id", topic_node_id)
+        .limit(1)
+        .execute()
+    )
+    is_direct_interest = bool(ui_resp.data)
+    added_reason = (
+        f"Practice for your interest in {node['title']}."
+        if is_direct_interest
+        else f"A problem on {node['title']}."
+    )
     queue_row = {
         "user_id": str(body.user_id),
         "kind": "problem",
         "ref_id": problem_id,
         "state": "pending",
         "priority_score": 0.5,
-        "added_reason": f"A problem on {node['title']}",
+        "added_reason": added_reason,
         "time_estimate_minutes_low": 15,
         "time_estimate_minutes_high": 30,
     }

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { requireAdmin } from "@/lib/adminAuth";
 
 interface CostEntry {
@@ -25,15 +26,18 @@ function formatDate(iso: string): string {
   });
 }
 
+const PAGE_SIZE = 50;
+
 export default async function CostsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; page?: string }>;
 }) {
   await requireAdmin();
 
-  const { period: periodParam } = await searchParams;
+  const { period: periodParam, page: pageParam } = await searchParams;
   const period = (periodParam === "7d" || periodParam === "all") ? periodParam : "30d";
+  const page = Math.max(1, parseInt(pageParam ?? "1"));
 
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -79,7 +83,17 @@ export default async function CostsPage({
     .map(([model, v]) => ({ model, ...v }))
     .sort((a, b) => b.cost - a.cost);
 
-  const displayRows = rows.slice(0, 50);
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages);
+  const displayRows = rows.slice((clampedPage - 1) * PAGE_SIZE, clampedPage * PAGE_SIZE);
+  const firstRow = totalRows === 0 ? 0 : (clampedPage - 1) * PAGE_SIZE + 1;
+  const lastRow = Math.min(clampedPage * PAGE_SIZE, totalRows);
+
+  function pageHref(p: number) {
+    const params = new URLSearchParams({ period, page: String(p) });
+    return `?${params.toString()}`;
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
@@ -232,9 +246,47 @@ export default async function CostsPage({
 
       {/* Full log */}
       <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Full log{rows.length > 50 ? ` (showing 50 of ${rows.length})` : ""}
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Full log
+            {totalRows > 0 && (
+              <span className="ml-2 normal-case font-normal">
+                — showing {firstRow}–{lastRow} of {totalRows}
+              </span>
+            )}
+          </h2>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2 text-xs">
+              {clampedPage > 1 ? (
+                <Link
+                  href={pageHref(clampedPage - 1)}
+                  className="rounded border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  ← Prev
+                </Link>
+              ) : (
+                <span className="rounded border border-border px-2 py-0.5 text-muted-foreground/40">
+                  ← Prev
+                </span>
+              )}
+              <span className="text-muted-foreground">
+                {clampedPage} / {totalPages}
+              </span>
+              {clampedPage < totalPages ? (
+                <Link
+                  href={pageHref(clampedPage + 1)}
+                  className="rounded border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  Next →
+                </Link>
+              ) : (
+                <span className="rounded border border-border px-2 py-0.5 text-muted-foreground/40">
+                  Next →
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

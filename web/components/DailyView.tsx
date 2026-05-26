@@ -152,7 +152,13 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
         <KindBadge kind={item.kind} />
       </div>
 
-      <p className="font-serif text-sm leading-relaxed text-foreground">
+      {item.title && (
+        <p className="mb-1 font-serif text-base font-semibold text-foreground leading-snug">
+          {item.title}
+        </p>
+      )}
+
+      <p className="font-serif text-sm leading-relaxed text-muted-foreground">
         {item.added_reason ?? defaultDescription(item.kind)}
       </p>
 

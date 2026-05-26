@@ -2,6 +2,7 @@
 // component. Avoids an intra-process HTTP round-trip.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { surfaceDaily } from "@/lib/pythonApi";
 import type { QueueResult, SurfacedQueueItem } from "@/lib/types";
 
@@ -11,7 +12,7 @@ function is404(err: unknown): boolean {
   return err instanceof Error && err.message.includes("404");
 }
 
-function toItem(raw: {
+export function toItem(raw: {
   id?: string;
   queue_item_id?: string;
   kind: string;
@@ -32,6 +33,89 @@ function toItem(raw: {
     subject_kind: raw.subject_kind ?? null,
     subject_queue_item_id: raw.subject_queue_item_id ?? null,
   };
+}
+
+
+export async function resolveTitles(items: SurfacedQueueItem[]): Promise<SurfacedQueueItem[]> {
+  const problemIds = items
+    .filter((i) => i.kind === "problem" && i.ref_id)
+    .map((i) => i.ref_id as string);
+
+  const engagementIds = items
+    .filter((i) => i.kind === "paper_engagement" && i.ref_id)
+    .map((i) => i.ref_id as string);
+
+  if (problemIds.length === 0 && engagementIds.length === 0) return items;
+
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+  );
+
+  const titleByRefId: Record<string, string> = {};
+
+  if (problemIds.length > 0) {
+    const { data: problems } = await adminClient
+      .from("problems")
+      .select("id, title, topic_node_id")
+      .in("id", problemIds);
+
+    const untitled: Array<{ id: string; topic_node_id: string }> = [];
+    for (const p of problems ?? []) {
+      if (p.title) {
+        titleByRefId[p.id] = p.title;
+      } else if (p.topic_node_id) {
+        untitled.push({ id: p.id, topic_node_id: p.topic_node_id });
+      }
+    }
+
+    if (untitled.length > 0) {
+      const nodeIds = untitled.map((p) => p.topic_node_id);
+      const { data: nodes } = await adminClient
+        .from("nodes")
+        .select("id, title")
+        .in("id", nodeIds);
+      const nodeTitle: Record<string, string> = Object.fromEntries(
+        (nodes ?? []).map((n: { id: string; title: string }) => [n.id, n.title]),
+      );
+      for (const p of untitled) {
+        if (nodeTitle[p.topic_node_id]) titleByRefId[p.id] = nodeTitle[p.topic_node_id];
+      }
+    }
+  }
+
+  if (engagementIds.length > 0) {
+    const { data: engagements } = await adminClient
+      .from("paper_engagements")
+      .select("id, paper_id")
+      .in("id", engagementIds);
+
+    const paperIds = (engagements ?? [])
+      .map((e: { id: string; paper_id: string }) => e.paper_id)
+      .filter(Boolean) as string[];
+
+    if (paperIds.length > 0) {
+      const { data: papers } = await adminClient
+        .from("papers")
+        .select("id, title")
+        .in("id", paperIds);
+
+      const paperTitle: Record<string, string> = Object.fromEntries(
+        (papers ?? []).map((p: { id: string; title: string }) => [p.id, p.title]),
+      );
+
+      for (const e of engagements ?? []) {
+        if (e.paper_id && paperTitle[e.paper_id]) {
+          titleByRefId[e.id] = paperTitle[e.paper_id];
+        }
+      }
+    }
+  }
+
+  return items.map((item) => ({
+    ...item,
+    title: item.ref_id ? (titleByRefId[item.ref_id] ?? null) : null,
+  }));
 }
 
 export async function getOrSurfacePick(
@@ -64,10 +148,11 @@ export async function getOrSurfacePick(
       );
 
       if (active.length > 0) {
+        const items = await resolveTitles(active.map(toItem));
         return {
           pick_id: openPick.id as string,
-          items: active.map(toItem),
-          more_coming: active.length < 3,
+          items,
+          more_coming: items.length < 3,
         };
       }
     }
@@ -92,10 +177,11 @@ export async function getOrSurfacePick(
   // 2. No open pick (or stale pick just closed) — call Python /surface-daily.
   try {
     const result = await surfaceDaily({ userId });
+    const items = await resolveTitles(result.items.map(toItem));
     return {
       pick_id: result.pick_id,
-      items: result.items.map(toItem),
-      more_coming: result.items.length < 3,
+      items,
+      more_coming: items.length < 3,
     };
   } catch (err) {
     if (is404(err)) {

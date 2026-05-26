@@ -30,6 +30,7 @@ interface MegaNode {
   kind: "foundation" | "interest";
   domain: string;
   pool_status: string;
+  engagement_count?: number;
 }
 
 interface MegaEdge {
@@ -250,6 +251,10 @@ function NodePanel({
         <div>
           <dt className="inline font-medium">Status: </dt>
           <dd className="inline">{node.pool_status}</dd>
+        </div>
+        <div>
+          <dt className="inline font-medium">Engagements: </dt>
+          <dd className="inline font-mono">{node.engagement_count ?? 0}</dd>
         </div>
       </dl>
       {affecting.length > 0 && (

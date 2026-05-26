@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import SkillTreeView from "@/components/SkillTreeView";
 import type { Node, Edge, UserNodeState } from "@/lib/types";
 
@@ -11,17 +10,12 @@ export default async function SkillTreePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/signin");
 
-  const adminClient = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-  );
-
   const [{ data: interests }, { data: states }, { data: allNodes }, { data: allEdges }] =
     await Promise.all([
-      adminClient.from("user_interests").select("node_id").eq("user_id", user.id),
-      adminClient.from("user_node_states").select("*").eq("user_id", user.id),
-      adminClient.from("nodes").select("*"),
-      adminClient.from("edges").select("*"),
+      supabase.from("user_interests").select("node_id").eq("user_id", user.id),
+      supabase.from("user_node_states").select("*").eq("user_id", user.id),
+      supabase.from("nodes").select("*"),
+      supabase.from("edges").select("*"),
     ]);
 
   const interestNodeIds = (interests ?? []).map((i: { node_id: string }) => i.node_id);

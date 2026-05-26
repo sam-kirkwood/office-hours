@@ -16,6 +16,7 @@ export async function GET() {
     { data: edges, error: edgesError },
     { data: snapshots, error: snapshotsError },
     { data: proposals, error: proposalsError },
+    { data: nodeStates },
   ] = await Promise.all([
     supabaseAdmin.from("nodes").select("id, slug, title, kind, domain, pool_status"),
     supabaseAdmin.from("edges").select("id, source_node_id, target_node_id, edge_kind, weight"),
@@ -27,6 +28,7 @@ export async function GET() {
       .from("curation_proposals")
       .select("*")
       .eq("status", "pending"),
+    supabaseAdmin.from("user_node_states").select("node_id, engagement_count"),
   ]);
 
   const error = nodesError ?? edgesError ?? snapshotsError ?? proposalsError;
@@ -34,8 +36,19 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Aggregate engagement_count across all users per node_id
+  const engagementByNode: Record<string, number> = {};
+  for (const s of nodeStates ?? []) {
+    engagementByNode[s.node_id] = (engagementByNode[s.node_id] ?? 0) + (s.engagement_count ?? 0);
+  }
+
+  const nodesWithEngagement = (nodes ?? []).map((n) => ({
+    ...n,
+    engagement_count: engagementByNode[n.id] ?? 0,
+  }));
+
   return NextResponse.json({
-    nodes: nodes ?? [],
+    nodes: nodesWithEngagement,
     edges: edges ?? [],
     snapshots: snapshots ?? [],
     pending_proposals: proposals ?? [],

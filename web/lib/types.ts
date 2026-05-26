@@ -17,6 +17,7 @@ export interface Node {
   difficulty_hint: "intro" | "core" | "advanced";
   subtopics_json: unknown[];
   pool_status: string;
+  unlocks_text?: string | null;
   created_at: string;
 }
 
@@ -103,6 +104,7 @@ export interface SurfacedQueueItem {
   queue_item_id: string;
   kind: string;
   ref_id: string | null;
+  title?: string | null;
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;

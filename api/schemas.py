@@ -11,6 +11,7 @@ class GenerateProblemRequest(BaseModel):
 class GeneratedProblem(BaseModel):
     """Strict shape the Sonnet generation call must return as JSON."""
 
+    title: str  # plain English, no LaTeX, 4-8 words
     statement_md: str
     solution_md: str
     rubric_md: str
