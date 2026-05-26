@@ -189,11 +189,24 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
 // Root component
 // ---------------------------------------------------------------------------
 
-interface Props {
-  graphData: GraphData;
+interface SelectedEntry {
+  node: AppNode;
+  state: UserNodeState | null;
 }
 
-export default function SkillTreeView({ graphData }: Props) {
+interface Props {
+  graphData: GraphData;
+  // Optional override so callers can swap in a context-specific panel (e.g.
+  // the Stage 7 onboarding confirmation uses a panel that exposes Delete /
+  // Edit on the user's interests rather than the post-onboarding action set).
+  renderPanel?: (args: {
+    entry: SelectedEntry;
+    isUserNode: boolean;
+    onClose: () => void;
+  }) => React.ReactNode;
+}
+
+export default function SkillTreeView({ graphData, renderPanel }: Props) {
   const [rfNodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -268,14 +281,21 @@ export default function SkillTreeView({ graphData }: Props) {
 
       <Legend />
 
-      {selectedEntry && (
-        <NodePanel
-          node={selectedEntry.node}
-          state={selectedEntry.state}
-          isUserNode={userNodeIdSet.has(selectedEntry.node.id)}
-          onClose={() => setSelectedNodeId(null)}
-        />
-      )}
+      {selectedEntry &&
+        (renderPanel ? (
+          renderPanel({
+            entry: selectedEntry,
+            isUserNode: userNodeIdSet.has(selectedEntry.node.id),
+            onClose: () => setSelectedNodeId(null),
+          })
+        ) : (
+          <NodePanel
+            node={selectedEntry.node}
+            state={selectedEntry.state}
+            isUserNode={userNodeIdSet.has(selectedEntry.node.id)}
+            onClose={() => setSelectedNodeId(null)}
+          />
+        ))}
     </div>
   );
 }

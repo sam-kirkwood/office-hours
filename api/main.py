@@ -13,6 +13,7 @@ from routes.paper_question import router as paper_question_router
 from routes.parse_solution import router as parse_solution_router
 from routes.propose_papers import router as propose_papers_router
 from routes.suggest_papers import router as suggest_papers_router
+from routes.suggest_survey_interests import router as suggest_survey_interests_router
 from routes.surface_daily import router as surface_daily_router
 from routes.update_queue import router as update_queue_router
 
@@ -30,6 +31,7 @@ app.include_router(grade_paper_answer_router)
 app.include_router(paper_question_router)
 app.include_router(propose_papers_router)
 app.include_router(suggest_papers_router)
+app.include_router(suggest_survey_interests_router)
 app.include_router(parse_solution_router)
 app.include_router(surface_daily_router)
 app.include_router(update_queue_router)

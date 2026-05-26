@@ -38,7 +38,7 @@ These are constraints on feature decisions, not slogans. When in doubt, defer to
 Two services:
 
 1. **Next.js on Vercel** — frontend + web API routes. Auth, CRUD, signed upload URLs, queue surfacing. Calls the Python service for all AI operations.
-2. **Python FastAPI on Railway/Fly** — all Claude API calls. Routes include `/generate-problem`, `/parse-solution`, `/grade-solution`, `/generate-paper-engagement`, `/grade-paper-answer`, `/paper-question`, `/suggest-papers`, `/add-interest`, `/update-queue`, `/generate-curation-report`, `/compute-cross-pollination`.
+2. **Python FastAPI on Railway/Fly** — all Claude API calls. Routes include `/generate-problem`, `/parse-solution`, `/grade-solution`, `/generate-paper-engagement`, `/grade-paper-answer`, `/paper-question`, `/suggest-papers`, `/add-interest/parse`, `/add-interest/resolve`, `/update-queue`, `/generate-curation-report`, `/compute-cross-pollination`.
 
 Shared infrastructure: Postgres (Supabase), Supabase Auth (email magic links), Supabase Storage (handwritten solution images).
 

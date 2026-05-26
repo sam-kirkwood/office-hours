@@ -45,17 +45,50 @@ export interface UserInterest {
   node_id: string;
   weight: number;
   added_via: "survey" | "explicit_request" | "cross_pollination";
+  intent_context: string;
   created_at: string;
 }
 
-export type NodeRating = "interested" | "comfortable" | "refresh";
-export type NodeRatings = Record<string, NodeRating>; // keyed by node slug
+// Stage 2 of the v2 survey only tracks "refresh" (the user wants to revisit
+// a foundation). "Comfortable" is set later via concept tour / engagement,
+// not at the tile step (survey-and-difficulty-design.md §1.3.3).
+export type FoundationMark = "refresh";
+export type FoundationMarks = Record<string, FoundationMark>; // keyed by node slug
 
-export interface SurveyV2Payload {
+// Stage 1 of the v2 survey: domain chips + relationship cards + optional text.
+export type SurveyDomain = "physics" | "mathematics" | "engineering" | "computation" | "biology" | "chemistry";
+
+export type SurveyRelationshipCard =
+  | "studied_reconnecting"
+  | "encounter_at_work"
+  | "curious"
+  | "follow_field";
+
+export interface SurveyBackground {
+  domain_chips: SurveyDomain[];
+  relationship_cards: SurveyRelationshipCard[];
+}
+
+export type SurveyStage =
+  | "background"
+  | "foundations"
+  | "interests"
+  | "balance"
+  | "confirm";
+
+export interface SurveyV2Row {
+  user_id: string;
   free_text_intent: string;
-  node_ratings: NodeRatings;
-  comfort_responses: Record<string, string>;
+  background_json: SurveyBackground;
+  node_ratings_json: FoundationMarks;
+  pending_interests_json: {
+    tile_slugs?: string[];
+    free_text?: string;
+  };
+  comfort_responses_json: Record<string, string>;
   mode_balance: number;
+  completed_stages: SurveyStage[];
+  updated_at: string;
 }
 
 // ---------------------------------------------------------------------------

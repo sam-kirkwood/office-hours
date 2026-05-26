@@ -36,10 +36,81 @@ interface GradeSolutionResponse {
   notebook_entry_id: string;
 }
 
+// ---------------------------------------------------------------------------
+// Add-interest dialog (survey-and-difficulty-design.md §2)
+// ---------------------------------------------------------------------------
+//
+// Two-step API: /add-interest/parse (read-only Haiku call) then
+// /add-interest/resolve (writes user_interests, optionally generates a new
+// node). The full dialog UI lives behind these; see Step 2d for the
+// post-onboarding panel that exposes the dialog.
+//
+// `addInterest` below is a backwards-compat shim that runs both calls back
+// to back with best-guess inputs. It exists so callers that don't yet route
+// users through the dialog UI keep working until Step 2d wires them through.
+
+type AddedVia = "survey" | "explicit_request" | "cross_pollination";
+
+export interface ParsedInterestSegmentDTO {
+  raw_text_segment: string;
+  specificity: "specific" | "ambiguous";
+  implicit_intent: "teach" | "refresh" | "consolidate";
+  mirror_back_md: string;
+  optional_followup_md: string | null;
+  path_options: Array<{
+    key: string;
+    label_md: string;
+    draft_intent_context: string;
+  }>;
+  dedup: {
+    verdict: "same" | "related" | "new";
+    matched_node_slug: string | null;
+  };
+  draft_intent_context: string;
+}
+
+interface ParseAddInterestArgs {
+  userId: string;
+  rawText: string;
+  addedVia: AddedVia;
+}
+
+interface ParseAddInterestResponse {
+  segments: ParsedInterestSegmentDTO[];
+}
+
+interface ResolveAddInterestArgs {
+  userId: string;
+  addedVia: AddedVia;
+  rawText: string;
+  finalIntentText: string;
+  intentContext: string;
+  existingNodeSlug?: string | null;
+  relatedNodeSlug?: string | null;
+}
+
+export interface ConceptTourTileDTO {
+  node_id: string;
+  node_slug: string;
+  subtopic_key: string;
+  name: string;
+  gloss: string | null;
+}
+
+interface ResolveAddInterestResponse {
+  user_interest_id: string;
+  node_id: string;
+  node_slug: string;
+  verdict: "same" | "related" | "new";
+  intent_context: string;
+  starter_preview_md: string;
+  concept_tour: ConceptTourTileDTO[];
+}
+
 interface AddInterestArgs {
   userId: string;
   rawText: string;
-  addedVia: "survey" | "explicit_request";
+  addedVia: AddedVia;
 }
 
 interface AddInterestResponse {
@@ -47,6 +118,7 @@ interface AddInterestResponse {
   node_slug: string;
   verdict: string;
   user_interest_id: string;
+  intent_context: string;
 }
 
 interface UpdateQueueArgs {
@@ -135,14 +207,61 @@ export async function gradeSolution(
   });
 }
 
-export async function addInterest(
-  args: AddInterestArgs,
-): Promise<AddInterestResponse> {
-  return pythonPost("/add-interest", {
+export async function parseAddInterest(
+  args: ParseAddInterestArgs,
+): Promise<ParseAddInterestResponse> {
+  return pythonPost("/add-interest/parse", {
     user_id: args.userId,
     raw_text: args.rawText,
     added_via: args.addedVia,
   });
+}
+
+export async function resolveAddInterest(
+  args: ResolveAddInterestArgs,
+): Promise<ResolveAddInterestResponse> {
+  return pythonPost("/add-interest/resolve", {
+    user_id: args.userId,
+    added_via: args.addedVia,
+    raw_text: args.rawText,
+    final_intent_text: args.finalIntentText,
+    intent_context: args.intentContext,
+    existing_node_slug: args.existingNodeSlug ?? null,
+    related_node_slug: args.relatedNodeSlug ?? null,
+  });
+}
+
+// Best-guess pass-through for callers that don't yet route users through the
+// add-interest dialog UI (TODO(2d): replace these call sites with the real
+// dialog). Picks the first parsed segment, accepts the dedup verdict, and
+// uses the draft intent_context. Returns the same shape the deprecated
+// /add-interest endpoint used to return.
+export async function addInterest(
+  args: AddInterestArgs,
+): Promise<AddInterestResponse> {
+  const parsed = await parseAddInterest(args);
+  if (parsed.segments.length === 0) {
+    throw new Error("add-interest parse returned no segments");
+  }
+  const seg = parsed.segments[0];
+  const intentContext = seg.draft_intent_context || seg.mirror_back_md;
+  const finalIntentText = seg.raw_text_segment || args.rawText;
+  const resolved = await resolveAddInterest({
+    userId: args.userId,
+    addedVia: args.addedVia,
+    rawText: args.rawText,
+    finalIntentText,
+    intentContext,
+    existingNodeSlug: seg.dedup.verdict === "same" ? seg.dedup.matched_node_slug : null,
+    relatedNodeSlug: seg.dedup.verdict === "related" ? seg.dedup.matched_node_slug : null,
+  });
+  return {
+    node_id: resolved.node_id,
+    node_slug: resolved.node_slug,
+    verdict: resolved.verdict,
+    user_interest_id: resolved.user_interest_id,
+    intent_context: resolved.intent_context,
+  };
 }
 
 export async function updateQueue(
@@ -219,4 +338,32 @@ interface GenerateCurationReportResponse {
 
 export async function generateCurationReport(): Promise<GenerateCurationReportResponse> {
   return pythonPost("/generate-curation-report", {});
+}
+
+export interface SurveyInterestSuggestion {
+  node_id: string;
+  slug: string;
+  title: string;
+  description_md: string;
+  why_suggested_md: string;
+}
+
+interface SuggestSurveyInterestsArgs {
+  userId: string;
+  domainChips: string[];
+  markedFoundationNodeIds: string[];
+}
+
+interface SuggestSurveyInterestsResponse {
+  suggestions: SurveyInterestSuggestion[];
+}
+
+export async function suggestSurveyInterests(
+  args: SuggestSurveyInterestsArgs,
+): Promise<SuggestSurveyInterestsResponse> {
+  return pythonPost("/survey/suggest-interests", {
+    user_id: args.userId,
+    domain_chips: args.domainChips,
+    marked_foundation_node_ids: args.markedFoundationNodeIds,
+  });
 }

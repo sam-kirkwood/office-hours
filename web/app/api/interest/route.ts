@@ -17,12 +17,15 @@ export async function POST(request: Request) {
     };
 
     // Cross-pollination path: node already exists in the megagraph; skip dedup/generate.
+    // intent_context is NOT NULL on user_interests (migration 20250018); supply
+    // a canned string here since there's no dialog context to draw from.
     if (body.added_via === "cross_pollination" && body.node_id) {
       const { error } = await supabase.from("user_interests").insert({
         user_id: user.id,
         node_id: body.node_id,
         weight: 1.0,
         added_via: "cross_pollination",
+        intent_context: "Surfaced via cross-pollination from adjacent interests",
       });
       if (error) throw error;
 

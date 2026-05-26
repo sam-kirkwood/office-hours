@@ -76,7 +76,8 @@ for deduplication checks, classification, and other cheap routing.
    ├── POST /suggest-papers
    ├── POST /surface-daily              (no LLM; deterministic)
    ├── POST /update-queue
-   ├── POST /add-interest               (dedup + generate)
+   ├── POST /add-interest/parse         (dedup + mirror-back; read-only)
+   ├── POST /add-interest/resolve       (commits user_interests; opt. Sonnet generate)
    ├── POST /generate-curation-report   (weekly)
    ├── POST /compute-cross-pollination  (daily background)
    └── All Claude API calls; logs to llm_calls
@@ -122,6 +123,9 @@ changes; **DEPRECATED** tables remain present briefly during migration.
 - `user_interests` **NEW** (which interest nodes a user has actively claimed)
   - `id`, `user_id`, `node_id`, `weight` (float),
   - `added_via` (survey / explicit_request / cross_pollination)
+  - `intent_context` (text, required) — soft text from the add-interest
+    dialog capturing the resolved path and intent; read by the problem
+    generator and the curriculum curator
   - `created_at`
 - `curation_proposals` **NEW**
   - `id`, `kind` (merge / split / rename / promote / demote / add_edge / deprecate)
@@ -138,7 +142,7 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `id`, `user_id`
   - `kind` (problem / paper_engagement / refresher / concept_review / suggested_interest)
   - `ref_id` (FK to underlying object; type-polymorphic by kind)
-  - `state` (pending / surfaced / in_progress / done / skipped / dismissed)
+  - `state` (pending / surfaced / in_progress / done / skipped / dismissed / deferred)
   - `priority_score` (float)
   - `time_estimate_minutes_low`, `time_estimate_minutes_high`
   - `added_reason` (short text shown as "why this")
@@ -197,6 +201,7 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - existing fields preserved
   - `marked_refreshed` (bool)
   - `requested_easier`, `requested_harder` (bool)
+  - `requested_assume_less` (bool) — per-attempt "explain more / assume less" signal
   - `parent_attempt_id` (nullable, links sibling attempts)
 
 ### User state and bookmarks
@@ -225,24 +230,38 @@ changes; **DEPRECATED** tables remain present briefly during migration.
 
 ### Adding an interest
 
-Triggered from the survey or an explicit user request.
+A two-call dialog used both at onboarding (survey Stage 4) and during
+daily use. Full specification:
+[docs/survey-and-difficulty-design.md §2](survey-and-difficulty-design.md).
 
-1. Next.js → Python `/add-interest` with the user's free-text input and
-   their user_id.
-2. Python pre-filters candidate nodes by title-similarity (Postgres
-   trigram or simple LIKE; cheap).
-3. Haiku call: "Given the user said X, which (if any) of these existing
-   nodes does it match? Options: same / related / new / split / vague."
-4. Decision:
-   - `same`: insert into `user_interests` linking to existing node.
-   - `related`: create new node + edge to related, link user.
-   - `new`: create new node via Sonnet call generating description,
-     subtopics, edges to foundations and other interest nodes.
-   - `split`: identify the multiple interests, recurse on each.
-   - `vague`: return a clarifying prompt to the user; don't create a
-     node.
-5. Update `user_node_states`, queue follow-up items (prerequisite
-   refreshers, starter problem/paper on the new node).
+1. Next.js → Python `/add-interest/parse` with the user's free-text
+   input and their user_id. Read-only.
+2. Python pre-filters candidate nodes by title-similarity (cheap) and
+   calls Haiku. Haiku:
+   - splits the input into one or more distinct interest **segments**
+     (e.g. "quantum mechanics and thermodynamics" → 2 segments),
+   - classifies each as `specific` or `ambiguous`,
+   - infers the implicit intent dial (teach / refresh / consolidate),
+   - dedups each segment against the megagraph candidates (same /
+     related / new),
+   - returns mirror-back text, an optional follow-up prompt for
+     specific segments, and 3–5 path options for ambiguous ones.
+3. The client renders the mirror-back. The user optionally tells the
+   system more (specific) or selects one or more paths (ambiguous).
+4. Next.js → Python `/add-interest/resolve` once per segment, with the
+   synthesized `final_intent_text`, the soft `intent_context` to
+   persist, and at most one of `existing_node_slug` (verdict=same) or
+   `related_node_slug` (verdict=related).
+5. Python writes the `user_interests` row (with `intent_context`).
+   When generating a new node it calls Sonnet, which also returns an
+   `entry_point_preview_md` sentence used in the starter-preview
+   string the UI shows.
+6. The response carries a 6–10 tile **concept tour** — subtopic-level
+   tiles drawn from the node's prerequisite foundation nodes — for the
+   client to render as Stage 5 of the survey.
+7. Downstream follow-ups (prerequisite refreshers, starter
+   problem/paper) are queued by the curriculum curator's daily plan,
+   not by `/add-interest/resolve` itself.
 
 ### Surfacing the daily three
 
