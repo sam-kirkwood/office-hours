@@ -50,6 +50,9 @@ from schemas import (
     PathOption,
     ResolveAddInterestRequest,
     ResolveAddInterestResponse,
+    RewriteIntentSummariesLLMOutput,
+    RewriteIntentSummariesRequest,
+    RewriteIntentSummariesResponse,
 )
 from supabase_client import get_supabase_client
 
@@ -537,3 +540,73 @@ def _concept_tour(
             if len(tiles) >= CONCEPT_TOUR_MAX:
                 return tiles
     return tiles
+
+
+# ---------------------------------------------------------------------------
+# /add-interest/rewrite-summaries
+# ---------------------------------------------------------------------------
+# Backfill endpoint for cleaning up tag-soup intent_context values produced
+# by the older parse prompt. Single batch Haiku call → list of rewritten
+# user-facing prose summaries. The web orchestrator at
+# /api/profile/regenerate-summaries fetches the user's interests, calls this,
+# and writes the results back.
+
+
+@router.post(
+    "/add-interest/rewrite-summaries",
+    response_model=RewriteIntentSummariesResponse,
+    dependencies=[Depends(require_internal_token)],
+)
+def rewrite_intent_summaries(
+    body: RewriteIntentSummariesRequest,
+    supabase: Client = Depends(get_supabase_client),
+    anthropic: Anthropic = Depends(get_anthropic_client),
+) -> RewriteIntentSummariesResponse:
+    if not body.items:
+        return RewriteIntentSummariesResponse(summaries=[])
+
+    items_payload = [
+        {
+            "user_interest_id": str(it.user_interest_id),
+            "node_title": it.node_title,
+            "node_description_md": it.node_description_md or "",
+            "subtopics": it.subtopics,
+            "current_context": it.current_context,
+        }
+        for it in body.items
+    ]
+
+    output: RewriteIntentSummariesLLMOutput = call_json(
+        client=anthropic,
+        supabase=supabase,
+        model=HAIKU_MODEL,
+        system_prompt=prompts.build_rewrite_summary_system_prompt(),
+        user_prompt=prompts.build_rewrite_summary_user_prompt(items_payload),
+        schema=RewriteIntentSummariesLLMOutput,
+        route="add-interest/rewrite-summaries",
+        user_id=str(body.user_id),
+        request_summary={"count": len(items_payload)},
+        temperature=0,
+    )
+
+    # Belt-and-braces: if Haiku skipped or duplicated entries, align by id and
+    # fill in the missing ones from the originals so the caller can write back
+    # without surprises.
+    by_id = {str(s.user_interest_id): s.summary for s in output.summaries}
+    aligned: list = []
+    for it in body.items:
+        sid = str(it.user_interest_id)
+        if sid in by_id:
+            aligned.append(
+                {"user_interest_id": it.user_interest_id, "summary": by_id[sid]}
+            )
+        else:
+            logger.warning(
+                "rewrite-summaries: Haiku omitted %s; keeping original context",
+                sid,
+            )
+            aligned.append(
+                {"user_interest_id": it.user_interest_id, "summary": it.current_context}
+            )
+
+    return RewriteIntentSummariesResponse(summaries=aligned)

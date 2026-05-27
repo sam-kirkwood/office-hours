@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { updateQueue } from "@/lib/pythonApi";
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL!;
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN!;
@@ -54,13 +53,10 @@ export async function POST(
     .eq("id", queueItemId)
     .eq("state", "surfaced");
 
-  if (data.next_question_index === -1) {
-    updateQueue({
-      userId: user.id,
-      trigger: "engagement_complete",
-      refId: engagement_id,
-    }).catch(() => null);
-  }
+  // When the user finishes the last question, /grade-paper-answer's
+  // /assess-engagement hook (api/routes/grade_paper_answer.py:147) records
+  // the engagement-complete signal. No additional curator call needed here;
+  // the daily /run-daily-planner pass will pick up the new state.
 
   return NextResponse.json(data);
 }

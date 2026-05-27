@@ -30,10 +30,28 @@ export async function POST() {
           .in("id", ids)
           .eq("state", "surfaced");
       }
+      const replacedAt = new Date().toISOString();
       await supabase
         .from("surfaced_picks")
-        .update({ replaced_at: new Date().toISOString() })
+        .update({ replaced_at: replacedAt })
         .eq("id", currentPick.id);
+
+      // Reroll signal capture (Phase 10-rev §3e). For each item the user
+      // passed over, write a length-1 surfaced_picks row with
+      // chosen_item_id=null. The curator's recent_engagement.reroll_patterns
+      // (api/curator_inputs.py:load_recent_engagement) counts these by node
+      // on the next /plan-queue pass. Per-item rows so the count is by node,
+      // not by pick. See curriculum-curator-design.md §16.
+      if (ids.length > 0) {
+        const passOverRows = ids.map((id) => ({
+          user_id: user.id,
+          queue_item_ids: [id],
+          chosen_item_id: null,
+          surfaced_at: replacedAt,
+          replaced_at: replacedAt,
+        }));
+        await supabase.from("surfaced_picks").insert(passOverRows);
+      }
     }
 
     // 2. Create a new pick.

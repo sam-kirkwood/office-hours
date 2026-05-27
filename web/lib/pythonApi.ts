@@ -42,17 +42,18 @@ interface GradeSolutionResponse {
 //
 // Two-step API: /add-interest/parse (read-only Haiku call) then
 // /add-interest/resolve (writes user_interests, optionally generates a new
-// node). The full dialog UI lives behind these; see Step 2d for the
-// post-onboarding panel that exposes the dialog.
-//
-// `addInterest` below is a backwards-compat shim that runs both calls back
-// to back with best-guess inputs. It exists so callers that don't yet route
-// users through the dialog UI keep working until Step 2d wires them through.
+// node). User-facing entry points run the full dialog
+// (web/components/addInterest/Dialog.tsx). Headless callers that already
+// have implicit user consent (e.g. /api/queue/request resolving a typed
+// topic to a node) call both endpoints back-to-back with the draft
+// intent_context — see headlessResolveToNode in
+// web/app/api/queue/request/route.ts.
 
 type AddedVia = "survey" | "explicit_request" | "cross_pollination";
 
 export interface ParsedInterestSegmentDTO {
   raw_text_segment: string;
+  kind: "interest" | "concept";
   specificity: "specific" | "ambiguous";
   implicit_intent: "teach" | "refresh" | "consolidate";
   mirror_back_md: string;
@@ -105,32 +106,6 @@ interface ResolveAddInterestResponse {
   intent_context: string;
   starter_preview_md: string;
   concept_tour: ConceptTourTileDTO[];
-}
-
-interface AddInterestArgs {
-  userId: string;
-  rawText: string;
-  addedVia: AddedVia;
-}
-
-interface AddInterestResponse {
-  node_id: string;
-  node_slug: string;
-  verdict: string;
-  user_interest_id: string;
-  intent_context: string;
-}
-
-interface UpdateQueueArgs {
-  userId: string;
-  trigger: "attempt_submit" | "engagement_complete" | "interest_add";
-  refId?: string;
-}
-
-interface UpdateQueueResponse {
-  items_reweighted: number;
-  refreshers_scheduled: number;
-  items_pruned: number;
 }
 
 interface SurfacedItemRaw {
@@ -231,46 +206,33 @@ export async function resolveAddInterest(
   });
 }
 
-// Best-guess pass-through for callers that don't yet route users through the
-// add-interest dialog UI (TODO(2d): replace these call sites with the real
-// dialog). Picks the first parsed segment, accepts the dedup verdict, and
-// uses the draft intent_context. Returns the same shape the deprecated
-// /add-interest endpoint used to return.
-export async function addInterest(
-  args: AddInterestArgs,
-): Promise<AddInterestResponse> {
-  const parsed = await parseAddInterest(args);
-  if (parsed.segments.length === 0) {
-    throw new Error("add-interest parse returned no segments");
-  }
-  const seg = parsed.segments[0];
-  const intentContext = seg.draft_intent_context || seg.mirror_back_md;
-  const finalIntentText = seg.raw_text_segment || args.rawText;
-  const resolved = await resolveAddInterest({
-    userId: args.userId,
-    addedVia: args.addedVia,
-    rawText: args.rawText,
-    finalIntentText,
-    intentContext,
-    existingNodeSlug: seg.dedup.verdict === "same" ? seg.dedup.matched_node_slug : null,
-    relatedNodeSlug: seg.dedup.verdict === "related" ? seg.dedup.matched_node_slug : null,
-  });
-  return {
-    node_id: resolved.node_id,
-    node_slug: resolved.node_slug,
-    verdict: resolved.verdict,
-    user_interest_id: resolved.user_interest_id,
-    intent_context: resolved.intent_context,
-  };
+interface RunDailyPlannerArgs {
+  userId: string;
+  triggeredBy?: "cron" | "cold_start" | "manual";
 }
 
-export async function updateQueue(
-  args: UpdateQueueArgs,
-): Promise<UpdateQueueResponse> {
-  return pythonPost("/update-queue", {
+interface RunDailyPlannerResponse {
+  job_run_id: string;
+  plan_queue_status: "ok" | "error" | "skipped";
+  plan_queue_items_added: number;
+  plan_queue_items_reprioritised: number;
+  plan_queue_items_skipped: number;
+  check_deferred_requeued: number;
+  check_deferred_kept: number;
+  error_message: string | null;
+}
+
+// The curator's per-user daily entry point. Wraps /plan-queue + /check-deferred
+// and writes a curator_job_runs row. Used by:
+//   - Stage 7 survey complete (triggeredBy='cold_start')
+//   - Cross-pollination accept (triggeredBy='manual' — outside the daily cron)
+//   - pg_cron daily fan-out calls this directly via pg_net (not through here)
+export async function planQueue(
+  args: RunDailyPlannerArgs,
+): Promise<RunDailyPlannerResponse> {
+  return pythonPost("/run-daily-planner", {
     user_id: args.userId,
-    trigger: args.trigger,
-    ref_id: args.refId ?? null,
+    triggered_by: args.triggeredBy ?? "manual",
   });
 }
 
@@ -312,6 +274,34 @@ export async function ingestPaper(
   return pythonPost("/ingest-paper-user", {
     user_id: args.userId,
     raw_input: args.rawInput,
+  });
+}
+
+interface ConceptReviewResolveArgs {
+  userId: string;
+  queueItemId: string;
+}
+
+export interface ConceptReviewNodeReading {
+  id: string;
+  slug: string;
+  title: string;
+  description_md: string;
+  subtopics_json: Array<{ slug: string; title: string }>;
+}
+
+export interface ConceptReviewResolveResponse {
+  kind: "problem" | "reading";
+  queue_item_id: string | null;
+  node: ConceptReviewNodeReading | null;
+}
+
+export async function conceptReviewResolve(
+  args: ConceptReviewResolveArgs,
+): Promise<ConceptReviewResolveResponse> {
+  return pythonPost("/concept-review-resolve", {
+    user_id: args.userId,
+    queue_item_id: args.queueItemId,
   });
 }
 
@@ -377,5 +367,35 @@ export async function suggestSurveyInterests(
       relationship_label: d.relationshipLabel,
     })),
     marked_foundation_node_ids: args.markedFoundationNodeIds,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rewrite tag-soup intent_context into user-facing prose. Backfill for the
+// profile page. One batch Haiku call per request.
+
+export interface RewriteSummaryItem {
+  user_interest_id: string;
+  node_title: string;
+  node_description_md?: string | null;
+  subtopics?: string[];
+  current_context: string;
+}
+
+interface RewriteIntentSummariesArgs {
+  userId: string;
+  items: RewriteSummaryItem[];
+}
+
+interface RewriteIntentSummariesResponse {
+  summaries: Array<{ user_interest_id: string; summary: string }>;
+}
+
+export async function rewriteIntentSummaries(
+  args: RewriteIntentSummariesArgs,
+): Promise<RewriteIntentSummariesResponse> {
+  return pythonPost("/add-interest/rewrite-summaries", {
+    user_id: args.userId,
+    items: args.items,
   });
 }

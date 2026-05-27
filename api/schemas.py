@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -6,6 +7,11 @@ from pydantic import BaseModel, Field
 class GenerateProblemRequest(BaseModel):
     user_id: UUID
     node_id: UUID  # replaces plan_node_id
+    # Three-dial overrides (survey-and-difficulty-design.md §3). When omitted,
+    # the route derives them from the user's interest + state. Tests and
+    # future curator calls (Step 3 /plan-queue) supply them explicitly.
+    intent: str | None = None  # 'teach' | 'refresh' | 'consolidate'
+    feedback_bias: dict[str, bool] | None = None
 
 
 class GeneratedProblem(BaseModel):
@@ -17,6 +23,10 @@ class GeneratedProblem(BaseModel):
     rubric_md: str
     hints: list[str] = Field(..., min_length=5, max_length=5)
     context_md: str | None = None  # matches DB column name
+    # Required: at least the topic slug + one subtopic slug. Concept-refresher
+    # surfaces (§2.7 Case 3, §7) query by tags @> ARRAY['<subtopic>'] so
+    # subtopic tagging is load-bearing (§3.7 + §8.4).
+    tags: list[str] = Field(..., min_length=2)
 
 
 class GenerateProblemResponse(BaseModel):
@@ -72,6 +82,7 @@ class ParsedInterestSegment(BaseModel):
     """One distinct interest extracted from the user's raw text."""
 
     raw_text_segment: str       # the portion of raw_text this segment came from
+    kind: str = "interest"      # 'interest' | 'concept' — see §2.7 Case 3
     specificity: str            # 'specific' | 'ambiguous'
     implicit_intent: str        # 'teach' | 'refresh' | 'consolidate'
     mirror_back_md: str         # natural-language echo of the user's intent
@@ -160,6 +171,40 @@ class ResolveAddInterestResponse(BaseModel):
     concept_tour: list[ConceptTourTile]
 
 
+# --- /add-interest/rewrite-summaries -----------------------------------------
+# Backfills user-facing prose for existing user_interests.intent_context rows
+# that were produced by the older tag-soup prompt. One batch Haiku call per
+# user. See web/app/api/profile/regenerate-summaries/route.ts.
+
+
+class IntentSummaryItem(BaseModel):
+    user_interest_id: UUID
+    node_title: str
+    node_description_md: str | None = None
+    subtopics: list[str] = []
+    current_context: str
+
+
+class RewriteIntentSummariesRequest(BaseModel):
+    user_id: UUID
+    items: list[IntentSummaryItem]
+
+
+class RewrittenIntentSummary(BaseModel):
+    user_interest_id: UUID
+    summary: str
+
+
+class RewriteIntentSummariesLLMOutput(BaseModel):
+    """Internal — Haiku's raw return shape."""
+
+    summaries: list[RewrittenIntentSummary]
+
+
+class RewriteIntentSummariesResponse(BaseModel):
+    summaries: list[RewrittenIntentSummary]
+
+
 # ---------------------------------------------------------------------------
 # /surface-daily
 # ---------------------------------------------------------------------------
@@ -187,20 +232,141 @@ class SurfaceDailyResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# /update-queue
+# /assess-engagement (curriculum-curator-design.md §5)
 # ---------------------------------------------------------------------------
+# Called after a graded problem attempt or a completed paper engagement.
+# Runs a small Haiku call that updates user_node_states (struggle_score,
+# state, last_engaged_at, engagement_count) and may execute an
+# immediate_action (queue a reinforcement, accelerate, or surface a
+# prerequisite refresher).
 
 
-class UpdateQueueRequest(BaseModel):
+class AssessEngagementRequest(BaseModel):
+    """The Next.js side never calls this directly — it's invoked from
+    /grade-solution and /grade-paper-answer. The caller passes either
+    attempt_id (problem) or engagement_id (paper); the route loads the rest.
+    """
+
     user_id: UUID
-    trigger: str  # 'attempt_submit' | 'engagement_complete' | 'interest_add'
-    ref_id: UUID | None = None  # the attempt_id or engagement_id that triggered this
+    attempt_id: UUID | None = None
+    engagement_id: UUID | None = None
 
 
-class UpdateQueueResponse(BaseModel):
-    items_reweighted: int
-    refreshers_scheduled: int
-    items_pruned: int
+class AssessEngagementResult(BaseModel):
+    """Strict shape the Haiku /assess-engagement call must return as JSON."""
+
+    updated_struggle_score: float = Field(..., ge=0.0, le=1.0)
+    state_transition: Literal["active", "struggling", "comfortable"] | None = None
+    immediate_action: (
+        Literal["queue_reinforcement", "accelerate", "surface_prerequisite"] | None
+    ) = None
+    reinforcement_target: str | None = None
+    reasoning: str
+
+
+class AssessEngagementResponse(BaseModel):
+    """Returned to the caller (typically the grade route). Fields mirror the
+    Haiku output plus the action_executed flag so the caller can tell whether
+    the curator wrote anything new to the queue."""
+
+    updated_struggle_score: float
+    state_transition: str | None
+    immediate_action: str | None
+    action_executed: bool
+    reasoning: str
+
+
+# ---------------------------------------------------------------------------
+# /plan-queue (curriculum-curator-design.md §4)
+# ---------------------------------------------------------------------------
+# Daily Sonnet call, per active user. Reads full user context, returns
+# add/reprioritise recommendations, executes them.
+
+
+class PlanQueueRequest(BaseModel):
+    user_id: UUID
+
+
+class CuratorRecommendation(BaseModel):
+    """One add or reprioritise recommendation from the Sonnet planner. Both
+    shapes share the model; required fields differ by action."""
+
+    action: Literal["add", "reprioritise"]
+    # Add fields
+    interest_node: str | None = None      # node title (server resolves)
+    kind: Literal["problem", "refresher", "paper_engagement"] | None = None
+    intent: Literal["teach", "refresh", "consolidate"] | None = None
+    subtopic: str | None = None           # short phrase
+    depth: (
+        Literal["conceptual", "foundational", "intermediate", "advanced"] | None
+    ) = None
+    assumed_background: list[str] = Field(default_factory=list)
+    # Shared by both actions
+    priority: Literal["low", "medium", "high"] | None = None
+    reason: str
+    # Reprioritise fields
+    queue_item_id: UUID | None = None
+    new_priority: Literal["low", "medium", "high"] | None = None
+
+
+class CuratorPlanLLMOutput(BaseModel):
+    """Strict shape the Sonnet /plan-queue call must return."""
+
+    recommendations: list[CuratorRecommendation]
+    observations: str = ""
+
+
+class PlanQueueResponse(BaseModel):
+    """Per-recommendation outcome of executing the planner output."""
+
+    recommendations_received: int
+    items_added: int
+    items_reprioritised: int
+    items_skipped: int
+    observations: str
+
+
+# ---------------------------------------------------------------------------
+# /check-deferred (curriculum-curator-design.md §8)
+# ---------------------------------------------------------------------------
+# Deterministic, no LLM. Run daily after /plan-queue. For each deferred queue
+# item, check whether its blocking prerequisites are now addressed. When yes,
+# transition state back to 'pending'.
+
+
+class CheckDeferredRequest(BaseModel):
+    user_id: UUID
+
+
+class CheckDeferredResponse(BaseModel):
+    requeued_count: int
+    kept_deferred_count: int
+
+
+# ---------------------------------------------------------------------------
+# /run-daily-planner (curriculum-curator-design.md §15, Phase 10-rev §3d)
+# ---------------------------------------------------------------------------
+# Per-user wrapper that calls /plan-queue then /check-deferred and records the
+# outcome to `curator_job_runs`. Invoked by:
+#  - pg_cron daily job (triggered_by='cron'), one HTTP POST per active user
+#  - Stage 7 survey completion (triggered_by='cold_start')
+#  - Manual operator runs (triggered_by='manual')
+
+
+class RunDailyPlannerRequest(BaseModel):
+    user_id: UUID
+    triggered_by: Literal["cron", "cold_start", "manual"] = "manual"
+
+
+class RunDailyPlannerResponse(BaseModel):
+    job_run_id: UUID
+    plan_queue_status: Literal["ok", "error", "skipped"]
+    plan_queue_items_added: int
+    plan_queue_items_reprioritised: int
+    plan_queue_items_skipped: int
+    check_deferred_requeued: int
+    check_deferred_kept: int
+    error_message: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +602,38 @@ class SurveyInterestSuggestionLLMOutput(BaseModel):
 
 class SuggestSurveyInterestsResponse(BaseModel):
     suggestions: list[SurveyInterestSuggestion]
+
+
+# ---------------------------------------------------------------------------
+# /concept-review-resolve (phase-10-rev-plan §Step 4, D3)
+# ---------------------------------------------------------------------------
+# Called when the user taps a kind='concept_review' queue card. Tries the
+# problem pool at conceptual depth (intent='teach', difficulty=1, tag = node's
+# primary subtopic). On a hit, atomically enqueues a kind='problem' row
+# pointing at the pool problem and marks the original concept_review row done.
+# On a miss, returns the node's reading-surface content for the client to
+# render in serif prose. See survey-and-difficulty-design.md §2.7 Case 3.
+
+
+class ConceptReviewResolveRequest(BaseModel):
+    user_id: UUID
+    queue_item_id: UUID
+
+
+class ConceptReviewNodeReading(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description_md: str
+    subtopics_json: list[dict]  # [{slug, title}, ...] — may be empty
+
+
+class ConceptReviewResolveResponse(BaseModel):
+    # kind='problem' → client redirects to /problem/<new_queue_item_id>.
+    # kind='reading' → client renders ConceptReadingView with `node`.
+    kind: Literal["problem", "reading"]
+    queue_item_id: UUID | None = None      # set when kind='problem'
+    node: ConceptReviewNodeReading | None = None  # set when kind='reading'
 
 
 # ---------------------------------------------------------------------------

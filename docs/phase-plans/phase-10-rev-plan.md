@@ -290,93 +290,221 @@ Files shipped: 1 migration, 1 Python route + prompt + schema additions,
 `surveyState.ts` helper pair, and a small `SkillTreeView` change adding an
 optional `legend` prop.
 
-#### 2d — Add-interest dialog UI (Stage 4 + Stage 5 + post-onboarding)
+#### 2d — Add-interest dialog UI (Stage 4 + Stage 5 + post-onboarding) ✅ DONE
 
-Build the real add-interest dialog UI (parse → mirror-back / path picks →
-resolve) and the concept-tour UI, then deploy them across all three surfaces
-that need them:
+The real add-interest dialog UI (parse → mirror-back / path picks → resolve)
+and concept-tour UI shipped and were wired to every surface that needed them.
 
-1. **Stage 4 (onboarding):** replaces the server-side best-guess stub in
-   [/api/survey/interests](../../web/app/api/survey/interests/route.ts).
-   For each pending interest from Stage 3 (tile slug or free-text segment),
-   surface the parse result — mirror-back, optional follow-up for specific
-   intents, path options for ambiguous intents — and call /resolve once the
-   user confirms. Multi-segment input from /parse runs through the dialog
-   in sequence with deduplication across the batch.
-2. **Stage 5 (onboarding):** for each resolved interest, render the
-   concept_tour tiles returned by /resolve. Three-state self-report
-   (Familiar / Refresh / New to me); writes `user_node_states` and populates
-   `surveys.comfort_responses_json`. Deduplicate tiles across sequential
-   tours per §1.6.5.
-3. **Post-onboarding panel/modal:** the same dialog + tour component
-   triggered from:
-   - The "Curious about something specific?" input box on the daily tab
-     ([survey-and-difficulty-design.md §2.7](../survey-and-difficulty-design.md)
-     — three cases: new topic, existing topic one-off, concept request).
-   - The skill-tree node panel's "Add to interests" action (currently calls
-     the legacy /api/interest path; route through the dialog instead).
-   - The Stage 7 confirmation panel's "Edit" action (currently stubbed).
+Shape:
+- Reusable suite at [web/components/addInterest/](../../web/components/addInterest/):
+  `Dialog.tsx` (one segment, state machine `gathering → resolving → resolved`),
+  `ConceptTour.tsx` (3-state self-report + skip-tour + skip-remaining-tours
+  affordances), `DialogModal.tsx` (shadcn Dialog wrapper for post-onboarding
+  use), `types.ts`. Dialog supports two input modes: `source="segment"` from
+  /parse, or `source="preNode"` for callers that already know the node and
+  want to skip /parse (NodePanel Add, SurveyNodePanel Edit).
+- Parse schema gained `kind: "interest" | "concept"` so §2.7 Case 3
+  (concept-level requests like "remind me what eigenvectors are") can be
+  routed without creating a new node. Haiku prompt updated to set it.
+- `STAGE_ORDER` in [web/lib/surveyState.ts](../../web/lib/surveyState.ts)
+  now includes `dialog` between `interests` and `balance` (label "Explore"
+  in the progress chip).
+- Stage 4 + 5 host: new `/survey/dialog` route with a `DialogOrchestrator`
+  client component that walks each pending interest through Dialog → ConceptTour
+  interleaved, with cross-tour subtopic-key dedup per §1.6.5. The "Skip
+  remaining tours" button surfaces after the second tour completes.
+- Stage 3 page now redirects to `/survey/dialog` (was `/survey/balance`); the
+  old `/api/survey/interests` stub is trimmed to "save pending + advance gate".
+- Three new thin API routes:
+  - [/api/add-interest/parse](../../web/app/api/add-interest/parse/route.ts)
+  - [/api/add-interest/resolve](../../web/app/api/add-interest/resolve/route.ts)
+  - [/api/add-interest/concept-tour](../../web/app/api/add-interest/concept-tour/route.ts) —
+    writes `user_node_states` (precedence-bumped, never downgrades comfort)
+    and merges into `surveys.comfort_responses_json` keyed by
+    `<node_slug>:<subtopic_key>`.
+- Plus [/api/survey/dialog/complete](../../web/app/api/survey/dialog/complete/route.ts)
+  (clears `pending_interests_json` + marks `dialog` stage done) and
+  [/api/interest/me](../../web/app/api/interest/me/route.ts) (slug-or-id lookup
+  used by SurveyNodePanel Edit pre-fill and RequestBox Case 1/2 detection).
 
-The dialog should be one reusable React component with a `presentation` prop
-controlling its chrome ("full-page" for onboarding, "modal/panel" for
-post-onboarding). The /parse + /resolve API contract is already in place
-from Step 2b; this step is pure UI plus the wiring described above.
+Post-onboarding integrations:
+- [RequestBox](../../web/components/RequestBox.tsx) on the daily tab now runs
+  the §2.7 three-case router: `kind="concept"` queues a focused problem on
+  the matched node without persisting interest; matched-and-already-an-interest
+  queues one-off; otherwise surfaces a Case 1 panel with "Add it" (opens the
+  full dialog modal + concept tour) or "Just this once" (queues without
+  persisting). The latter required a new `skip_interest_add` flag on
+  `/api/queue/request`.
+- [NodePanel "Add to my interests"](../../web/components/NodePanel.tsx) opens
+  the modal pre-filled with the node title and a "What draws you to this?"
+  followup; resolves with `existing_node_slug` set.
+- [SurveyNodePanel Edit](../../web/components/survey/SurveyNodePanel.tsx)
+  opens the modal pre-filled with the current intent_context and a "What's
+  off, or what would you change?" followup.
 
-Files (estimated): new `web/components/add-interest/Dialog.tsx`,
-`web/components/add-interest/ConceptTour.tsx`, updates to
-`web/app/api/survey/interests/route.ts` (call client-side instead of
-server-side stub), `web/components/DailyView.tsx`,
-`web/components/NodePanel.tsx`, `web/components/survey/SurveyNodePanel.tsx`
-(wire Edit), `web/lib/pythonApi.ts` (remove the `addInterest` shim once all
-callers route through the dialog).
+Cleanup:
+- The `addInterest` shim is gone from [web/lib/pythonApi.ts](../../web/lib/pythonApi.ts).
+  Headless callers now go through a small inline `headlessResolveToNode`
+  helper in `/api/queue/request/route.ts` that calls /parse + /resolve with
+  auto-confirm on `draft_intent_context`.
+- [/api/interest](../../web/app/api/interest/route.ts) POST is now
+  cross-pollination-only. The standard raw-text path is explicitly rejected
+  with a 400 directing callers to /parse + /resolve.
 
-#### 2e — Profile page (initial surface)
+Known gaps (deferred):
+- Case 3 (`kind="concept"`) currently queues a regular problem on the matched
+  node; the spec calls for a "brief orienting explanation + focused problem"
+  and concept-level pool tagging will need its own pass (Step 2f handles
+  subtopic tagging; the orienting explanation is a follow-on).
+- `user_node_states` updates only the parent foundation node from the concept
+  tour (we have no subtopic-level state column). Strongest signal across
+  subtopics wins.
 
-Implement the profile page per Section 6. Initial scope:
+Files shipped:
+- Python: `api/schemas.py` (kind field), `api/prompts/add_interest.py` (Haiku
+  prompt update).
+- Web: 4 new components under `web/components/addInterest/`; new
+  `web/components/survey/DialogOrchestrator.tsx`; updates to RequestBox,
+  NodePanel, SurveyNodePanel, ConfirmGraph (onEdited callback), InterestSuggestions
+  (Stage 3 redirect), SurveyProgress (6-stage). 5 new API routes + 3 modified
+  (`/api/survey/interests` shrunk, `/api/interest` cross-pollination only,
+  `/api/queue/request` uses inline headless resolve).
 
-- Mode balance slider (writes to the appropriate field — see implementation
-  decision below).
-- High-level feedback prompts: "too hard", "assume less", "more papers",
-  "harder problems". These write to a new `user_preferences` table or to
-  text columns on `user_interests` — pick the simpler option at implementation
-  time. The mechanic is: feedback adjusts generator instructions for the
-  relevant interests next time content is generated.
-- Interest list with delete (mirrors the Stage 7 confirmation panel).
-- Foundation node state list (read-only view).
+#### 2e — Profile page ✅ DONE
 
-Files: new `web/app/profile/page.tsx`, supporting components.
+A new `/profile` route surfaces the four sections in Section 6: mode balance,
+high-level feedback, interest management, foundation state.
 
-#### 2f — Problem generation: three-dial discipline + subtopic tagging
+Shape:
+- Mode balance section uses a new shared
+  [`ModeBalanceControl`](../../web/components/ModeBalanceControl.tsx)
+  (the visual core extracted from `ModeBalanceSlider`) wrapped in a
+  debounced auto-save section — drag the slider, value persists after a
+  short delay via the existing `POST /api/survey/balance` route. The survey
+  Stage 6 still uses `ModeBalanceSlider` with its Back/Continue chrome.
+- High-level feedback section: four toggle chips (`feedback_too_hard`,
+  `feedback_assume_less`, `feedback_more_papers`, `feedback_harder_problems`)
+  hitting `POST /api/profile/feedback`. Storage uses a new `user_preferences`
+  table (`user_id`, `key`, `value`, `updated_at` PK on `(user_id, key)`,
+  RLS-gated) so Step 3's curator can extend without further migrations.
+  Migration: [`20250020_user_preferences.sql`](../../supabase/migrations/20250020_user_preferences.sql).
+- Interest section: each row expands to show the user's engagement count,
+  a link to the skill tree, and the active queue items currently linked to
+  that interest's node (problems only — `queue_items` JOIN `problems` on
+  `topic_node_id`). Edit opens the same `DialogModal` SurveyNodePanel uses,
+  in `preNode` mode pre-filled with current intent_context. Delete posts to
+  the existing `DELETE /api/interest/[node_id]`.
+- "Rewrite summaries" button: the older /parse prompt produced tag-soup
+  `intent_context` values ("teach intent, X foundations") that read poorly
+  on the profile. A new `POST /add-interest/rewrite-summaries` (Haiku batch)
+  rewrites them into descriptive "Topic Name: what it covers" prose,
+  grounded in `node.description_md` + `subtopics_json` and tilted by the
+  user's existing intent_context when it carries a real angle. The parse
+  prompt itself was also updated to emit prose-form draft_intent_context
+  for new interests going forward (forbidden openings: "Wants to learn",
+  "The user wants", etc.).
+- Foundation state section: read-only list of all foundation nodes with
+  their `user_node_states.state` (defaulting to `unseen`). State badge
+  colors follow the design tokens (forest = comfortable, amber = active,
+  destructive-subtle = struggling).
+- Nav: fourth top-level link `Daily / Notebook / Skill Tree / Profile` in
+  `web/app/layout.tsx`.
 
-Update `api/prompts/problem.py` and `api/routes/generate_problem.py` to:
+Files shipped: 1 migration, 1 Python prompt builder + schema additions +
+endpoint, 1 web Python proxy + new orchestration route, 1 new web feedback
+route, 1 new profile page + ProfileView component, 1 shared
+ModeBalanceControl, edits to ModeBalanceSlider + layout.
 
-- Accept and act on `intent` (teach / refresh / consolidate) as a separate
-  parameter from difficulty.
-- Pass `intent_context` from `user_interests` and current `user_node_states`
-  for the relevant nodes into the prompt as the assumed-background frame.
-- Apply the entry-point default (Section 3.4): first problem on a new
-  interest is conceptual entrance, regardless of stated background.
-- Enforce the practical generation test (Section 3.6) in the prompt.
-- Require subtopic-level tags in addition to topic tags (Section 3.7 + 8.4).
-  Update the schema/return shape to enforce non-empty `tags` containing both
-  the primary topic and at least one subtopic.
+Known gap (deferred): paper engagement queue items don't currently carry a
+`topic_node_id` (papers tie to nodes only via orienting_concepts text), so
+they aren't grouped under interests in the expand view. The current scope
+shows problems only.
 
-Files: `api/prompts/problem.py`, `api/routes/generate_problem.py`,
-`api/schemas.py`.
+#### 2f — Problem generation: three-dial discipline + subtopic tagging ✅ DONE
 
-#### 2g — "Not ready yet" action
+`api/prompts/problem.py` rewritten end-to-end. The system prompt now spells
+out difficulty / assumed background / intent as INDEPENDENT dials, with
+the entry-point default (§3.4 — conceptual entrance regardless of stated
+background on the user's first problem on a topic) and the practical
+generation test (§3.6 — "could a user with only the confirmed background
+work through this?") encoded as load-bearing instructions. Subtopic tagging
+(§3.7) is required with example slugs in the prompt.
 
-Add the per-problem "not ready yet — come back later" action on the problem
-page. On submission:
+`api/routes/generate_problem.py` refactored with four new helpers:
+- `derive_intent(supabase, user_id, node_id)` — string-matches
+  `user_interests.intent_context` (consolidate > refresh > teach). Per the
+  locked decision, engagement state does NOT override intent_context;
+  adaptive intent lives in Step 3's /plan-queue.
+- `is_entry_point(supabase, user_id, topic_node_id)` — queries `attempts`
+  first (most users with no engagement short-circuit), then narrows to
+  topic-matching problems via `in_("id", attempt_problem_ids)`.
+- `derive_assumed_background_summary(supabase, user_id, topic_node_id,
+  topic_slug)` — builds a narrative paragraph from `user_node_states` for
+  the topic + its direct prerequisites (via `edges` table) plus
+  subtopic-level signals from `surveys.comfort_responses_json`.
+- `derive_feedback_biases(supabase, user_id)` — reads `user_preferences`
+  for the four `feedback_*` keys.
 
-- `queue_items.state` for the linked queue item transitions to `'deferred'`.
-- A signal is sent to `/assess-engagement` (see Step 3) with
-  `not_ready_deferred: true`.
-- The deferred item is held back; the curator will re-queue it via
-  `/check-deferred` (Step 3) once prerequisites are addressed.
+Pipeline: cache lookup extended to include `intent` in the key — new
+migration [`20250021_problems_intent.sql`](../../supabase/migrations/20250021_problems_intent.sql)
+adds `problems.intent text` with a CHECK constraint and rewrites the two
+partial unique indexes to include intent (`(topic, difficulty, hook, intent)`
+WHERE-clause keeps the legacy null-intent rows distinct from non-null
+intent rows).
 
-Files: `web/app/problem/[id]/page.tsx`, `web/app/api/...` (likely a new
-route or extension of an existing one).
+Schema: `GenerateProblemRequest.intent` and `feedback_bias` are now
+optional fields; when omitted the route derives them. `GeneratedProblem.tags`
+is now required with `min_length=2` (pydantic) and additionally validated
+in-route to contain the topic slug.
+
+Tests: 8 new cases in `api/tests/test_generate_problem.py` covering tag
+persistence, invalid tags, entry-point default, prior-attempts means no
+entry-point, intent derived from intent_context, body intent overrides
+context, invalid intent → 400, feedback biases in prompt, intent in cache
+key. Existing tests updated for required `slug` + `tags`. Full suite:
+134/134 passing.
+
+Files shipped: 1 migration, `api/prompts/problem.py` (rewrite),
+`api/routes/generate_problem.py` (helpers + pipeline), `api/schemas.py`,
+`api/tests/test_generate_problem.py` (+ cache_lookup tests).
+
+Nothing in `web/` changed for 2f.
+
+#### 2g — "Not ready yet" action ✅ DONE
+
+A per-problem deferral action available on Step 1 (before the user starts
+working). One tap, silent transition, back to `/daily`.
+
+Migration: [`20250022_queue_items_deferred_at.sql`](../../supabase/migrations/20250022_queue_items_deferred_at.sql)
+adds `queue_items.deferred_at timestamptz` as the authoritative timestamp
+Step 3's /check-deferred will read (separate from `updated_at` which gets
+overwritten on every state change). The `'deferred'` enum value was added
+back in `20250018`.
+
+New endpoint: [`web/app/api/problem/[id]/defer/route.ts`](../../web/app/api/problem/[id]/defer/route.ts).
+Modeled on the skip route but distinct: no `attempts` row is written, no
+`user_node_states` mutation. Only accepts transitions from `pending` or
+`surfaced` (returns 409 otherwise — defer is only valid before starting).
+Updates state → `deferred`, stamps `deferred_at` and `updated_at`.
+
+UI: `web/components/ProblemView.tsx` Step1View gets a third button between
+Skip and Start working. Forest-toned outline ("Not ready yet — come back
+later") matches the quieter / reading-side register.
+
+Cross-cutting state filtering:
+- `web/lib/types.ts` `QueueItemState` extended with `'deferred'`.
+- `web/app/problem/[id]/page.tsx` redirect now excludes deferred items.
+- `web/lib/queueHelpers.ts` open-pick filter excludes deferred items (so
+  if a surfaced item was deferred, the daily card list re-hydrates without
+  it). Python `/surface-daily` only picks `state='pending'` so deferred
+  items are excluded from fresh picks by construction.
+
+Note on the original plan note "a signal is sent to /assess-engagement
+with not_ready_deferred: true" — implementation chose a different design:
+the state transition + `deferred_at` timestamp IS the signal. Step 3's
+/check-deferred reads `queue_items WHERE state='deferred'` directly;
+/assess-engagement is for engagements, defer is a non-engagement. This is
+the locked decision from the 2g plan (silent defer, no reason field).
 
 ---
 
@@ -407,89 +535,163 @@ replaces the previous `/update-queue` design with the two-call architecture:
 Sonnet for daily planning, Haiku for post-engagement assessment, plus a
 deterministic `/check-deferred` for conditional re-queue.
 
-#### 3a — `/assess-engagement` (Haiku)
+#### 3a — `/assess-engagement` (Haiku) ✅ DONE
 
-New endpoint in `api/routes/assess_engagement.py`. Called after every
-graded attempt or completed paper engagement.
+Endpoint lives in `api/routes/curator.py` (three routes consolidated into
+one router since they share helpers + prompts). Called after every graded
+attempt or completed paper engagement.
 
-Input/output shapes as specified in
+Input/output shapes match
 [curriculum-curator-design.md §5.2](../curriculum-curator-design.md).
 Updates `user_node_states` (struggle_score, state, last_engaged_at,
-engagement_count) and executes the recommended `immediate_action`
+engagement_count) and executes `immediate_action`
 (`queue_reinforcement`, `accelerate`, `surface_prerequisite`, or `null`).
 Logs the call to `llm_calls`.
 
-Wire calls to this endpoint from:
-- `api/routes/grade_solution.py` (after grading an attempt)
-- The paper engagement completion path (probably in `api/routes/` — confirm
-  during implementation)
+Wired into:
+- `api/routes/grade_solution.py:135` (after notebook entry write)
+- `api/routes/grade_paper_answer.py:147` (when `is_last` triggers state='completed')
 
-#### 3b — `/plan-queue` (Sonnet)
+Both hooks are best-effort: any exception is logged and swallowed so the
+user's grade response is never blocked.
 
-New endpoint in `api/routes/plan_queue.py`. Called once per active user per
-day from a background job.
+The four `derive_*` helpers from `generate_problem.py` (Step 2f) plus three
+new `load_engagement_signals_*` and `load_node_state` helpers are now
+consolidated in `api/curator_inputs.py` so all three curator routes (and
+the generator) share one source. Paper-engagement assessments run the
+Haiku call for logging but skip `user_node_states` writes because
+`paper_engagements` does not carry a `topic_node_id` in v2 schema.
 
-Input/output shapes as specified in
-[curriculum-curator-design.md §4.2](../curriculum-curator-design.md).
-Receives full user context (interests, foundation states, prerequisite
-edges, recent engagement, queue state, feedback signals). Returns
-recommendations (`add`, `reprioritise`). Executes recommendations:
+#### 3b — `/plan-queue` (Sonnet) ✅ DONE
 
-- For `add`: queries the problem pool for a match on
-  `(interest_node, subtopic, intent)`; if a match exists, creates a
-  `queue_items` row pointing to it; otherwise triggers
-  `/generate-problem` with the recommendation as the generation brief.
-- For `reprioritise`: updates `priority_score` on the existing row.
+Endpoint in `api/routes/curator.py` (same router as 3a). Designed to run
+once per active user per day from the background job (3d).
 
-Populates `queue_items.added_reason` from the recommendation `reason` field
-(the curator's "why this" string is the source for daily-card copy).
+Input shape per
+[curriculum-curator-design.md §4.2](../curriculum-curator-design.md) is
+built by `build_curator_context()` in `api/curator_inputs.py`. Returns
+recommendations (`add`, `reprioritise`). Execution:
 
-#### 3c — `/check-deferred` (deterministic)
+- For `add` with `kind='problem'`: pool lookup on
+  `(topic_node_id, intent, difficulty, tags @> [subtopic])`. On hit:
+  insert `queue_items` row with the curator's reason + priority. On miss:
+  call `/generate-problem` inline, then overwrite the row it wrote with
+  the curator's `added_reason` + `priority_score`.
+- For `add` with `kind='refresher'`: direct queue insert keyed on the
+  resolved node id.
+- For `add` with `kind='paper_engagement'`: logged + skipped — paper
+  recommendations are produced by `/propose-papers`, not the curator.
+- For `reprioritise`: update `priority_score` on `queue_item_id` scoped to
+  this user. Curator must echo back UUIDs from
+  `recent_engagement.deferred_items[].queue_item_id`.
 
-New endpoint in `api/routes/check_deferred.py`. Runs daily after
-`/plan-queue`. No LLM call.
+Duplicate-pending guard: `_queue_item_already_exists` skips adds whose
+`(kind, ref_id)` is already pending/surfaced for the user.
 
-For each `queue_items` row with `state = 'deferred'`, checks the megagraph's
-prerequisite edges from the problem's `topic_node_id`: are the blocking
-prerequisites addressed? A prerequisite is "addressed" when its
-`user_node_states.state = 'comfortable'` or `struggle_score < 0.3` with
-`engagement_count >= 2`
-([curriculum-curator-design.md §8](../curriculum-curator-design.md)). If so,
-the deferred item transitions back to `state = 'pending'` with a refreshed
-priority.
+`added_reason` flows through from the curator's `reason` field verbatim
+— it is the source for daily-card "why this" copy.
 
-#### 3d — Daily background job
+#### 3c — `/check-deferred` (deterministic) ✅ DONE
 
-A scheduled job that, for each active user (any user with engagement in the
-past 14 days), calls `/plan-queue` followed by `/check-deferred`. Cold-start
-case: a brand-new user from Step 2's survey gets an immediate `/plan-queue`
-call rather than waiting for the next scheduled run.
+Endpoint in `api/routes/curator.py`. No LLM call.
 
-Implementation: simplest mechanism that fits the deployment — Vercel cron,
-Railway/Fly cron, or a `pg_cron` job invoking the FastAPI endpoint. Pick
-during implementation.
+For each `queue_items` row with `state = 'deferred'`, looks up the
+problem's `topic_node_id`, pulls prerequisite edges into that topic, and
+checks `user_node_states` for each prereq against the spec §8 threshold:
+`state = 'comfortable'` OR `(struggle_score < 0.3 AND engagement_count >= 2)`.
+When all prerequisites are addressed, transitions to `state = 'pending'`
+with `priority_score = 0.55` (the next `/plan-queue` pass sets a final
+priority). `deferred_at` is intentionally preserved for analytics.
 
-#### 3e — Reroll signal capture
+Edge cases handled: deferred problem with zero prerequisite edges
+re-queues unconditionally; orphaned ref_id rows are kept deferred and
+flagged in logs.
 
-`POST /api/queue/reroll/route.ts` must persist the reroll event (which item
-was passed over, which mode, which interest) so that future `/plan-queue`
-calls can observe reroll patterns via `surfaced_picks`. Ensure
-`surfaced_picks` rows are written on every reroll with `chosen_item_id =
-null` for passed-over items
-([curriculum-curator-design.md §16](../curriculum-curator-design.md)).
+#### 3d — Daily background job ✅ DONE (cron deferred to Phase 11-deploy)
 
-This subsumes drift #4: the data side of reroll feedback is implemented
-here; the curator consumes it on the next daily plan.
+The endpoint and cold-start path shipped; the cron schedule is deferred
+until the FastAPI service is deployed to a public host.
 
-#### 3f — Deprecate `/update-queue`
+What landed:
+- `/run-daily-planner` endpoint in `api/routes/curator.py` — per-user
+  wrapper that calls `run_plan_queue()` then `run_check_deferred()`,
+  writes a `curator_job_runs` log row, and treats sub-call failures as
+  recorded errors (not 500s) so partial progress survives.
+- New `curator_job_runs` table — migration
+  [`20250023_curator_job_runs.sql`](../../supabase/migrations/20250023_curator_job_runs.sql)
+  (applied). Service-role-only RLS; columns capture both sub-calls'
+  counts + status + error_message + finished_at.
+- pg_cron schedule — migration
+  [`20250024_curator_daily_job.sql`](../../supabase/migrations/20250024_curator_daily_job.sql)
+  (NOT applied). Enables `pg_cron` + `pg_net`, schedules `0 7 * * *` UTC
+  fan-out, idempotent on `cron.unschedule`. Header documents required
+  dashboard prereqs (Vault secret `internal_api_token`, Postgres config
+  `app.python_api_url`).
+- Cold start: `web/app/api/survey/complete/route.ts` now calls
+  `planQueue({userId, triggeredBy: 'cold_start'})` instead of the three
+  legacy `updateQueue` + `suggestPapers` + `proposePapers` calls. Stage 7
+  confirm triggers a fresh /plan-queue pass within the dev session.
+- Cross-pollination accept (`web/app/api/interest/route.ts`) also
+  migrated to `planQueue({triggeredBy: 'manual'})`.
+- 5 new tests in `api/tests/test_run_daily_planner.py` cover the 401
+  plumbing, happy path, plan-queue-fails-but-check-deferred-still-runs,
+  and check-deferred-fails-with-plan-queue-counts-preserved cases.
 
-Once `/plan-queue`, `/assess-engagement`, and `/check-deferred` are
-implemented and wired:
+Deferred to Phase 11-deploy: applying 20250024 (the cron schedule),
+deploying FastAPI to Fly/Railway, configuring Vault + Postgres config
+that the cron needs. Migration file remains on disk as a Phase 11
+reference; Sam's manual SQL-editor application workflow means it's not
+auto-applied.
 
-- Remove call sites of `/update-queue` from the Next.js app and FastAPI.
-- Mark `api/routes/update_queue.py` as deprecated (delete after a session of
-  verification that nothing still references it).
-- Update `ARCHITECTURE.md` if it still names `/update-queue` as authoritative.
+#### 3e — Reroll signal capture ✅ DONE
+
+`web/app/api/queue/reroll/route.ts` now writes one `surfaced_picks` row
+per passed-over item with `chosen_item_id=null`,
+`queue_item_ids=[single_id]`, `surfaced_at`/`replaced_at=now()`. The
+top-level pick row continues to get its `replaced_at` stamp as before.
+Per-item rows are what
+[`api/curator_inputs.py:load_recent_engagement`](../../api/curator_inputs.py)
+counts by node for the curator's
+`recent_engagement.reroll_patterns` block.
+
+Future-aware: when a "choose one, reroll the rest" UX lands, the chosen
+item gets a row with `chosen_item_id=<id>`. For now every reroll path
+produces null-chosen rows.
+
+This subsumes drift #4: the data side of reroll feedback is in place;
+the curator consumes it on the next daily plan.
+
+#### 3f — Deprecate `/update-queue` ✅ DONE
+
+Handover claimed one call site; four were found:
+1. `web/app/api/survey/complete/route.ts` — migrated to `planQueue`.
+2. `web/app/api/interest/route.ts` — migrated to `planQueue`.
+3. `web/app/api/problem/[id]/submit/route.ts` — deleted
+   (redundant with the `/assess-engagement` hook in
+   `api/routes/grade_solution.py:135`).
+4. `web/app/api/paper/[id]/answer/route.ts` — deleted
+   (redundant with the `/assess-engagement` hook in
+   `api/routes/grade_paper_answer.py:147`).
+
+Also deleted: `api/routes/update_queue.py`, `api/tests/test_update_queue.py`,
+the two `/update-queue` smoke tests in `api/tests/test_surface_daily.py`,
+`UpdateQueueRequest`/`UpdateQueueResponse` from `api/schemas.py`,
+`updateQueue` export from `web/lib/pythonApi.ts`, `update_queue_router`
+import + `include_router` in `api/main.py`, the `/update-queue` row in
+`ARCHITECTURE.md`. Stale comment at
+`web/app/api/queue/request/route.ts:239` rephrased.
+
+Known deferred (called out in pivot-plan): refresher scheduling from
+10-day-old notebook entries into `refresher_schedule`, and pruning of
+`queue_items.state in ('done','dismissed')` rows older than 30 days.
+The curator can recommend refreshers ad hoc but the systematic
+deterministic schedule is gone. Acceptable per spec; Phase 6
+cost-dashboard work can pick them up.
+
+Tests after Step 3 close: 153/153 passing
+(was 160 pre-Step-3d, net –10 from `test_update_queue.py` deletion +2
+removed from `test_surface_daily.py` +5 added to
+`test_run_daily_planner.py`).
 
 ---
 

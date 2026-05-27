@@ -1,27 +1,39 @@
 """POST /generate-problem — synthesize (or look up) the next problem for a
 graph node.
 
-Flow:
+Flow (Phase 10-rev Step 2f — three-dial discipline):
 
-  1. Load the node from the `nodes` table by node_id.
-  2. Derive difficulty from difficulty_hint via DIFFICULTY_MAP.
-  3. Pick a context hook by asking Haiku to choose among the candidates
-     tagged to this topic, or null if none is a good fit. With 0 candidates
-     the Haiku call is skipped (the answer is unambiguous).
-  4. Cache lookup on (topic_node_id, difficulty, context_hook_id). On hit,
-     skip to step 8.5 — a new queue item is still written.
-  5. Sonnet call (JSON mode + strict pydantic parse + one retry).
-  6. Race-safe insert into `problems`; if another worker won the race
-     (unique-violation), re-select that row and skip to step 8.5.
-  7. Insert 5 `problem_hints` rows (only when we wrote the problem row).
-  8. Write a `queue_items` row for this user (always — on cache hit, race
-     win, and race loss alike).
-  9. Return { problem_id, queue_item_id }.
+  1. Load the node (now also returns `slug` for the required `tags`).
+  2. Derive the three dials:
+       - difficulty: DIFFICULTY_MAP[node.difficulty_hint] (unchanged).
+       - intent: request body override OR string-match on
+                 user_interests.intent_context for this (user, node). Default
+                 'teach' when no interest row exists (e.g. concept_review
+                 paths on a non-interest node).
+       - assumed background: derived narrative from user_node_states for the
+                 topic + its prerequisites + surveys.comfort_responses_json.
+                 Passed to the prompt as a paragraph, not a numeric.
+  3. is_entry_point: True iff this user has no prior attempts on this topic.
+  4. feedback_biases: read from user_preferences (the profile-page toggles).
+  5. Pick a context hook by asking Haiku to choose among the candidates
+     tagged to this topic, or null if none is a good fit.
+  6. Cache lookup on (topic_node_id, difficulty, context_hook_id, intent).
+     Intent is now part of the cache key — same topic+difficulty+hook with
+     different intents are stored as separate rows.
+  7. Sonnet call (JSON mode + strict pydantic parse + one retry). The
+     prompt enforces required subtopic-level tags and the entry-point /
+     practical-generation-test discipline.
+  8. Validate tags: must contain the topic slug AND len >= 2.
+  9. Race-safe insert with tags + intent populated.
+ 10. Insert 5 problem_hints rows (only when we wrote the problem row).
+ 11. Write a queue_items row for this user.
+ 12. Return { problem_id, queue_item_id }.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from uuid import UUID
 
@@ -32,6 +44,13 @@ from supabase import Client
 from anthropic_client import call_json, get_anthropic_client
 from auth import require_internal_token
 from config import HAIKU_MODEL, SONNET_MODEL
+from curator_inputs import (
+    FEEDBACK_KEYS,  # noqa: F401  — re-exported for back-compat with tests
+    derive_assumed_background_summary,
+    derive_feedback_biases,
+    derive_intent,
+    is_entry_point,
+)
 from prompts import hook_match as hook_match_prompts
 from prompts.problem import build_system_prompt, build_user_prompt
 from schemas import (
@@ -47,14 +66,23 @@ DIFFICULTY_MAP = {"intro": 2, "core": 3, "advanced": 4}
 # Cap on hooks shown to Haiku per the spec ("shortlist of up to ~6").
 MAX_HOOK_CANDIDATES = 6
 
+VALID_INTENTS = {"teach", "refresh", "consolidate"}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_SLUG_PUNCT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text: str) -> str:
+    return _SLUG_PUNCT_RE.sub("-", text.lower()).strip("-") or "untitled"
 
 
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
 
 def cache_lookup(
     supabase: Client,
@@ -62,14 +90,16 @@ def cache_lookup(
     topic_node_id: UUID | str,
     difficulty: int,
     context_hook_id: UUID | str | None,
+    intent: str,
 ) -> str | None:
     """Return the problem id of an existing row that matches the cache key,
-    or None if no row matches."""
+    or None if no row matches. Intent is now part of the key."""
     query = (
         supabase.table("problems")
         .select("id")
         .eq("topic_node_id", str(topic_node_id))
         .eq("difficulty", difficulty)
+        .eq("intent", intent)
     )
     if context_hook_id is None:
         query = query.is_("context_hook_id", "null")
@@ -131,18 +161,28 @@ def match_hook(
     return chosen
 
 
-def _subtopic_titles(subtopics_field: Any) -> list[str]:
-    """Handle both {slug, title} dict (foundation/interest nodes) and bare str
-    (new interest nodes from /add-interest)."""
+def _subtopics_with_slugs(subtopics_field: Any) -> list[dict[str, str]]:
+    """Return a list of {slug, title} dicts for the prompt.
+
+    Handles both shapes stored in nodes.subtopics_json:
+      - {"slug": ..., "title": ...} (curated foundation / interest nodes)
+      - bare string (newer interest nodes from /add-interest)
+
+    For bare strings we synthesize a slug from the title.
+    """
     if not subtopics_field:
         return []
-    titles: list[str] = []
+    out: list[dict[str, str]] = []
     for entry in subtopics_field:
-        if isinstance(entry, dict) and "title" in entry:
-            titles.append(entry["title"])
+        if isinstance(entry, dict):
+            title = entry.get("title") or entry.get("name") or entry.get("slug")
+            if not title:
+                continue
+            slug = entry.get("slug") or _slugify(str(title))
+            out.append({"slug": str(slug), "title": str(title)})
         elif isinstance(entry, str):
-            titles.append(entry)
-    return titles
+            out.append({"slug": _slugify(entry), "title": entry})
+    return out
 
 
 def _is_unique_violation(exc: Exception) -> bool:
@@ -153,8 +193,28 @@ def _is_unique_violation(exc: Exception) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Tag validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_tags(tags: list[str], topic_slug: str) -> tuple[bool, str | None]:
+    """Return (ok, reason). Tags must include the topic slug and have len >= 2."""
+    if not tags:
+        return False, "tags is empty — must contain topic slug + at least one subtopic slug"
+    if len(tags) < 2:
+        return False, "tags must contain at least 2 entries (topic + 1 subtopic)"
+    if topic_slug not in tags:
+        return (
+            False,
+            f"tags must include the topic slug {topic_slug!r}; got {tags!r}",
+        )
+    return True, None
+
+
+# ---------------------------------------------------------------------------
 # Route
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/generate-problem",
@@ -166,10 +226,10 @@ def generate_problem(
     supabase: Client = Depends(get_supabase_client),
     anthropic: Anthropic = Depends(get_anthropic_client),
 ) -> GenerateProblemResponse:
-    # 1. Load node
+    # 1. Load node (now includes slug for the tags requirement)
     node_resp = (
         supabase.table("nodes")
-        .select("id, title, description_md, difficulty_hint, subtopics_json")
+        .select("id, slug, title, description_md, difficulty_hint, subtopics_json")
         .eq("id", str(body.node_id))
         .limit(1)
         .execute()
@@ -178,11 +238,54 @@ def generate_problem(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node not found")
     node = node_resp.data[0]
 
-    # 2. Derive difficulty
-    difficulty = DIFFICULTY_MAP.get(node["difficulty_hint"], 3)
+    user_id = str(body.user_id)
     topic_node_id = node["id"]
+    topic_slug = node.get("slug") or _slugify(node["title"])
 
-    # 3. Hook selection (Haiku — skipped when there are no candidates)
+    # 2. Derive three dials (intent from body or intent_context; difficulty
+    # from node; assumed background from engagement signals)
+    difficulty = DIFFICULTY_MAP.get(node["difficulty_hint"], 3)
+
+    intent = body.intent
+    if intent is not None and intent not in VALID_INTENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"intent must be one of {sorted(VALID_INTENTS)}",
+        )
+    if intent is None:
+        intent = derive_intent(supabase, user_id=user_id, node_id=topic_node_id)
+
+    entry_point = is_entry_point(
+        supabase, user_id=user_id, topic_node_id=topic_node_id
+    )
+
+    assumed_background_summary = derive_assumed_background_summary(
+        supabase,
+        user_id=user_id,
+        topic_node_id=topic_node_id,
+        topic_slug=topic_slug,
+    )
+
+    # intent_context — pulled into the prompt verbatim (separate from intent).
+    intent_context = ""
+    ui_resp = (
+        supabase.table("user_interests")
+        .select("id, intent_context")
+        .eq("user_id", user_id)
+        .eq("node_id", topic_node_id)
+        .limit(1)
+        .execute()
+    )
+    if ui_resp.data:
+        intent_context = ui_resp.data[0].get("intent_context") or ""
+    is_direct_interest = bool(ui_resp.data)
+
+    # 3. Feedback biases (request body override OR DB)
+    feedback_biases = body.feedback_bias
+    if feedback_biases is None:
+        feedback_biases = derive_feedback_biases(supabase, user_id=user_id)
+
+    # 4. Hook selection (Haiku — skipped when there are no candidates)
     hooks_resp = (
         supabase.table("context_hooks")
         .select("id, slug, title, summary_md, difficulty_band")
@@ -195,28 +298,36 @@ def generate_problem(
         topic_title=node["title"],
         topic_description=node.get("description_md") or "",
         candidate_hooks=hooks_resp.data or [],
-        user_id=str(body.user_id),
+        user_id=user_id,
     )
     context_hook_id = hook["id"] if hook else None
     context_hook_summary = hook["summary_md"] if hook else None
 
-    # 4. Cache lookup
+    # 5. Cache lookup (now keyed on intent too)
     cached_id = cache_lookup(
         supabase,
         topic_node_id=topic_node_id,
         difficulty=difficulty,
         context_hook_id=context_hook_id,
+        intent=intent,
     )
 
     if cached_id is not None:
         problem_id = cached_id
     else:
-        # 5. Sonnet generation
+        # 6. Sonnet generation
+        subtopics = _subtopics_with_slugs(node.get("subtopics_json"))
         user_prompt = build_user_prompt(
             topic_title=node["title"],
+            topic_slug=topic_slug,
             topic_description=node.get("description_md") or "",
-            subtopics=_subtopic_titles(node.get("subtopics_json")),
+            subtopics=subtopics,
             difficulty=difficulty,
+            intent=intent,
+            assumed_background_summary=assumed_background_summary,
+            is_entry_point=entry_point,
+            intent_context=intent_context,
+            feedback_biases=feedback_biases,
             context_hook_summary_md=context_hook_summary,
         )
         generated = call_json(
@@ -227,37 +338,55 @@ def generate_problem(
             user_prompt=user_prompt,
             schema=GeneratedProblem,
             route="/generate-problem",
-            user_id=str(body.user_id),
+            user_id=user_id,
             max_tokens=8192,
             request_summary={
                 "topic_node_id": topic_node_id,
                 "difficulty": difficulty,
+                "intent": intent,
                 "context_hook_id": context_hook_id,
+                "entry_point": entry_point,
             },
         )
 
-        # 6. Race-safe insert
+        # 7. Validate tags (topic slug present + at least one subtopic)
+        ok, reason = _validate_tags(generated.tags, topic_slug)
+        if not ok:
+            logger.warning(
+                "Sonnet returned invalid tags %r for topic %r — %s",
+                generated.tags,
+                topic_slug,
+                reason,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"generator returned invalid tags: {reason}",
+            )
+
+        # 8. Race-safe insert
         problem_row = {
             "topic_node_id": topic_node_id,
             "difficulty": difficulty,
+            "intent": intent,
             "context_hook_id": context_hook_id,
             "title": generated.title,
             "statement_md": generated.statement_md,
             "solution_md": generated.solution_md,
             "rubric_md": generated.rubric_md,
             "context_md": generated.context_md,
+            "tags": generated.tags,
         }
         try:
             insert_resp = supabase.table("problems").insert(problem_row).execute()
         except Exception as exc:  # noqa: BLE001
             if not _is_unique_violation(exc):
                 raise
-            # Another worker won the race; reuse their row.
             cached_id = cache_lookup(
                 supabase,
                 topic_node_id=topic_node_id,
                 difficulty=difficulty,
                 context_hook_id=context_hook_id,
+                intent=intent,
             )
             if cached_id is None:
                 raise HTTPException(
@@ -267,30 +396,21 @@ def generate_problem(
             problem_id = cached_id
         else:
             problem_id = insert_resp.data[0]["id"]
-            # 7. Hints (5 rows, levels 1..5) — only when we won the race
+            # 9. Hints (5 rows, levels 1..5) — only when we won the race
             hint_rows = [
                 {"problem_id": problem_id, "level": i + 1, "text": text}
                 for i, text in enumerate(generated.hints)
             ]
             supabase.table("problem_hints").insert(hint_rows).execute()
 
-    # 8. Queue item (always written — cache hit, race win, or race loss)
-    ui_resp = (
-        supabase.table("user_interests")
-        .select("id")
-        .eq("user_id", str(body.user_id))
-        .eq("node_id", topic_node_id)
-        .limit(1)
-        .execute()
-    )
-    is_direct_interest = bool(ui_resp.data)
+    # 10. Queue item (always written — cache hit, race win, or race loss)
     added_reason = (
         f"Practice for your interest in {node['title']}."
         if is_direct_interest
         else f"A problem on {node['title']}."
     )
     queue_row = {
-        "user_id": str(body.user_id),
+        "user_id": user_id,
         "kind": "problem",
         "ref_id": problem_id,
         "state": "pending",

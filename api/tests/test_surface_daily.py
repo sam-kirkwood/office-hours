@@ -1,4 +1,4 @@
-"""Tests for POST /surface-daily and POST /update-queue."""
+"""Tests for POST /surface-daily."""
 
 from uuid import uuid4
 
@@ -323,35 +323,3 @@ def test_refresher_priority_above_problem(client: TestClient, fakes) -> None:
     assert "refresher" in kinds
 
 
-# ---------------------------------------------------------------------------
-# /update-queue smoke tests (full coverage in test_update_queue.py)
-# ---------------------------------------------------------------------------
-
-
-def test_update_queue_missing_bearer_returns_401(client: TestClient) -> None:
-    response = client.post(
-        "/update-queue",
-        json={"user_id": str(uuid4()), "trigger": "interest_add"},
-    )
-    assert response.status_code == 401
-
-
-def test_update_queue_returns_ok(client: TestClient, fakes) -> None:
-    supabase, _ = fakes
-    user_id = str(uuid4())
-    supabase.respond("queue_items", "select", lambda _: [])
-    supabase.respond("notebook_entries", "select", lambda _: [])
-    supabase.respond("refresher_schedule", "select", lambda _: [])
-    supabase.respond("profiles", "select", lambda _: [])
-    supabase.respond("queue_items", "delete", lambda _: [])
-
-    response = client.post(
-        "/update-queue",
-        json={"user_id": user_id, "trigger": "interest_add"},
-        headers=AUTH_HEADERS,
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["items_reweighted"] == 0
-    assert data["refreshers_scheduled"] == 0
-    assert data["items_pruned"] == 0

@@ -123,7 +123,8 @@ export type QueueItemState =
   | "in_progress"
   | "done"
   | "skipped"
-  | "dismissed";
+  | "dismissed"
+  | "deferred";
 
 export interface QueueItem {
   id: string;

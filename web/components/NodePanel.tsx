@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import MarkdownLatex from "@/lib/markdown";
+import { optimisticQueueRequest } from "@/lib/optimisticQueueRequest";
 import type { Node, UserNodeState, NotebookEntry } from "@/lib/types";
+import DialogModal from "@/components/addInterest/DialogModal";
 
 interface Props {
   node: Node;
@@ -42,7 +44,7 @@ const ENTRY_KIND_LABELS: Record<string, string> = {
 export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [markingComfortable, setMarkingComfortable] = useState(false);
@@ -69,42 +71,28 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
       .finally(() => setHistoryLoading(false));
   }, [node.slug]);
 
-  async function handleGetProblem() {
+  function handleGetProblem() {
     setLoading(true);
     setError(null);
     setInfo(null);
-    try {
-      const res = await fetch("/api/queue/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node_id: node.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      router.push(`/problem/${data.queue_item_id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-      setLoading(false);
-    }
+    optimisticQueueRequest({
+      body: { node_id: node.id },
+      targetPath: (id) => `/problem/${id}`,
+      router,
+      labels: {
+        pending: `Finding a problem on ${node.title}…`,
+        queued: "Added to your queue.",
+      },
+    }).catch(() => {/* surfaced via toast */});
+    // Brief debounce so the button can't be re-clicked while the toast is
+    // still mounting. The toast carries success/error UI.
+    setTimeout(() => setLoading(false), 800);
   }
 
-  async function handleAddInterest() {
-    setAdding(true);
+  function openAddDialog() {
     setError(null);
     setInfo(null);
-    try {
-      const res = await fetch("/api/interest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_text: node.title }),
-      });
-      if (!res.ok) throw new Error("Failed to add interest");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-    } finally {
-      setAdding(false);
-    }
+    setAddOpen(true);
   }
 
   async function handleBookmark() {
@@ -141,28 +129,20 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
     }
   }
 
-  async function handleRequestPaper() {
+  function handleRequestPaper() {
     setRequestingPaper(true);
     setError(null);
     setInfo(null);
-    try {
-      const res = await fetch("/api/queue/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node_id: node.id, kind_hint: "paper" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      if (data.queue_item_id) {
-        router.push(`/paper/${data.queue_item_id}`);
-      } else {
-        setInfo(data.message ?? "Paper added to your queue.");
-        setRequestingPaper(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-      setRequestingPaper(false);
-    }
+    optimisticQueueRequest({
+      body: { node_id: node.id, kind_hint: "paper" },
+      targetPath: (id) => `/paper/${id}`,
+      router,
+      labels: {
+        pending: `Finding a paper on ${node.title}…`,
+        queued: "Adding a paper to your queue — it'll appear shortly.",
+      },
+    }).catch(() => {/* surfaced via toast */});
+    setTimeout(() => setRequestingPaper(false), 800);
   }
 
   return (
@@ -292,15 +272,28 @@ export default function NodePanel({ node, state, isUserNode, onClose }: Props) {
             <Button
               type="button"
               variant="outline"
-              onClick={handleAddInterest}
-              disabled={adding}
+              onClick={openAddDialog}
               className="w-full"
             >
-              {adding ? "Adding…" : "Add to my interests"}
+              Add to my interests
             </Button>
           )}
         </div>
       </div>
+
+      <DialogModal
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        mode="preNode"
+        preNode={{
+          slug: node.slug,
+          title: node.title,
+          followupPromptOverride: "What draws you to this?",
+        }}
+        addedVia="explicit_request"
+        title={`Add ${node.title}`}
+        onComplete={() => router.refresh()}
+      />
     </div>
   );
 }

@@ -45,7 +45,17 @@ export async function resolveTitles(items: SurfacedQueueItem[]): Promise<Surface
     .filter((i) => i.kind === "paper_engagement" && i.ref_id)
     .map((i) => i.ref_id as string);
 
-  if (problemIds.length === 0 && engagementIds.length === 0) return items;
+  const conceptNodeIds = items
+    .filter((i) => i.kind === "concept_review" && i.ref_id)
+    .map((i) => i.ref_id as string);
+
+  if (
+    problemIds.length === 0 &&
+    engagementIds.length === 0 &&
+    conceptNodeIds.length === 0
+  ) {
+    return items;
+  }
 
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,6 +122,16 @@ export async function resolveTitles(items: SurfacedQueueItem[]): Promise<Surface
     }
   }
 
+  if (conceptNodeIds.length > 0) {
+    const { data: nodes } = await adminClient
+      .from("nodes")
+      .select("id, title")
+      .in("id", conceptNodeIds);
+    for (const n of nodes ?? []) {
+      if (n.title) titleByRefId[n.id] = n.title as string;
+    }
+  }
+
   return items.map((item) => ({
     ...item,
     title: item.ref_id ? (titleByRefId[item.ref_id] ?? null) : null,
@@ -144,7 +164,7 @@ export async function getOrSurfacePick(
         .in("id", ids);
 
       const active = (rows ?? []).filter(
-        (r) => !["done", "dismissed", "skipped"].includes(r.state as string),
+        (r) => !["done", "dismissed", "skipped", "deferred"].includes(r.state as string),
       );
 
       if (active.length > 0) {

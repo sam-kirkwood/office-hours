@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { gradeSolution, updateQueue } from "@/lib/pythonApi";
+import { gradeSolution } from "@/lib/pythonApi";
 
 export async function POST(
   request: Request,
@@ -45,11 +45,9 @@ export async function POST(
     .update({ state: "done", updated_at: new Date().toISOString() })
     .eq("id", queueItemId);
 
-  updateQueue({
-    userId: user.id,
-    trigger: "attempt_submit",
-    refId: attempt_id,
-  }).catch(() => null);
+  // Post-attempt node-state update + adaptive queue actions are handled by
+  // /assess-engagement, which /grade-solution invokes as a best-effort hook
+  // (api/routes/grade_solution.py:135). No additional curator call needed here.
 
   return NextResponse.json({
     grade_response_md: result.grade_response_md,

@@ -55,7 +55,7 @@ export default function InterestSuggestions({
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "Save failed");
       }
-      router.push("/survey/balance");
+      router.push("/survey/dialog");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
       setSubmitting(false);

@@ -21,10 +21,10 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const KIND_CTA: Record<string, string> = {
-  problem: "Work on this",
+  problem: "Try this",
   paper_engagement: "Read paper",
-  concept_review: "Review",
-  refresher: "Practice again",
+  concept_review: "Read",
+  refresher: "Look at this again",
   suggested_interest: "Explore",
 };
 
@@ -192,6 +192,12 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
               Revisit this →
             </Link>
           </Button>
+        ) : item.kind === "concept_review" && item.ref_id ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/concept-review/${item.queue_item_id}`}>
+              {KIND_CTA[item.kind]} →
+            </Link>
+          </Button>
         ) : item.kind === "suggested_interest" ? (
           interestStatus === "added" ? (
             <p className="text-sm text-muted-foreground">Added to your interests.</p>
@@ -230,7 +236,7 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
 function MoreComingCard() {
   return (
     <div className="rounded-md border border-dashed border-border px-5 py-4 text-center text-sm text-muted-foreground">
-      More items are being prepared — check back soon.
+      More to come — give it a moment.
     </div>
   );
 }
@@ -250,11 +256,11 @@ function EmptyState() {
 
 function defaultDescription(kind: string): string {
   const defaults: Record<string, string> = {
-    problem: "A problem is ready for you.",
-    paper_engagement: "A paper is queued for reading.",
-    concept_review: "A concept is ready for review.",
+    problem: "A problem on this topic.",
+    paper_engagement: "A paper to read.",
+    concept_review: "Worth a moment of reading.",
     refresher: "Run through this again — reinforcing what you know is just as valuable as learning something new.",
-    suggested_interest: "A new topic has been suggested based on your interests.",
+    suggested_interest: "Someone studying adjacent topics recently explored this.",
   };
   return defaults[kind] ?? "An item is waiting.";
 }

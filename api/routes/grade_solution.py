@@ -27,6 +27,7 @@ from anthropic_client import call_json, get_anthropic_client
 from auth import require_internal_token
 from config import SONNET_MODEL
 from prompts.grade_solution import build_system_prompt, build_user_prompt
+from routes.curator import run_assess_engagement
 from schemas import GradeResponse, GradeSolutionRequest, GradeSolutionResponse
 from supabase_client import get_supabase_client
 
@@ -130,6 +131,21 @@ def grade_solution(
         .execute()
     )
     notebook_entry_id = nb_resp.data[0]["id"]
+
+    # 7. Post-engagement assessment (curriculum-curator-design.md §5).
+    # Best-effort: a failure here must not block the user's grade response.
+    try:
+        run_assess_engagement(
+            supabase=supabase,
+            anthropic=anthropic,
+            user_id=str(body.user_id),
+            attempt_id=str(body.attempt_id),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "assess-engagement failed for attempt=%s — grade response still served",
+            body.attempt_id,
+        )
 
     return GradeSolutionResponse(
         grade_response_md=result.response_md,

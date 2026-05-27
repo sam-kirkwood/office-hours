@@ -34,6 +34,7 @@ def build_parse_system_prompt() -> str:
         '{"segments": [\n'
         "  {\n"
         '    "raw_text_segment": "string",\n'
+        '    "kind": "interest" | "concept",\n'
         '    "specificity": "specific" | "ambiguous",\n'
         '    "implicit_intent": "teach" | "refresh" | "consolidate",\n'
         '    "mirror_back_md": "string",\n'
@@ -52,6 +53,14 @@ def build_parse_system_prompt() -> str:
         "  subject. Coarse-grained is fine when the megagraph is sparse; only "
         "  split when the subjects are genuinely separate, not when one is a "
         "  subtopic of the other.\n"
+        "- kind='concept' when the user is asking about a sub-node-level idea "
+        "  rather than a new area of study — e.g. 'I forgot what power means', "
+        "  'remind me what eigenvectors are', 'what does entropy actually mean'. "
+        "  These are concept-level refreshers, not new interests; the UI will "
+        "  surface a single explanatory problem and will NOT create a new node "
+        "  or run the dialog. kind='interest' is the default for everything "
+        "  else — a topic, a field, a paper-following ambition. If unsure, "
+        "  prefer 'interest'.\n"
         "- specificity='specific' when the user has named the angle they care "
         "  about (e.g. 'I want to follow LIGO papers', 'I want my ODEs back'). "
         "  specificity='ambiguous' when the topic is broad enough that several "
@@ -68,20 +77,126 @@ def build_parse_system_prompt() -> str:
         "  3 to 5 path_options, each with a short kebab-case key, a label of "
         "  at most 80 characters in natural language, and a draft_intent_context "
         "  that captures what the resolved intent would be if the user picks "
-        "  that path. Always end with an implicit 'or something else' — do not "
+        "  that path (same shape as the segment-level draft_intent_context — see "
+        "  below). Always end with an implicit 'or something else' — do not "
         "  add an explicit other option, the UI will provide one.\n"
         "- dedup.verdict = 'same' when the segment clearly maps to one of the "
         "  candidate nodes. 'related' when the topic is adjacent but distinct "
         "  (different level, different sub-area). 'new' when no candidate is "
         "  even remotely relevant. Never invent a slug not in the candidate "
         "  list. matched_node_slug must be null for 'new'.\n"
-        "- draft_intent_context is a short text string (one or two clauses) "
-        "  capturing the user's path + intent if they accept the parse without "
-        "  clarifying. Examples: 'research-following angle, papers-heavy'; "
-        "  'devices-and-circuits angle, teach intent'; 'refresh ODE foundations'. "
-        "  Not a hardcoded enum — write what fits.\n"
+        "- draft_intent_context is 1–2 sentences of natural prose describing "
+        "  THIS USER'S goal and angle for this interest. It will be shown to "
+        "  the user on their profile page AND read by the problem generator, "
+        "  so it must read like a sentence, not a tag list. Write in plain "
+        "  declarative prose. DO NOT use template fragments like 'teach intent', "
+        "  'refresh intent', or '<slug> node' — those leak machinery into the "
+        "  user's view. Examples of GOOD draft_intent_context: "
+        "  'Wants to follow LIGO papers and where gravitational-wave detection "
+        "  is heading. Papers-heavy preference.' / "
+        "  'Reconnecting with ODEs after years away — wants to refresh the "
+        "  math, especially separable equations and linear systems.' / "
+        "  'Curious about how transistors and circuits actually work, starting "
+        "  from the device-physics angle rather than abstract semiconductor "
+        "  theory.' Capture the user's intent (whether they're learning fresh, "
+        "  refreshing, or consolidating) through the words you choose, not "
+        "  through enum-like phrases.\n"
         "- Be calibrated: this is a knowledgeable peer talking, not a survey "
         "  form. No 'thank you for your response' phrasing."
+    )
+
+
+def build_rewrite_summary_system_prompt() -> str:
+    return (
+        "You write user-facing summaries that describe what an interest topic "
+        "covers — the kind of subtitle you'd see on a card. The summary "
+        "describes the topic itself (concepts, techniques, questions it "
+        "addresses), tilted toward this user's stated angle when there is "
+        "one. It is NOT a restatement of what the user wants to do.\n"
+        "\n"
+        "Return ONLY a JSON object of this exact shape:\n"
+        '{"summaries": [\n'
+        '  {"user_interest_id": "uuid-string", "summary": "string"}\n'
+        "]}\n"
+        "\n"
+        "FORM: Lead with the node title verbatim, a colon, then 1–2 sentences "
+        "of descriptive content. The colon-clause names the actual ideas the "
+        "topic engages with, in plain declarative prose.\n"
+        "\n"
+        "GROUNDING: Use node_description_md and subtopics to anchor the "
+        "summary in real content. Don't invent scope the topic doesn't have. "
+        "If subtopics name specific techniques or concepts, surface a couple "
+        "of them in the summary.\n"
+        "\n"
+        "USER ANGLE: If current_context names a specific tilt (e.g. 'follow "
+        "LIGO papers', 'focus on superconductors', 'reconnecting after years "
+        "away'), bias the description toward that angle — pick subtopics or "
+        "framings that match. If current_context is empty or just says "
+        "things like 'wants to learn X' / 'X foundations' with no specific "
+        "angle, write a general descriptive summary that names the core of "
+        "the topic.\n"
+        "\n"
+        "FORBIDDEN openings — do not start with these or paraphrase them:\n"
+        "- 'Wants to learn …'\n"
+        "- 'Wants to refresh …'\n"
+        "- 'Wants to explore …'\n"
+        "- 'The user wants …'\n"
+        "- 'An interest in …'\n"
+        "- 'Looking to study …'\n"
+        "These are statements about the user; the summary is about the "
+        "TOPIC.\n"
+        "\n"
+        "EXAMPLES of GOOD summaries:\n"
+        "- 'Solid State Physics: how conductors, insulators, and "
+        "  semiconductors work and how they integrate into modern electronic "
+        "  devices.'\n"
+        "- 'Partial Differential Equations: the math of fields that vary in "
+        "  space and time — heat flow, wave propagation, and quantum "
+        "  systems.'\n"
+        "- 'Gravitational Wave Detection & LIGO: how interferometry measures "
+        "  spacetime distortions from black-hole and neutron-star mergers, "
+        "  with a focus on following the detection papers as the field "
+        "  evolves.'\n"
+        "- 'Bayesian Filtering & Kalman Methods: probabilistic state "
+        "  estimation for systems evolving under noisy dynamics — from "
+        "  navigation and tracking to robotics.'\n"
+        "- 'Quantum Mechanics II: angular momentum, perturbation theory, "
+        "  scattering, and identical particles — the apparatus you need "
+        "  before reading modern condensed-matter or particle physics.'\n"
+        "\n"
+        "EXAMPLES of BAD (do not produce):\n"
+        "- 'Wants to learn solid state physics and its core principles.'\n"
+        "- 'Wants to explore quantum gravity theories.'\n"
+        "- 'The user is interested in PDEs.'\n"
+        "\n"
+        "Output exactly one entry per input, in the same order, with the "
+        "user_interest_id echoed verbatim."
+    )
+
+
+def build_rewrite_summary_user_prompt(items: list[dict]) -> str:
+    lines: list[str] = []
+    for it in items:
+        subtopics = it.get("subtopics") or []
+        subtopics_str = "; ".join(subtopics) if subtopics else "(none)"
+        desc = (it.get("node_description_md") or "").strip().replace("\n", " ")
+        if len(desc) > 400:
+            desc = desc[:400] + "…"
+        if not desc:
+            desc = "(no description)"
+        lines.append(
+            "---\n"
+            f'user_interest_id: "{it["user_interest_id"]}"\n'
+            f'node_title: "{it["node_title"]}"\n'
+            f'node_description_md: "{desc}"\n'
+            f'subtopics: {subtopics_str}\n'
+            f'current_context: "{it.get("current_context", "")}"'
+        )
+    return (
+        "Write a card-subtitle summary for each interest below. Form: "
+        "'<node_title>: <descriptive content>.' Ground in node_description_md "
+        "and subtopics; tilt by current_context if it carries a real angle.\n\n"
+        + "\n".join(lines)
     )
 
 

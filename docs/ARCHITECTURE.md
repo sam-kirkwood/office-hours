@@ -75,7 +75,10 @@ for deduplication checks, classification, and other cheap routing.
    ├── POST /paper-question
    ├── POST /suggest-papers
    ├── POST /surface-daily              (no LLM; deterministic)
-   ├── POST /update-queue
+   ├── POST /assess-engagement          (Haiku; post-engagement, Phase 10-rev §3a)
+   ├── POST /plan-queue                 (Sonnet; daily per active user, Phase 10-rev §3b)
+   ├── POST /check-deferred             (no LLM; conditional re-queue, Phase 10-rev §3c)
+   ├── POST /run-daily-planner          (per-user wrapper around /plan-queue + /check-deferred; pg_cron fan-out target, Phase 10-rev §3d)
    ├── POST /add-interest/parse         (dedup + mirror-back; read-only)
    ├── POST /add-interest/resolve       (commits user_interests; opt. Sonnet generate)
    ├── POST /generate-curation-report   (weekly)
@@ -305,8 +308,9 @@ Background top-up runs daily across active nodes.
 3. `/parse-solution` → markdown+LaTeX.
 4. User reviews/edits the parse.
 5. `/grade-solution` → grade + dialogic feedback.
-6. Persist `attempts`. Create `notebook_entries`. Update
-   `user_node_states`. `/update-queue` adds follow-ups.
+6. Persist `attempts`. Create `notebook_entries`. `/assess-engagement`
+   (Haiku) updates `user_node_states` and may queue an immediate
+   follow-up (reinforcement / accelerate / prerequisite refresher).
 
 ### Engaging with a paper
 
@@ -315,8 +319,9 @@ Background top-up runs daily across active nodes.
 3. Each answer → `/grade-paper-answer` → conversational reply. Persist
    `paper_answers`.
 4. Optional Q&A loop via `/paper-question`. Persist `paper_qa`.
-5. State → `done`. Create `notebook_entries`. Update node states.
-   `/update-queue`.
+5. State → `done`. Create `notebook_entries`. `/assess-engagement` runs
+   for logging (paper engagements don't carry `topic_node_id`, so node
+   state writes are skipped).
 
 Engagements are multi-session: resuming uses `current_question_index`.
 
@@ -439,7 +444,10 @@ their skill tree.
 
 ### Phase 7-rev — Adaptation, refreshers, cross-pollination
 
-- `/update-queue` after attempts and engagements.
+- `/assess-engagement` (Haiku) after attempts and engagements;
+  `/plan-queue` (Sonnet) daily per active user; `/check-deferred`
+  (deterministic) re-queues deferred items when prerequisites land. Replaces
+  the placeholder `/update-queue`.
 - `user_node_states` recomputation.
 - Refresher scheduling and surfacing.
 - Explicit request flow.

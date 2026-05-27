@@ -77,6 +77,21 @@ export default function ProblemView({ queueItemId, problem, hints, existingAttem
     }
   }
 
+  async function handleDefer() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/problem/${queueItemId}/defer`, { method: "POST" });
+      if (res.ok) router.push("/daily");
+      else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? "Couldn't defer this problem");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleStartWorking() {
     if (attemptId) { setStep(2); return; }
     setLoading(true);
@@ -194,6 +209,7 @@ export default function ProblemView({ queueItemId, problem, hints, existingAttem
           onHintClick={handleHintClick}
           onStartWorking={handleStartWorking}
           onSkip={handleSkip}
+          onDefer={handleDefer}
           loading={loading}
         />
       )}
@@ -242,6 +258,7 @@ function Step1View({
   onHintClick,
   onStartWorking,
   onSkip,
+  onDefer,
   loading,
 }: {
   problem: Problem;
@@ -250,6 +267,7 @@ function Step1View({
   onHintClick: (level: number) => void;
   onStartWorking: () => void;
   onSkip: () => void;
+  onDefer: () => void;
   loading: boolean;
 }) {
   return (
@@ -315,7 +333,7 @@ function Step1View({
       )}
 
       {/* Actions */}
-      <div className="flex gap-3 pt-2">
+      <div className="flex flex-wrap gap-3 pt-2">
         <button
           type="button"
           onClick={onSkip}
@@ -323,6 +341,14 @@ function Step1View({
           className="rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
         >
           Skip — I&apos;ve got this
+        </button>
+        <button
+          type="button"
+          onClick={onDefer}
+          disabled={loading}
+          className="rounded-md border border-[var(--forest)]/50 px-4 py-2.5 text-sm font-medium text-[var(--forest)] hover:bg-[var(--forest-subtle)] transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
+        >
+          Not ready yet — come back later
         </button>
         <button
           type="button"

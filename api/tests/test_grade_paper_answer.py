@@ -15,6 +15,19 @@ AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
 
 VALID_GRADE_JSON = json.dumps({"response_md": "Good attempt — you nailed the detection sigma."})
 
+# Step 3a: completing the last question triggers an assess-engagement Haiku
+# call (no node_id for papers, so no node-state writes — but the call still
+# runs for engagement-pattern logging).
+VALID_ASSESS_JSON = json.dumps(
+    {
+        "updated_struggle_score": 0.0,
+        "state_transition": None,
+        "immediate_action": None,
+        "reinforcement_target": None,
+        "reasoning": "Paper engagement completed; logging only.",
+    }
+)
+
 Q1_ID = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
 Q2_ID = "550e8400-e29b-41d4-a716-446655440000"
 Q3_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -213,7 +226,9 @@ def test_last_question_sets_completed(client: TestClient, fakes) -> None:
     supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
     supabase.respond("paper_answers", "upsert", lambda _: [{"id": str(uuid4())}])
     supabase.respond("paper_engagements", "update", lambda _: [{"id": engagement_id}])
+    # Step 3a: last-question completion triggers an assess-engagement Haiku call.
     anthropic.queue(VALID_GRADE_JSON)
+    anthropic.queue(VALID_ASSESS_JSON)
 
     resp = client.post(
         "/grade-paper-answer",

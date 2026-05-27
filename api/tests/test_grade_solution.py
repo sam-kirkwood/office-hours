@@ -18,6 +18,18 @@ VALID_GRADE_JSON = json.dumps(
     {"response_md": "Good start on the energy conservation argument. However..."}
 )
 
+# Step 3a wires a Haiku assess-engagement call into the grade flow. The
+# existing happy-path tests need to satisfy that secondary call too.
+VALID_ASSESS_JSON = json.dumps(
+    {
+        "updated_struggle_score": 0.2,
+        "state_transition": None,
+        "immediate_action": None,
+        "reinforcement_target": None,
+        "reasoning": "Standard engagement; no immediate action.",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -157,7 +169,9 @@ def test_happy_path_grades_and_creates_notebook_entry(
         problem_id=problem_id,
         node_id=node_id,
     )
+    # Step 3a: the grade flow also runs the Haiku assess-engagement hook.
     anthropic.queue(VALID_GRADE_JSON)
+    anthropic.queue(VALID_ASSESS_JSON)
 
     response = client.post(
         "/grade-solution",
@@ -174,12 +188,12 @@ def test_happy_path_grades_and_creates_notebook_entry(
     assert data["grade_response_md"] == "Good start on the energy conservation argument. However..."
     assert data["notebook_entry_id"] == notebook_entry_id
 
-    # Sonnet called exactly once.
-    assert len(anthropic.messages.calls) == 1
+    # One Sonnet grade call + one Haiku assess call.
+    assert len(anthropic.messages.calls) == 2
 
-    # llm_calls written.
+    # Two llm_calls rows: grade + assess.
     llm_inserts = [c for c in supabase.calls if c.table == "llm_calls" and c.op == "insert"]
-    assert len(llm_inserts) == 1
+    assert len(llm_inserts) == 2
 
     # attempt updated with grade, user work, and submitted_at.
     attempt_updates = [

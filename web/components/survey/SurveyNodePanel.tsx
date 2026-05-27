@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import MarkdownLatex from "@/lib/markdown";
 import type { Node, UserNodeState } from "@/lib/types";
+import DialogModal from "@/components/addInterest/DialogModal";
 
 interface Props {
   node: Node;
@@ -13,6 +14,7 @@ interface Props {
   isFoundation: boolean;     // node.kind === 'foundation'
   onClose: () => void;
   onDeleted: () => void;     // notify parent to refresh after a successful delete
+  onEdited?: () => void;     // notify parent to refresh after a successful edit
 }
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -29,8 +31,8 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 
 // Survey-context panel for the Stage 7 confirmation
 // (survey-and-difficulty-design.md §1.8.2). Interest nodes get Delete + Edit
-// (Edit is stubbed for Step 2d when the add-interest dialog UI lands);
-// foundation nodes are read-only.
+// (Edit opens the add-interest DialogModal pre-filled with the node and the
+// user's current intent_context); foundation nodes are read-only.
 
 export default function SurveyNodePanel({
   node,
@@ -39,10 +41,34 @@ export default function SurveyNodePanel({
   isFoundation,
   onClose,
   onDeleted,
+  onEdited,
 }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editStubVisible, setEditStubVisible] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [currentIntent, setCurrentIntent] = useState<string>("");
+
+  useEffect(() => {
+    if (!isInterest) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/interest/me?node_id=${encodeURIComponent(node.id)}`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { intent_context?: string };
+        if (!cancelled && typeof data.intent_context === "string") {
+          setCurrentIntent(data.intent_context);
+        }
+      } catch {
+        /* swallow — the dialog has sensible defaults if we can't preload */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [node.id, isInterest]);
 
   async function handleDelete() {
     if (!confirm(`Remove "${node.title}" from your interests?`)) return;
@@ -105,17 +131,10 @@ export default function SurveyNodePanel({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setEditStubVisible((v) => !v)}
+              onClick={() => setEditOpen(true)}
             >
               Edit
             </Button>
-            {editStubVisible && (
-              <p className="rounded-md border border-dashed border-border bg-card/60 p-3 text-xs text-muted-foreground">
-                Editing an interest will open the add-interest conversation —
-                that surface arrives in the next session. For now you can
-                remove it and re-add it from the daily view later.
-              </p>
-            )}
             <Button
               type="button"
               variant="destructive"
@@ -133,6 +152,22 @@ export default function SurveyNodePanel({
           </p>
         )}
       </div>
+
+      <DialogModal
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        mode="preNode"
+        preNode={{
+          slug: node.slug,
+          title: node.title,
+          defaultIntentContext: currentIntent,
+          mirrorOverride: `Editing ${node.title}.`,
+          followupPromptOverride: "What's off, or what would you change?",
+        }}
+        addedVia="survey"
+        title={`Edit ${node.title}`}
+        onComplete={() => onEdited?.()}
+      />
     </div>
   );
 }

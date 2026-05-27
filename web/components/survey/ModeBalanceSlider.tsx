@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Slider as SliderPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
+import ModeBalanceControl from "@/components/ModeBalanceControl";
 
 interface Props {
   initialModeBalance: number;
@@ -18,25 +18,6 @@ export default function ModeBalanceSlider({ initialModeBalance, presetNote }: Pr
   const [value, setValue] = useState(initialModeBalance);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Show the majority side's percentage so the number reads like a positive
-  // statement ("60% problems") rather than an implied deficit ("40% papers").
-  // The slider step is 0.05, so an explicit ±0.025 window safely catches the
-  // user landing on dead-centre 0.5.
-  const problemsPct = Math.round((1 - value) * 100);
-  const papersPct = Math.round(value * 100);
-  const majorityLabel =
-    Math.abs(value - 0.5) < 0.025
-      ? "Even split"
-      : value < 0.5
-        ? `${problemsPct}% problems`
-        : `${papersPct}% papers`;
-  const description =
-    value < 0.25
-      ? "Mostly pen-and-paper problems."
-      : value > 0.75
-        ? "Mostly reading papers with guided questions."
-        : "A mix of problems and paper engagements.";
 
   async function submit(modeBalance: number) {
     setError(null);
@@ -73,33 +54,8 @@ export default function ModeBalanceSlider({ initialModeBalance, presetNote }: Pr
         )}
       </div>
 
-      <div className="mb-8 flex flex-col gap-4 rounded-md border border-border bg-card p-6">
-        <div className="flex items-center gap-4">
-          <span className="w-20 text-right text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Problems
-          </span>
-          {/* Track + thumb only — no `SliderPrimitive.Range` so the position
-              reads as a single dot, not a filled bar. The dot is what matters. */}
-          <SliderPrimitive.Root
-            min={0}
-            max={1}
-            step={0.05}
-            value={[value]}
-            onValueChange={(vs) => setValue(vs[0] ?? 0.5)}
-            className="relative flex flex-1 touch-none items-center select-none"
-          >
-            <SliderPrimitive.Track className="relative h-1 grow rounded-full bg-muted" />
-            <SliderPrimitive.Thumb
-              aria-label="Problems versus papers"
-              className="block size-4 rounded-full border-2 border-primary bg-[var(--background)] shadow-sm transition-transform duration-[var(--duration-fast)] hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            />
-          </SliderPrimitive.Root>
-          <span className="w-20 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Papers
-          </span>
-        </div>
-        <p className="text-center font-serif text-sm text-foreground">{description}</p>
-        <p className="text-center text-xs text-muted-foreground">{majorityLabel}</p>
+      <div className="mb-8">
+        <ModeBalanceControl value={value} onChange={setValue} />
       </div>
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}

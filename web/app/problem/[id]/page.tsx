@@ -29,7 +29,13 @@ export default async function ProblemPage({
     .maybeSingle();
 
   if (!queueItem) redirect("/daily");
-  if (queueItem.state === "done" || queueItem.state === "dismissed") redirect("/daily");
+  if (
+    queueItem.state === "done" ||
+    queueItem.state === "dismissed" ||
+    queueItem.state === "deferred"
+  ) {
+    redirect("/daily");
+  }
 
   const { data: problem } = await adminClient
     .from("problems")

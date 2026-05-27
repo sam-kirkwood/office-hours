@@ -150,6 +150,7 @@ export default function ConfirmGraph({ initialGraphData, interestNodeIds }: Prop
                 isFoundation={entry.node.kind === "foundation"}
                 onClose={onClose}
                 onDeleted={() => refreshGraph(entry.node.id)}
+                onEdited={() => refreshGraph()}
               />
             )}
           />

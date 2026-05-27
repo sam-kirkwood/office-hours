@@ -25,6 +25,7 @@ from anthropic_client import call_json, get_anthropic_client
 from auth import require_internal_token
 from config import SONNET_MODEL
 from prompts.paper_answer import build_system_prompt, build_user_prompt
+from routes.curator import run_assess_engagement
 from schemas import GradePaperAnswerRequest, GradePaperAnswerResponse, GradeResponse
 from supabase_client import get_supabase_client
 
@@ -144,6 +145,19 @@ def grade_paper_answer(
             }
         ).eq("id", str(body.engagement_id)).execute()
         next_index = -1
+        # Post-engagement assessment runs only on completion. Best-effort.
+        try:
+            run_assess_engagement(
+                supabase=supabase,
+                anthropic=anthropic,
+                user_id=str(body.user_id),
+                engagement_id=str(body.engagement_id),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "assess-engagement failed for paper engagement=%s",
+                body.engagement_id,
+            )
     else:
         next_idx = current_orders.index(min(next_orders))
         supabase.table("paper_engagements").update(

@@ -1,7 +1,44 @@
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { addInterest, generateProblem, suggestPapers } from "@/lib/pythonApi";
+import {
+  generateProblem,
+  parseAddInterest,
+  proposePapers,
+  resolveAddInterest,
+  suggestPapers,
+} from "@/lib/pythonApi";
+
+// Headless add-interest used when the user has already committed (clicked a
+// daily-tab "Add it" button, requested a paper on a topic by typing its name,
+// etc.) and we just need to resolve the topic to a node without surfacing
+// the dialog. Auto-confirms whatever /parse returned.
+async function headlessResolveToNode(args: {
+  userId: string;
+  rawText: string;
+}): Promise<string> {
+  const parsed = await parseAddInterest({
+    userId: args.userId,
+    rawText: args.rawText,
+    addedVia: "explicit_request",
+  });
+  if (parsed.segments.length === 0) {
+    throw new Error("Could not parse the topic");
+  }
+  const seg = parsed.segments[0];
+  const resolved = await resolveAddInterest({
+    userId: args.userId,
+    addedVia: "explicit_request",
+    rawText: args.rawText,
+    finalIntentText: seg.raw_text_segment || args.rawText,
+    intentContext: seg.draft_intent_context || seg.mirror_back_md,
+    existingNodeSlug:
+      seg.dedup.verdict === "same" ? seg.dedup.matched_node_slug : null,
+    relatedNodeSlug:
+      seg.dedup.verdict === "related" ? seg.dedup.matched_node_slug : null,
+  });
+  return resolved.node_id;
+}
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -14,9 +51,12 @@ export async function POST(request: Request) {
     node_id?: string;
     raw_text?: string;
     kind_hint?: "problem" | "paper" | "refresher";
+    // §2.7 Case 2 / Case 3 — queue a one-off on this node without making
+    // the user permanently interested in it.
+    skip_interest_add?: boolean;
   };
 
-  const { node_id, raw_text, kind_hint } = body;
+  const { node_id, raw_text, kind_hint, skip_interest_add } = body;
 
   if (!node_id && !raw_text) {
     return NextResponse.json({ error: "node_id or raw_text required" }, { status: 400 });
@@ -32,13 +72,11 @@ export async function POST(request: Request) {
   let resolvedNodeId = node_id;
 
   if (raw_text) {
-    const interest = await addInterest({
+    resolvedNodeId = await headlessResolveToNode({
       userId: user.id,
       rawText: raw_text,
-      addedVia: "explicit_request",
     });
-    resolvedNodeId = interest.node_id;
-  } else if (node_id) {
+  } else if (node_id && !skip_interest_add) {
     // Existing path: ensure the node is in user_interests
     const { data: existing } = await adminClient
       .from("user_interests")
@@ -54,7 +92,7 @@ export async function POST(request: Request) {
         .eq("id", node_id)
         .maybeSingle();
       if (!node) return NextResponse.json({ error: "Node not found" }, { status: 404 });
-      await addInterest({ userId: user.id, rawText: node.title, addedVia: "explicit_request" });
+      await headlessResolveToNode({ userId: user.id, rawText: node.title as string });
     }
   }
 
@@ -76,29 +114,48 @@ export async function POST(request: Request) {
   // Paper
   // ------------------------------------------------------------------
   if (kind === "paper") {
+    async function pickPendingPaper(): Promise<string | null> {
+      const { data: qi } = await adminClient
+        .from("queue_items")
+        .select("id")
+        .eq("user_id", user!.id)
+        .eq("kind", "paper_engagement")
+        .eq("state", "pending")
+        .order("priority_score", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return qi?.id ?? null;
+    }
+
     try {
       await suggestPapers({ userId: user.id });
     } catch {
       // best-effort; continue to check for any available paper
     }
 
-    const { data: qi } = await adminClient
-      .from("queue_items")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("kind", "paper_engagement")
-      .eq("state", "pending")
-      .order("priority_score", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    let qiId = await pickPendingPaper();
 
-    if (qi) {
-      return NextResponse.json({ queue_item_id: qi.id, kind: "paper_engagement" });
+    // Pool miss → expand via /propose-papers, then re-run /suggest-papers.
+    // Phase 10-rev §Step 4 #5. The user should never see "check back soon"
+    // on a topic the system knows about. proposePapers is idempotent
+    // (dedups by title/arxiv_id/doi) so the retry is cheap.
+    if (!qiId) {
+      try {
+        await proposePapers({ userId: user.id });
+        await suggestPapers({ userId: user.id });
+      } catch {
+        // best-effort; fall through to the "added — appearing shortly" message
+      }
+      qiId = await pickPendingPaper();
+    }
+
+    if (qiId) {
+      return NextResponse.json({ queue_item_id: qiId, kind: "paper_engagement" });
     }
     return NextResponse.json({
       queue_item_id: null,
       kind: "paper_engagement",
-      message: "Paper added to your queue — check back soon.",
+      message: "Adding a paper to your queue — it'll appear shortly.",
     });
   }
 
@@ -199,7 +256,7 @@ export async function POST(request: Request) {
       .select("id")
       .single();
 
-    // Mark due schedules as surfaced so update-queue won't double-insert
+    // Mark due schedules as surfaced so they aren't re-enqueued by future runs.
     if (schedule) {
       await adminClient
         .from("refresher_schedule")

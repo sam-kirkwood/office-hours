@@ -1,6 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { addInterest, proposePapers, updateQueue } from "@/lib/pythonApi";
+import { planQueue } from "@/lib/pythonApi";
+
+// Cross-pollination accept endpoint.
+//
+// Standard "add interest from a raw text" goes through the add-interest dialog
+// (web/components/addInterest/Dialog.tsx → /api/add-interest/parse +
+// /api/add-interest/resolve) since the user is in the loop. This route is
+// kept only for the cross-pollination card click on the daily view, where
+// the node already exists in the megagraph and the user has just tapped
+// "Add to my interests" on a surfaced suggestion. No dialog runs there —
+// the canned intent_context is fine because the topic was surfaced from
+// graph adjacency, not from a user's free-text expression.
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -11,45 +22,33 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
-      raw_text?: string;
       node_id?: string;
       added_via?: string;
     };
 
-    // Cross-pollination path: node already exists in the megagraph; skip dedup/generate.
-    // intent_context is NOT NULL on user_interests (migration 20250018); supply
-    // a canned string here since there's no dialog context to draw from.
-    if (body.added_via === "cross_pollination" && body.node_id) {
-      const { error } = await supabase.from("user_interests").insert({
-        user_id: user.id,
-        node_id: body.node_id,
-        weight: 1.0,
-        added_via: "cross_pollination",
-        intent_context: "Surfaced via cross-pollination from adjacent interests",
-      });
-      if (error) throw error;
-
-      updateQueue({ userId: user.id, trigger: "interest_add" }).catch(() => null);
-
-      return NextResponse.json({ ok: true, node_id: body.node_id });
+    if (body.added_via !== "cross_pollination" || !body.node_id) {
+      return NextResponse.json(
+        {
+          error:
+            "this endpoint accepts only cross_pollination adds; route raw-text adds through /api/add-interest/parse + /resolve",
+        },
+        { status: 400 },
+      );
     }
 
-    // Standard path: resolve raw_text via the Python /add-interest route.
-    const { raw_text } = body;
-    if (!raw_text?.trim()) {
-      return NextResponse.json({ error: "raw_text is required" }, { status: 400 });
-    }
-
-    const result = await addInterest({
-      userId: user.id,
-      rawText: raw_text.trim(),
-      addedVia: "explicit_request",
+    // intent_context is NOT NULL on user_interests (migration 20250018).
+    const { error } = await supabase.from("user_interests").insert({
+      user_id: user.id,
+      node_id: body.node_id,
+      weight: 1.0,
+      added_via: "cross_pollination",
+      intent_context: "Surfaced via cross-pollination from adjacent interests",
     });
+    if (error) throw error;
 
-    proposePapers({ userId: user.id }).catch(() => null);
-    updateQueue({ userId: user.id, trigger: "interest_add" }).catch(() => null);
+    planQueue({ userId: user.id, triggeredBy: "manual" }).catch(() => null);
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ok: true, node_id: body.node_id });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });

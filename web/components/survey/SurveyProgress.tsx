@@ -4,18 +4,22 @@ import { useSelectedLayoutSegment } from "next/navigation";
 
 // The progress chip shown at the top of every survey stage. Reads which
 // child segment is active to compute "Step N of M".
-//
-// `confirm` is conceptually the last step but we count it as part of the
-// 5 visible stages so the chip reads naturally to the user (Stages 4 and 5
-// are stubbed this session — see TODO(2d) in /api/survey/interests/route.ts).
 
-const ORDER = ["background", "foundations", "interests", "balance", "confirm"] as const;
+const ORDER = [
+  "background",
+  "foundations",
+  "interests",
+  "dialog",
+  "balance",
+  "confirm",
+] as const;
 type Segment = (typeof ORDER)[number];
 
 const LABELS: Record<Segment, string> = {
   background: "Background",
   foundations: "Foundations",
   interests: "Interests",
+  dialog: "Explore",
   balance: "Balance",
   confirm: "Confirm",
 };

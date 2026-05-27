@@ -6,12 +6,19 @@
 
 import { createClient as createAdminClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export type SurveyStage = "background" | "foundations" | "interests" | "balance" | "confirm";
+export type SurveyStage =
+  | "background"
+  | "foundations"
+  | "interests"
+  | "dialog"
+  | "balance"
+  | "confirm";
 
 export const STAGE_ORDER: SurveyStage[] = [
   "background",
   "foundations",
   "interests",
+  "dialog",
   "balance",
   "confirm",
 ];

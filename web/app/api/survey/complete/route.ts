@@ -1,11 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { getAdminClient, upsertSurveyStage } from "@/lib/surveyState";
-import { updateQueue, suggestPapers, proposePapers } from "@/lib/pythonApi";
+import { planQueue } from "@/lib/pythonApi";
 
-// Stage 7 finalize. Marks `confirm` complete and best-effort kicks the queue
-// updater + paper suggestions so /daily has cards to show. The curriculum
-// curator (Step 3 of Phase 10-rev) replaces these calls later.
+// Stage 7 finalize. Marks `confirm` complete and best-effort kicks the
+// curriculum curator's daily-planner for this user (cold-start path per
+// curriculum-curator-design.md §13.1). The Sonnet plan fans out queue items
+// for the user's interests; paper engagement recommendations are part of the
+// curator's job. Failures don't block survey completion.
 
 export async function POST() {
   const supabase = await createClient();
@@ -18,15 +20,8 @@ export async function POST() {
     const admin = getAdminClient();
     await upsertSurveyStage(admin, user.id, "confirm", {});
 
-    // Best-effort post-survey seeding; failures don't block completion.
-    updateQueue({ userId: user.id, trigger: "interest_add" }).catch((err) =>
-      console.error("updateQueue failed:", err),
-    );
-    suggestPapers({ userId: user.id }).catch((err) =>
-      console.error("suggestPapers failed:", err),
-    );
-    proposePapers({ userId: user.id }).catch((err) =>
-      console.error("proposePapers failed:", err),
+    planQueue({ userId: user.id, triggeredBy: "cold_start" }).catch((err) =>
+      console.error("planQueue failed:", err),
     );
 
     return NextResponse.json({ ok: true });
