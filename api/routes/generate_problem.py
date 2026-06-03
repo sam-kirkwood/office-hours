@@ -49,6 +49,7 @@ from curator_inputs import (
     derive_assumed_background_summary,
     derive_feedback_biases,
     derive_intent,
+    find_pending_queue_item,
     is_entry_point,
 )
 from prompts import hook_match as hook_match_prompts
@@ -403,7 +404,19 @@ def generate_problem(
             ]
             supabase.table("problem_hints").insert(hint_rows).execute()
 
-    # 10. Queue item (always written — cache hit, race win, or race loss)
+    # 10. Queue item — dedup against existing pending/surfaced rows first.
+    # Without this check, the curator's pool-miss → generate-problem
+    # cache-hit path can produce multiple queue rows pointing at the same
+    # problem under different recommendation rationales (Phase 10-rev §9a).
+    existing_queue_id = find_pending_queue_item(
+        supabase, user_id=user_id, kind="problem", ref_id=problem_id
+    )
+    if existing_queue_id is not None:
+        return GenerateProblemResponse(
+            problem_id=UUID(problem_id),
+            queue_item_id=UUID(existing_queue_id),
+        )
+
     added_reason = (
         f"Practice for your interest in {node['title']}."
         if is_direct_interest

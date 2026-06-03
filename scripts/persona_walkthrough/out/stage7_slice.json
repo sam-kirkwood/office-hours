@@ -1,0 +1,146 @@
+{
+  "yours": [
+    {
+      "slug": "odes",
+      "title": "Ordinary Differential Equations",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "dynamical-systems-neural-circuits",
+      "title": "Dynamical Systems & Neural Circuit Modeling",
+      "kind": "interest",
+      "domain": "applied",
+      "state": "unseen",
+      "is_interest": true
+    },
+    {
+      "slug": "information-theory-neural-coding",
+      "title": "Information Theory for Neural Coding",
+      "kind": "interest",
+      "domain": "applied",
+      "state": "unseen",
+      "is_interest": true
+    },
+    {
+      "slug": "statistics",
+      "title": "Statistics",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "linear-algebra",
+      "title": "Linear Algebra",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "probability",
+      "title": "Probability Theory",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "active",
+      "is_interest": false
+    }
+  ],
+  "adjacent": [
+    {
+      "slug": "calculus-2",
+      "title": "Calculus II",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "calculus-1",
+      "title": "Calculus I",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "classical-mechanics",
+      "title": "Classical Mechanics",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "statistical-mechanics",
+      "title": "Statistical Mechanics",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "quantum-mechanics-1",
+      "title": "Quantum Mechanics I",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "6296e3c9-78e3-4c73-b649-57a2d4fe7a63",
+      "target_node_id": "f5fb38dc-0fc7-4731-a53a-04768832763b",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "6296e3c9-78e3-4c73-b649-57a2d4fe7a63",
+      "target_node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "39ab5ac0-0ca9-45b8-8bfe-7acb25bb2327",
+      "target_node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "39ab5ac0-0ca9-45b8-8bfe-7acb25bb2327",
+      "target_node_id": "e16abedb-3765-473e-b92b-a0f15ae1c216",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+      "target_node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+      "target_node_id": "fbc20270-561b-40e9-8bf3-157dc8e8aaca",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+      "target_node_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+      "target_node_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "c62dc70d-5b53-4e37-89fc-a087ea9fbd2c",
+      "target_node_id": "39ab5ac0-0ca9-45b8-8bfe-7acb25bb2327",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "f5fb38dc-0fc7-4731-a53a-04768832763b",
+      "target_node_id": "eda16d4a-461a-4e33-8578-2623e123a802",
+      "edge_kind": "prerequisite"
+    }
+  ]
+}

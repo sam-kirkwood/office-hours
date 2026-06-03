@@ -1,0 +1,53 @@
+{
+  "suggestions": [
+    {
+      "node_id": "703cb75d-a121-4d00-9031-2a5dcc904949",
+      "slug": "quantum-mechanics-2",
+      "title": "Quantum Mechanics: Spin, Perturbation, and Scattering",
+      "description_md": "The apparatus required to read modern atomic, condensed-matter, and\nparticle physics \u2014 angular momentum and spin developed properly,\ntime-independent and time-dependent perturbation theory, scattering\ntheory, identical particles and quantum statistics, and density\nmatrices for handling mixed states. Where the introductory pass\nintroduces the Schr\u00f6dinger equation and solves a handful of canonical\nproblems, this builds the toolkit that working theorists actually use.",
+      "why_suggested_md": "Builds on the quantum foundations you flagged; spin and perturbation theory are essential for statistical mechanics of many-body systems."
+    },
+    {
+      "node_id": "19adbfe3-2168-4959-92e3-bc55c8fb738f",
+      "slug": "partial-differential-equations",
+      "title": "Partial Differential Equations",
+      "description_md": "The mathematics of fields that vary in space and time \u2014 heat diffusing\nthrough a metal bar, waves spreading on a drum head, the electrostatic\npotential around a charge, the Schr\u00f6dinger evolution of a quantum state.\nBuilds the classification into hyperbolic, parabolic, and elliptic\nequations, the canonical solution techniques (separation of variables,\nFourier methods, Green's functions, method of characteristics), and the\nqualitative differences in behaviour each class produces.",
+      "why_suggested_md": "Heat diffusion and field equations underpin both thermodynamics and the path-integral formulation of statistical mechanics you'll need."
+    },
+    {
+      "node_id": "ea0fef04-e062-45aa-97d8-f9b294877562",
+      "slug": "lagrangian-mechanics",
+      "title": "Lagrangian Mechanics",
+      "description_md": "A reformulation of classical mechanics that replaces forces with the\nprinciple of least action \u2014 every classical trajectory is the one\nthat extremises a single integral, and the equations of motion fall\nout as the Euler-Lagrange conditions. Beyond elegance, this framework\ngeneralises naturally to constrained systems, fields, and (eventually)\nthe path integral formulation of quantum mechanics, while Noether's\ntheorem reveals conservation laws as direct consequences of the\nsymmetries of the Lagrangian.",
+      "why_suggested_md": "The action principle connects classical mechanics to partition functions and path integrals in statistical mechanics naturally."
+    },
+    {
+      "node_id": "2ba5cd1d-a5ef-46a2-a346-a58aee2cf2ea",
+      "slug": "electromagnetism-2",
+      "title": "Electromagnetism: Dynamics and Radiation",
+      "description_md": "The full machinery of classical electromagnetism once the source\ncharges and currents are moving \u2014 Maxwell's equations in matter, the\npropagation of electromagnetic waves, radiation from accelerating\ncharges, and the gauge structure that anticipates modern field\ntheory. Where the static-fields pass gives you Coulomb, Gauss, and\nFaraday's law of induction, this builds the dynamical and\nrelativistic structure: Poynting's theorem, dipole and multipole\nradiation, waveguides, and the covariant formulation that makes\nLorentz invariance manifest.",
+      "why_suggested_md": "Completes your electromagnetism refresh with dynamics; field theory language carries directly into statistical field theory."
+    },
+    {
+      "node_id": "c571e69d-10d5-4155-92f5-5ee8157852a5",
+      "slug": "complex-analysis",
+      "title": "Complex Analysis",
+      "description_md": "The calculus of functions of a complex variable, where the constraint\nof differentiability is so strong it forces analytic functions to be\nuniquely determined by their values on any small disk. Builds toward\ncontour integration, the residue theorem, and the deep connection\nbetween the complex plane and physics \u2014 conformal maps in fluid\ndynamics, Cauchy's integral formula as a tool throughout theoretical\nphysics, and analytic continuation as a window onto the structure of\nspecial functions.",
+      "why_suggested_md": "Essential for contour integration in partition function calculations and phase transition singularities you'll encounter."
+    },
+    {
+      "node_id": "d60413ce-1cd9-4973-a0cc-82530f131934",
+      "slug": "semiconductor-physics",
+      "title": "Semiconductor Physics",
+      "description_md": "Semiconductor physics explains how crystalline materials with a moderate band gap give rise to controllable electrical behavior through doping, carrier transport, and junction formation. It bridges quantum mechanics and solid-state theory to explain why silicon can act as a switch, a diode, or an amplifier depending on how it is structured and biased. Anyone who wants to understand transistors, solar cells, or LEDs at a physical rather than circuit level needs this foundation.",
+      "why_suggested_md": "The Ising model and band structure share deep roots in condensed-matter statistical mechanics; a natural application domain."
+    },
+    {
+      "node_id": "bc928e2e-3001-4b55-a848-ac6129d6965a",
+      "slug": "special-relativity",
+      "title": "Special Relativity",
+      "description_md": "Einstein's 1905 reformulation of space and time as a single\nfour-dimensional structure in which the speed of light is invariant\nand simultaneity is observer-dependent. The Lorentz transformations\nreplace Galilean ones, mass-energy equivalence emerges as a kinematic\nidentity, and electromagnetism becomes geometrically natural \u2014\nMaxwell's equations are already Lorentz-invariant. The conceptual\non-ramp to general relativity and the geometric language used\nthroughout modern field theory.",
+      "why_suggested_md": "Provides the relativistic extension of classical mechanics; useful context for understanding field theory foundations later."
+    }
+  ]
+}

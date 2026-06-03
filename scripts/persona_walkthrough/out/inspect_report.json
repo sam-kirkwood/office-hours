@@ -1,0 +1,140 @@
+[
+  {
+    "queue_item": {
+      "id": "93730243-cba0-4e7a-89be-709e4595b5d0",
+      "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+      "kind": "refresher",
+      "ref_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+      "state": "surfaced",
+      "priority_score": 0.85,
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20,
+      "added_reason": "You're jumping into information theory for neural coding \u2014 Shannon entropy is the central tool, and it sits directly on probability. This refresher makes sure that foundation is solid before the concepts get applied to spike trains.",
+      "added_at": "2026-05-29T18:07:05.74947+00:00",
+      "updated_at": "2026-05-29T18:07:05.74947+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "You're jumping into information theory for neural coding \u2014 Shannon entropy is the central tool, and it sits directly on probability. This refresher makes sure that foundation is solid before the concepts get applied to spike trains.",
+    "kind": "refresher",
+    "details": {
+      "node": {
+        "id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+        "slug": "information-theory-neural-coding",
+        "title": "Information Theory for Neural Coding",
+        "kind": "interest",
+        "description_md": "This topic covers the application of Shannon's entropy and mutual information to the analysis of neural spike trains, asking how much information a neuron's firing pattern carries about a stimulus or behaviour. It provides quantitative tools \u2014 from direct entropy estimation to decoding approaches \u2014 that let neuroscientists move beyond correlation and ask sharp questions about the efficiency and capacity of neural codes. Anyone working with electrophysiology data or building models of sensory and motor systems will find these methods essential.",
+        "subtopics_json": [
+          "Shannon entropy and neural firing rates",
+          "Mutual information between stimulus and response",
+          "Spike train representations and binning",
+          "Bias correction in entropy estimation",
+          "Noise entropy and coding efficiency",
+          "Population codes and redundancy",
+          "Information-theoretic decoding methods",
+          "Data-limited estimation techniques"
+        ]
+      }
+    }
+  },
+  {
+    "queue_item": {
+      "id": "8b8664a4-4b58-42d2-87db-d9dc7a4c0c3f",
+      "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+      "kind": "problem",
+      "ref_id": "a1f37424-c17f-4d75-bb81-72cc9a2a8586",
+      "state": "surfaced",
+      "priority_score": 0.85,
+      "time_estimate_minutes_low": 15,
+      "time_estimate_minutes_high": 30,
+      "added_reason": "This is the core question in neural coding: how much does a neuron's response tell you about the stimulus? Builds from entropy toward the mutual information framework you're here for.",
+      "added_at": "2026-05-29T18:08:55.983542+00:00",
+      "updated_at": "2026-05-29T18:08:55.592984+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "This is the core question in neural coding: how much does a neuron's response tell you about the stimulus? Builds from entropy toward the mutual information framework you're here for.",
+    "kind": "problem",
+    "details": {
+      "problem": {
+        "id": "a1f37424-c17f-4d75-bb81-72cc9a2a8586",
+        "title": "What Does a Neuron's Firing Pattern Actually Tell Us",
+        "statement_md": "This problem introduces the core question of neural information theory: *how much does a neuron's firing pattern reveal about the world?*\n\nBefore any formulas, consider the following thought experiment.\n\n---\n\n**Setting the scene.**\n\nA neuron in a visual area of the brain is being recorded while a monkey watches different images. On each trial the experimenter presents one of $S = 4$ equally likely stimuli \u2014 call them $s_1, s_2, s_3, s_4$ \u2014 and counts how many times the neuron fires (its **spike count**) in a short observation window.\n\nSuppose, after many trials, you find the following pattern:\n\n**Neuron 1:** fires 0 spikes on every single trial, regardless of which stimulus was shown.\n\n**Neuron 2:** fires exactly 1 spike when $s_1$ is shown, 2 spikes when $s_2$ is shown, 3 spikes when $s_3$ is shown, and 4 spikes when $s_4$ is shown \u2014 always, with no variability.\n\n---\n\n**Part 1 \u2014 Intuition before formulas.**\n\n(a) Explain in plain language why Neuron 1 is **useless** as a decoder of the stimulus, while Neuron 2 is **perfect**.\n\n(b) Suppose you observe Neuron 2 fire 3 spikes on a new trial. What is your best guess for the stimulus, and how confident are you?\n\n(c) Now imagine a third, noisier neuron. On each trial it fires a random number of spikes, and the distribution over spike counts looks *identical* regardless of which stimulus was shown. Is this neuron more like Neuron 1 or Neuron 2 in terms of usefulness? Why?\n\n---\n\n**Part 2 \u2014 Introducing Shannon entropy.**\n\nShannon entropy, introduced by Claude Shannon in 1948, measures **uncertainty**. For a discrete random variable $X$ that takes value $x_i$ with probability $p_i$, it is defined as:\n\n$$H(X) = -\\sum_{i} p_i \\log_2 p_i$$\n\nThe unit is **bits**. Intuitively, $H(X)$ is the average number of yes/no questions you would need to ask to identify the outcome of $X$.\n\n(d) The stimulus $S$ is drawn uniformly from $\\{s_1, s_2, s_3, s_4\\}$, so $p(s_i) = 1/4$ for each $i$. Compute $H(S)$, the **prior entropy** of the stimulus. What does this number tell you?\n\n(e) After observing Neuron 2 fire $r$ spikes, you know the stimulus exactly (since each stimulus maps to a unique spike count). The conditional entropy of the stimulus given the response, written $H(S \\mid R)$, averages the remaining uncertainty over all possible responses:\n\n$$H(S \\mid R) = \\sum_{r} p(r)\\, H(S \\mid R = r)$$\n\nwhere $H(S \\mid R = r) = -\\sum_s p(s \\mid r) \\log_2 p(s \\mid r)$.\n\nFor Neuron 2, compute $H(S \\mid R)$. Interpret what zero conditional entropy means.\n\n(f) For Neuron 1, compute $H(S \\mid R)$. Interpret the result.\n\n---\n\n**Part 3 \u2014 Mutual information.**\n\nThe **mutual information** between stimulus $S$ and neural response $R$ is defined as:\n\n$$I(S; R) = H(S) - H(S \\mid R)$$\n\nIt measures how much the response *reduces* your uncertainty about the stimulus.\n\n(g) Compute $I(S; R)$ for Neuron 1 and for Neuron 2. Express both answers in bits.\n\n(h) In one or two sentences, explain why $I(S; R)$ is a better summary of a neuron's coding usefulness than simply looking at whether the average firing rate differs across stimuli.",
+        "context_md": "The application of information theory to the nervous system has its roots in a remarkably productive period in the late 1940s. Claude Shannon published his foundational paper *A Mathematical Theory of Communication* in 1948, establishing entropy and mutual information as precise measures of uncertainty and information transmission. Almost immediately, neuroscientists and engineers recognised that these tools could be applied to the brain. Horace Barlow was among the earliest to pursue this direction seriously, and his 1961 hypothesis of efficient coding \u2014 that sensory neurons are organised to maximise the information transmitted about natural inputs given metabolic constraints \u2014 remains one of the most influential ideas in computational neuroscience.\n\nThe practical challenge was measurement. For decades the field lacked both the recording technology to collect sufficient spike-train data and the computational tools to estimate entropy from limited samples. This changed dramatically in the 1990s. Researchers such as William Bialek, Fred Rieke, and their collaborators developed rigorous methods for estimating how much information fly motion-sensitive neurons carry about visual stimuli, publishing landmark results showing that certain neurons operate near the theoretical limits of efficiency. Their 1997 book *Spikes: Exploring the Neural Code* brought these methods to a wide audience and catalysed an entire subfield.\n\nThe central conceptual move \u2014 replacing the question does this neuron fire more to stimulus A than stimulus B with how many bits does this neuron's response convey \u2014 transformed neural data analysis. Mutual information is symmetric, model-free, and sensitive to any statistical dependency, not just linear correlations. This makes it especially valuable in systems where the neural code is nonlinear or involves precise spike timing rather than just average rates. Today, information-theoretic analysis is standard practice across sensory neuroscience, motor neuroscience, and the study of population codes in areas ranging from the retina to prefrontal cortex.",
+        "tags": [
+          "information-theory-neural-coding",
+          "shannon-entropy-and-neural-firing-rates",
+          "mutual-information-between-stimulus-and-response"
+        ],
+        "intent": "teach",
+        "difficulty": 3,
+        "topic_node_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f"
+      },
+      "hints": [
+        {
+          "level": 1,
+          "text": "L1: The key concept is uncertainty reduction \u2014 a useful neural code is one where observing the response makes you less uncertain about the stimulus."
+        },
+        {
+          "level": 2,
+          "text": "L2: The governing framework is Shannon entropy $H(X) = -\\sum_i p_i \\log_2 p_i$ and mutual information $I(S;R) = H(S) - H(S|R)$."
+        },
+        {
+          "level": 3,
+          "text": "L3: For each neuron, first ask: after I observe the response, what do I now know about the stimulus? Tabulate the conditional probabilities $p(s \\mid r)$ for each possible response $r$."
+        },
+        {
+          "level": 4,
+          "text": "L4: For Part 2(d), substitute $p_i = 1/4$ for all four stimuli directly into the entropy formula and recall that $\\log_2(1/4) = -2$."
+        },
+        {
+          "level": 5,
+          "text": "L5: When computing $H(S \\mid R)$ for Neuron 1, be careful: even though the spike count is always 0, you must still evaluate $p(s_i \\mid R=0)$ \u2014 because the neuron fires 0 regardless of the stimulus, no updating occurs and the posterior equals the prior."
+        }
+      ],
+      "topic_node": {
+        "slug": "information-theory-neural-coding",
+        "title": "Information Theory for Neural Coding",
+        "kind": "interest"
+      }
+    }
+  },
+  {
+    "queue_item": {
+      "id": "2a0b1261-6747-4e48-a736-957d772d5e54",
+      "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+      "kind": "refresher",
+      "ref_id": "eb06a1b2-65e5-4892-9ea9-040f9766fe67",
+      "state": "surfaced",
+      "priority_score": 0.85,
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20,
+      "added_reason": "Bifurcations and attractors \u2014 what you want to understand \u2014 are built on fixed-point analysis. This refresher lays that groundwork so the dynamical systems content lands properly rather than feeling hand-wavy.",
+      "added_at": "2026-05-29T18:08:56.845077+00:00",
+      "updated_at": "2026-05-29T18:08:56.845077+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "Bifurcations and attractors \u2014 what you want to understand \u2014 are built on fixed-point analysis. This refresher lays that groundwork so the dynamical systems content lands properly rather than feeling hand-wavy.",
+    "kind": "refresher",
+    "details": {
+      "node": {
+        "id": "eb06a1b2-65e5-4892-9ea9-040f9766fe67",
+        "slug": "dynamical-systems-neural-circuits",
+        "title": "Dynamical Systems & Neural Circuit Modeling",
+        "kind": "interest",
+        "description_md": "Dynamical systems theory provides the mathematical language for understanding how neural circuits produce rhythms, switches, and persistent states \u2014 through concepts like fixed points, limit cycles, bifurcations, and attractors. This node builds genuine working knowledge of phase-plane analysis and bifurcation theory using canonical neuroscience models (FitzHugh\u2013Nagumo, Wilson\u2013Cowan, Hodgkin\u2013Huxley reductions) as the motivating playground. If you want to know *why* a neuron fires repetitively, how a brain region can hold a memory, or what makes a circuit switch between states, this is the foundational framework.",
+        "subtopics_json": [
+          "Phase plane and vector fields",
+          "Fixed points and linear stability",
+          "Limit cycles and neural oscillations",
+          "Bifurcations (saddle-node, Hopf, SNIC)",
+          "Excitability and spike generation",
+          "Multi-stable circuits and memory",
+          "Nullcline analysis of neural models",
+          "Slow-fast decomposition and bursting"
+        ]
+      }
+    }
+  }
+]

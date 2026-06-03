@@ -74,13 +74,21 @@ for deduplication checks, classification, and other cheap routing.
    ├── POST /grade-paper-answer
    ├── POST /paper-question
    ├── POST /suggest-papers
+   ├── POST /propose-papers             (Sonnet; expands paper pool on demand, used as fallback by /api/queue/request)
+   ├── POST /ingest-paper-user          (user-supplied arXiv/DOI/title → paper + engagement + queue_item)
    ├── POST /surface-daily              (no LLM; deterministic)
    ├── POST /assess-engagement          (Haiku; post-engagement, Phase 10-rev §3a)
    ├── POST /plan-queue                 (Sonnet; daily per active user, Phase 10-rev §3b)
    ├── POST /check-deferred             (no LLM; conditional re-queue, Phase 10-rev §3c)
    ├── POST /run-daily-planner          (per-user wrapper around /plan-queue + /check-deferred; pg_cron fan-out target, Phase 10-rev §3d)
+   ├── POST /concept-review-resolve     (no LLM; pool-hit-or-reading for kind='concept_review' cards, Phase 10-rev §4a; reading miss inlines /generate-concept-brief, §5.5)
+   ├── POST /refresher-resolve          (no LLM; click-time resolver for kind='refresher' cards — pool lookup at intent='refresh' on the node, falls back to concept_review on miss, also handles legacy refresher_schedule shape, Phase 10-rev §8d)
+   ├── POST /generate-concept-brief     (Haiku; ~250-word concept brief + per-subtopic glosses, cached on node_concept_briefs by node_id, Phase 10-rev §5.5)
+   ├── POST /generate-edge-description  (Haiku; 3-5 sentence bridge description, cached on edge_descriptions by edge_id, Phase 10-rev §6 revision)
    ├── POST /add-interest/parse         (dedup + mirror-back; read-only)
    ├── POST /add-interest/resolve       (commits user_interests; opt. Sonnet generate)
+   ├── POST /add-interest/rewrite-summaries (Haiku batch; rewrites tag-soup intent_context into prose for the profile page)
+   ├── POST /survey/suggest-interests   (Haiku; Stage 3 interest-tile reranker)
    ├── POST /generate-curation-report   (weekly)
    ├── POST /compute-cross-pollination  (daily background)
    └── All Claude API calls; logs to llm_calls
@@ -120,12 +128,22 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `edge_kind` (prerequisite / related)
   - `weight` (float)
   - `created_at`
+- `edge_descriptions` **NEW** (Phase 10-rev §6 revision)
+  - `edge_id` (PK, FK to `edges.id` ON DELETE CASCADE)
+  - `description_md` — 3-5 sentence paragraph naming the specific concepts that bridge from source to target
+  - `generated_at`, `generated_by_model`
+  - Reused across users; first viewer of an edge pays for Haiku, subsequent clicks read the cache. Service-role-only; no end-user RLS policy.
 - `user_node_states` **NEW**
   - `user_id`, `node_id`
   - `state` (unseen / bookmarked / active / struggling / comfortable)
   - `engagement_count`
   - `struggle_score` (float)
   - `last_engaged_at`
+- `user_subtopic_states` **NEW** (Phase 10-rev §6)
+  - `user_id`, `node_id`, `subtopic_slug` (PK on the triple)
+  - `state` (familiar / refresh / new)
+  - `updated_at`
+  - Written by the concept tour (Stage 5) and read by the skill-tree NodePanel Subtopics section. Backfilled from `surveys.comfort_responses_json` at migration time.
 - `user_interests` **NEW** (which interest nodes a user has actively claimed)
   - `id`, `user_id`, `node_id`, `weight` (float),
   - `added_via` (survey / explicit_request / cross_pollination)
@@ -152,7 +170,8 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `priority_score` (float)
   - `time_estimate_minutes_low`, `time_estimate_minutes_high`
   - `added_reason` (short text shown as "why this")
-  - `added_at`, `updated_at`
+  - `parent_queue_item_id` (nullable; FK to `queue_items.id` ON DELETE SET NULL) — lineage marker set when a `concept_review` or `refresher` is created from inside another surface (e.g. clicking an orienting-concept term while reading a paper). Drives the reading view's back-link. Phase 10-rev §5.5.
+  - `added_at`, `updated_at`, `deferred_at`
 - `surfaced_picks` **NEW**
   - `id`, `user_id`, `queue_item_ids[]` (array of 3),
   - `surfaced_at`, `replaced_at`, `chosen_item_id`
@@ -181,7 +200,9 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `external_url`, `abstract_md`, `created_at`
 - `paper_engagements` **NEW** (per-user)
   - `id`, `user_id`, `paper_id`,
-  - `why_this_md`, `orienting_concepts_json`, `questions_json`,
+  - `why_this_md`,
+  - `orienting_concepts_json` — `[{term, definition_md}]` since Phase 10-rev §5.2/5.3; legacy rows may still store `string[]` and are tolerated read-side by the UI,
+  - `questions_json`,
   - `state`, `current_question_index`,
   - `created_at`, `updated_at`, `completed_at`
 - `paper_answers` **NEW**
@@ -195,11 +216,18 @@ changes; **DEPRECATED** tables remain present briefly during migration.
 
 - `notebook_entries` **NEW**
   - `id`, `user_id`,
-  - `entry_kind` (problem_attempt / paper_engagement),
-  - `ref_id`,
+  - `entry_kind` (problem_attempt / paper_engagement / concept_review)
+  - `ref_id` — points at `attempts.id` / `paper_engagements.id` / `nodes.id` respectively
   - `title`, `topic_node_slugs[]`,
   - `created_at`, `updated_at`
   - Full-text index for search.
+  - `concept_review` rows added Phase 10-rev §5.5: written when the user marks "I've looked through this"; renders the cached brief from `node_concept_briefs` (which is keyed by the same `ref_id` value).
+- `node_concept_briefs` **NEW** (Phase 10-rev §5.5)
+  - `node_id` (PK, FK to `nodes.id` ON DELETE CASCADE)
+  - `brief_md` — ~250-word warm orientation in three short paragraphs
+  - `subtopic_glosses_json` — `[{slug, title, gloss_md}]`
+  - `generated_at`, `generated_by_model`
+  - Reused across users — first user to land on a node pays for Haiku, every subsequent user gets the cached row. Service-role-only; no end-user RLS policy.
 
 ### Attempts
 
@@ -225,8 +253,9 @@ changes; **DEPRECATED** tables remain present briefly during migration.
 ### Deprecated
 
 - `canonical_topics`, `canonical_edges`, `user_plans`, `plan_nodes`,
-  `daily_assignments` — kept for history during migration; no new writes;
-  drop in a later phase once nothing references them.
+  `daily_assignments`, `pending_topic_requests` — **DROPPED** in
+  [migration 20250016](../supabase/migrations/20250016_drop_deprecated_tables.sql).
+  All application code references removed in earlier migrations.
 
 ### Cost / observability
 
@@ -373,8 +402,9 @@ What is replaced via migration:
 
 What is deprecated:
 
-- `user_plans`, `plan_nodes`, `daily_assignments` — kept for history
-  during migration, no new writes, dropped in a later phase.
+- `user_plans`, `plan_nodes`, `daily_assignments`, `canonical_topics`,
+  `canonical_edges`, `pending_topic_requests` — dropped in
+  [migration 20250016](../supabase/migrations/20250016_drop_deprecated_tables.sql).
 
 The migration is one SQL file plus a data-migration script. Since the
 project is pre-launch with no real user data, no live-data preservation

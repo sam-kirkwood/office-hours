@@ -224,7 +224,7 @@ def compute_cross_pollination(
                 "state": "pending",
                 "priority_score": 0.35,
                 "added_reason": (
-                    "Other users working in adjacent areas have explored this."
+                    "Someone studying adjacent topics recently explored this."
                 ),
             })
             .execute()

@@ -1,0 +1,172 @@
+[
+  {
+    "queue_item": {
+      "id": "189987c8-1307-41ed-b77b-7444297b7549",
+      "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+      "kind": "problem",
+      "ref_id": "55a534f2-2977-48a4-8971-0b517d79e9da",
+      "state": "surfaced",
+      "priority_score": 0.85,
+      "time_estimate_minutes_low": 15,
+      "time_estimate_minutes_high": 30,
+      "added_reason": "This is your entry point into phase transitions \u2014 the 1D Ising model is exactly solvable and builds the intuition (spins, coupling, free energy) that everything else in this topic depends on.",
+      "added_at": "2026-05-29T18:53:02.814892+00:00",
+      "updated_at": "2026-05-29T18:53:02.388304+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "This is your entry point into phase transitions \u2014 the 1D Ising model is exactly solvable and builds the intuition (spins, coupling, free energy) that everything else in this topic depends on.",
+    "kind": "problem",
+    "details": {
+      "problem": {
+        "id": "55a534f2-2977-48a4-8971-0b517d79e9da",
+        "title": "What makes a phase transition singular",
+        "statement_md": "This problem is a conceptual entrance to phase transitions and critical phenomena. No prior knowledge of statistical mechanics is assumed \u2014 everything you need is introduced below.\n\n---\n\n## Setting the stage: the Ising model\n\nConsider a line of $N$ magnetic atoms, each carrying a tiny magnetic moment that can point either **up** ($s_i = +1$) or **down** ($s_i = -1$). We call each $s_i$ a **spin**. Neighboring spins prefer to align: if $s_i$ and $s_{i+1}$ point the same way, the pair lowers its energy by an amount $J > 0$; if they oppose, energy rises by $J$. There is also an external magnetic field $h$ that biases each spin toward $+1$.\n\nThe total energy of a configuration $\\{s_1, s_2, \\ldots, s_N\\}$ is:\n$$E[\\{s_i\\}] = -J \\sum_{i=1}^{N-1} s_i s_{i+1} - h \\sum_{i=1}^{N} s_i.$$\n\nThis is the **1D Ising model** \u2014 one of the simplest models of collective behavior in physics.\n\n---\n\n## Temperature, thermal fluctuations, and the Boltzmann weight\n\nIn statistical mechanics, a system in thermal equilibrium at temperature $T$ does not sit in a single lowest-energy state. Instead, every configuration $\\{s_i\\}$ occurs with probability proportional to its **Boltzmann weight**:\n$$P(\\{s_i\\}) \\propto e^{-E[\\{s_i\\}]/(k_B T)},$$\nwhere $k_B$ is Boltzmann's constant. Low-energy configurations are favored, but thermal fluctuations allow high-energy configurations to appear with probability $e^{-\\Delta E / k_B T}$.\n\nDefine $\\beta = 1/(k_B T)$ (inverse temperature). The **partition function** is the total weight:\n$$Z = \\sum_{\\{s_i\\}} e^{-\\beta E[\\{s_i\\}]}.$$\n\nAll thermodynamic quantities follow from $Z$. In particular, the **magnetization per spin** \u2014 how aligned the spins are on average \u2014 is:\n$$m = \\frac{1}{N}\\sum_i \\langle s_i \\rangle,$$\nwhere $\\langle \\cdot \\rangle$ means an average weighted by $P$.\n\n---\n\n## The central question\n\nNow consider what happens as $T$ varies, with $h = 0$ (no external field):\n\n- At very **low** $T$: thermal fluctuations are weak, alignment wins, and we expect $m \\approx \\pm 1$ (almost all spins point one way).\n- At very **high** $T$: fluctuations dominate, spins are disordered, and $m \\approx 0$.\n\nSomewhere in between, there may be a **phase transition** \u2014 an abrupt change in collective behavior \u2014 at some critical temperature $T_c$.\n\n**(a)** Consider the two extreme cases qualitatively. At $T \\to 0$, which configurations dominate the sum in $Z$, and why? At $T \\to \\infty$, which configurations dominate, and why? Describe in words what happens to $m$ in each limit. (No calculation required.)\n\n**(b)** The key tension in the Ising model is between **energy** and **entropy**. Define these two quantities informally in this context:\n- The **energy** of a configuration $E[\\{s_i\\}]$ is given above.\n- The **entropy** $S$ is a measure of the *number* of configurations available to the system. More disordered states have higher entropy because there are many more ways to realize them.\n\nThe quantity that determines which phase is thermodynamically stable is the **free energy** $F = E - TS$. Explain in one or two sentences why, at low $T$, the $E$ term dominates (favoring order), while at high $T$, the $-TS$ term dominates (favoring disorder). What does this suggest about how a phase transition is triggered?\n\n**(c)** Here is a concrete counting exercise that sharpens the energy\u2013entropy competition.\n\nSuppose all $N$ spins are aligned: $s_i = +1$ for all $i$. Call this the **all-up** state.\n- This configuration has energy $E_0 = -J(N-1)$.\n- There is exactly **1** such configuration, so its entropy contribution is $k_B \\ln 1 = 0$.\n\nNow consider flipping a single contiguous **domain wall**: choose any one of the $(N-1)$ neighboring pairs $(i, i+1)$ and flip all spins $s_j$ with $j > i$ to $-1$. This creates one boundary between an up-region and a down-region.\n- Each such flip costs exactly $2J$ in energy above $E_0$ (one ferromagnetic bond is broken).\n- There are $(N-1) \\approx N$ ways to place this domain wall, so the entropy gained is $\\approx k_B \\ln N$.\n\nWrite the change in free energy $\\Delta F = \\Delta E - T \\Delta S$ for introducing one domain wall. Show that for large $N$, $\\Delta F < 0$ for **any** $T > 0$. What does this imply about whether the 1D Ising model can maintain a magnetized (ordered) phase at any finite temperature?\n\n**(d)** The result from part (c) \u2014 that order is always destroyed in 1D at any $T > 0$ \u2014 is a famous fact: **the 1D Ising model has no phase transition**. However, the 2D Ising model (spins on a square lattice, each interacting with its four neighbors) *does* have a phase transition at a finite temperature $T_c > 0$.\n\nWithout calculating anything, explain intuitively why having more neighbors per spin (higher spatial dimension) should make it *harder* for thermal fluctuations to destroy order. In 2D, a domain wall is not a point but a *line* \u2014 how does this change the entropy\u2013energy competition compared to 1D?\n",
+        "context_md": "The Ising model was proposed in 1920 by Wilhelm Lenz, who gave it to his student Ernst Ising as a dissertation problem. Ising solved the one-dimensional version in 1925 and found \u2014 to his own disappointment \u2014 that it exhibited no phase transition at any finite temperature. He incorrectly concluded that the model would similarly fail in higher dimensions and, partly for this reason, left physics for a career in teaching. The model bore his name, and the question of its behavior in 2D was left open.\n\nThe two-dimensional case was finally cracked in 1944 by Lars Onsager, in one of the most celebrated exact calculations in theoretical physics. Working with the transfer matrix method, Onsager derived a closed-form expression for the free energy of the 2D Ising model on a square lattice and showed that it has a genuine phase transition at a critical temperature $k_B T_c = 2J / \\ln(1 + \\sqrt{2}) \\approx 2.269\\, J$. The free energy itself is analytic everywhere *except* at $T_c$, where it develops a logarithmic singularity in its second derivative \u2014 a signature that the system undergoes a true thermodynamic phase transition. Onsager's calculation appeared in *Physical Review* in 1944 and remains a landmark of exact statistical mechanics.\n\nWhat made critical phenomena a central topic in twentieth-century physics was not just the existence of phase transitions, but the stunning *universality* discovered in the 1960s and 1970s: near $T_c$, the 2D Ising model, certain liquid-gas systems, and binary alloys all show identical power-law behavior governed by the same numerical exponents, despite having completely different microscopic physics. Leo Kadanoff's block-spin argument (1966) and Kenneth Wilson's renormalization group framework (1971\u201372, earning Wilson the 1982 Nobel Prize in Physics) explained why: near a critical point, microscopic details become irrelevant, and what matters is only the symmetry and dimensionality of the system. This insight \u2014 that very different physical systems can belong to the same *universality class* \u2014 is one of the deepest organizational principles in all of physics.\n\nThe energy\u2013entropy competition explored in this problem is the physical heart of that story. Understanding why 1D order cannot survive fluctuations, while 2D order can (up to $T_c$), is the first step toward understanding why critical behavior is both universal and so mathematically rich.",
+        "tags": [
+          "phase-transitions-critical-phenomena",
+          "1d-ising-model-transfer-matrices",
+          "order-parameters-symmetry-breaking",
+          "mean-field-theory-landau-theory"
+        ],
+        "intent": "teach",
+        "difficulty": 4,
+        "topic_node_id": "43a69506-b4f4-48df-9708-300a5b4b3e9e"
+      },
+      "hints": [
+        {
+          "level": 1,
+          "text": "L1: The central concept here is the competition between energy (which favors order) and entropy (which favors disorder). The free energy $F = E - TS$ determines which wins at a given temperature."
+        },
+        {
+          "level": 2,
+          "text": "L2: The key framework is the Boltzmann weight $e^{-\\beta E}$ and the partition function $Z$. Configurations with lower energy are exponentially more probable at low $T$; at high $T$, all configurations become nearly equally probable."
+        },
+        {
+          "level": 3,
+          "text": "L3: For part (c), separately compute the energy cost of introducing one domain wall and the entropy gained from its positional freedom (how many places can it sit?), then combine them into $\\Delta F = \\Delta E - T \\Delta S$."
+        },
+        {
+          "level": 4,
+          "text": "L4: The energy cost of one domain wall in 1D is exactly $2J$ (one bond is broken, changing from $-J$ to $+J$). The entropy gained is $k_B \\ln(N-1) \\approx k_B \\ln N$ because there are $N-1$ places to put the wall."
+        },
+        {
+          "level": 5,
+          "text": "L5: For part (d), be careful about how the *scaling* of $\\Delta E$ and $\\Delta S$ with system size differs between 1D and 2D. In 1D, $\\Delta E$ is constant while $\\Delta S \\propto \\ln N$; in 2D, both $\\Delta E$ and $\\Delta S$ scale with the *length* of the wall \u2014 ask whether the ratio $\\Delta E / \\Delta S$ can remain large enough to stabilize order."
+        }
+      ],
+      "topic_node": {
+        "slug": "phase-transitions-critical-phenomena",
+        "title": "Phase Transitions & Critical Phenomena",
+        "kind": "interest"
+      }
+    }
+  },
+  {
+    "queue_item": {
+      "id": "44310f10-c48d-429e-8105-02f13195b91c",
+      "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+      "kind": "refresher",
+      "ref_id": "43a69506-b4f4-48df-9708-300a5b4b3e9e",
+      "state": "surfaced",
+      "priority_score": 0.85,
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20,
+      "added_reason": "Mean-field theory and the Ising model both lean heavily on partition function manipulations \u2014 a quick refresh now means you won't hit a wall mid-problem.",
+      "added_at": "2026-05-29T18:53:03.610823+00:00",
+      "updated_at": "2026-05-29T18:53:03.610823+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "Mean-field theory and the Ising model both lean heavily on partition function manipulations \u2014 a quick refresh now means you won't hit a wall mid-problem.",
+    "kind": "refresher",
+    "details": {
+      "node": {
+        "id": "43a69506-b4f4-48df-9708-300a5b4b3e9e",
+        "slug": "phase-transitions-critical-phenomena",
+        "title": "Phase Transitions & Critical Phenomena",
+        "description_md": "This topic covers how macroscopic systems abruptly change their collective behavior \u2014 from paramagnet to ferromagnet, liquid to gas \u2014 and the universal mathematical structure that governs these transitions near the critical point. It builds from exactly solvable models like the 1D and 2D Ising model through mean-field approximations to the modern framework of scaling laws, critical exponents, and universality classes. Understanding it reveals why wildly different physical systems (magnets, fluids, alloys) share identical behavior near criticality \u2014 one of the deepest results in theoretical physics.",
+        "domain": "physics",
+        "kind": "interest",
+        "difficulty_hint": "advanced",
+        "subtopics_json": [
+          "1D Ising model & transfer matrices",
+          "2D Ising model & Onsager solution",
+          "Mean-field theory & Landau theory",
+          "Critical exponents & scaling laws",
+          "Universality classes & renormalization group",
+          "Order parameters & symmetry breaking",
+          "Correlation functions & diverging length scales"
+        ],
+        "unlocks_text": null,
+        "pool_status": "active",
+        "created_by_user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+        "created_at": "2026-05-29T18:49:55.864863+00:00",
+        "updated_at": "2026-05-29T18:49:55.864863+00:00"
+      }
+    }
+  },
+  {
+    "queue_item": {
+      "id": "217c6d57-693c-4765-8e9f-c6864e134484",
+      "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+      "kind": "problem",
+      "ref_id": "55a534f2-2977-48a4-8971-0b517d79e9da",
+      "state": "surfaced",
+      "priority_score": 0.6,
+      "time_estimate_minutes_low": 15,
+      "time_estimate_minutes_high": 30,
+      "added_reason": "Mean-field theory is the conceptual core of this topic \u2014 it gives you your first real phase transition, a critical temperature, and the order parameter idea that scaling laws and universality are built on.",
+      "added_at": "2026-05-29T18:53:06.136401+00:00",
+      "updated_at": "2026-05-29T18:53:05.704741+00:00",
+      "deferred_at": null,
+      "parent_queue_item_id": null
+    },
+    "added_reason": "Mean-field theory is the conceptual core of this topic \u2014 it gives you your first real phase transition, a critical temperature, and the order parameter idea that scaling laws and universality are built on.",
+    "kind": "problem",
+    "details": {
+      "problem": {
+        "id": "55a534f2-2977-48a4-8971-0b517d79e9da",
+        "title": "What makes a phase transition singular",
+        "statement_md": "This problem is a conceptual entrance to phase transitions and critical phenomena. No prior knowledge of statistical mechanics is assumed \u2014 everything you need is introduced below.\n\n---\n\n## Setting the stage: the Ising model\n\nConsider a line of $N$ magnetic atoms, each carrying a tiny magnetic moment that can point either **up** ($s_i = +1$) or **down** ($s_i = -1$). We call each $s_i$ a **spin**. Neighboring spins prefer to align: if $s_i$ and $s_{i+1}$ point the same way, the pair lowers its energy by an amount $J > 0$; if they oppose, energy rises by $J$. There is also an external magnetic field $h$ that biases each spin toward $+1$.\n\nThe total energy of a configuration $\\{s_1, s_2, \\ldots, s_N\\}$ is:\n$$E[\\{s_i\\}] = -J \\sum_{i=1}^{N-1} s_i s_{i+1} - h \\sum_{i=1}^{N} s_i.$$\n\nThis is the **1D Ising model** \u2014 one of the simplest models of collective behavior in physics.\n\n---\n\n## Temperature, thermal fluctuations, and the Boltzmann weight\n\nIn statistical mechanics, a system in thermal equilibrium at temperature $T$ does not sit in a single lowest-energy state. Instead, every configuration $\\{s_i\\}$ occurs with probability proportional to its **Boltzmann weight**:\n$$P(\\{s_i\\}) \\propto e^{-E[\\{s_i\\}]/(k_B T)},$$\nwhere $k_B$ is Boltzmann's constant. Low-energy configurations are favored, but thermal fluctuations allow high-energy configurations to appear with probability $e^{-\\Delta E / k_B T}$.\n\nDefine $\\beta = 1/(k_B T)$ (inverse temperature). The **partition function** is the total weight:\n$$Z = \\sum_{\\{s_i\\}} e^{-\\beta E[\\{s_i\\}]}.$$\n\nAll thermodynamic quantities follow from $Z$. In particular, the **magnetization per spin** \u2014 how aligned the spins are on average \u2014 is:\n$$m = \\frac{1}{N}\\sum_i \\langle s_i \\rangle,$$\nwhere $\\langle \\cdot \\rangle$ means an average weighted by $P$.\n\n---\n\n## The central question\n\nNow consider what happens as $T$ varies, with $h = 0$ (no external field):\n\n- At very **low** $T$: thermal fluctuations are weak, alignment wins, and we expect $m \\approx \\pm 1$ (almost all spins point one way).\n- At very **high** $T$: fluctuations dominate, spins are disordered, and $m \\approx 0$.\n\nSomewhere in between, there may be a **phase transition** \u2014 an abrupt change in collective behavior \u2014 at some critical temperature $T_c$.\n\n**(a)** Consider the two extreme cases qualitatively. At $T \\to 0$, which configurations dominate the sum in $Z$, and why? At $T \\to \\infty$, which configurations dominate, and why? Describe in words what happens to $m$ in each limit. (No calculation required.)\n\n**(b)** The key tension in the Ising model is between **energy** and **entropy**. Define these two quantities informally in this context:\n- The **energy** of a configuration $E[\\{s_i\\}]$ is given above.\n- The **entropy** $S$ is a measure of the *number* of configurations available to the system. More disordered states have higher entropy because there are many more ways to realize them.\n\nThe quantity that determines which phase is thermodynamically stable is the **free energy** $F = E - TS$. Explain in one or two sentences why, at low $T$, the $E$ term dominates (favoring order), while at high $T$, the $-TS$ term dominates (favoring disorder). What does this suggest about how a phase transition is triggered?\n\n**(c)** Here is a concrete counting exercise that sharpens the energy\u2013entropy competition.\n\nSuppose all $N$ spins are aligned: $s_i = +1$ for all $i$. Call this the **all-up** state.\n- This configuration has energy $E_0 = -J(N-1)$.\n- There is exactly **1** such configuration, so its entropy contribution is $k_B \\ln 1 = 0$.\n\nNow consider flipping a single contiguous **domain wall**: choose any one of the $(N-1)$ neighboring pairs $(i, i+1)$ and flip all spins $s_j$ with $j > i$ to $-1$. This creates one boundary between an up-region and a down-region.\n- Each such flip costs exactly $2J$ in energy above $E_0$ (one ferromagnetic bond is broken).\n- There are $(N-1) \\approx N$ ways to place this domain wall, so the entropy gained is $\\approx k_B \\ln N$.\n\nWrite the change in free energy $\\Delta F = \\Delta E - T \\Delta S$ for introducing one domain wall. Show that for large $N$, $\\Delta F < 0$ for **any** $T > 0$. What does this imply about whether the 1D Ising model can maintain a magnetized (ordered) phase at any finite temperature?\n\n**(d)** The result from part (c) \u2014 that order is always destroyed in 1D at any $T > 0$ \u2014 is a famous fact: **the 1D Ising model has no phase transition**. However, the 2D Ising model (spins on a square lattice, each interacting with its four neighbors) *does* have a phase transition at a finite temperature $T_c > 0$.\n\nWithout calculating anything, explain intuitively why having more neighbors per spin (higher spatial dimension) should make it *harder* for thermal fluctuations to destroy order. In 2D, a domain wall is not a point but a *line* \u2014 how does this change the entropy\u2013energy competition compared to 1D?\n",
+        "context_md": "The Ising model was proposed in 1920 by Wilhelm Lenz, who gave it to his student Ernst Ising as a dissertation problem. Ising solved the one-dimensional version in 1925 and found \u2014 to his own disappointment \u2014 that it exhibited no phase transition at any finite temperature. He incorrectly concluded that the model would similarly fail in higher dimensions and, partly for this reason, left physics for a career in teaching. The model bore his name, and the question of its behavior in 2D was left open.\n\nThe two-dimensional case was finally cracked in 1944 by Lars Onsager, in one of the most celebrated exact calculations in theoretical physics. Working with the transfer matrix method, Onsager derived a closed-form expression for the free energy of the 2D Ising model on a square lattice and showed that it has a genuine phase transition at a critical temperature $k_B T_c = 2J / \\ln(1 + \\sqrt{2}) \\approx 2.269\\, J$. The free energy itself is analytic everywhere *except* at $T_c$, where it develops a logarithmic singularity in its second derivative \u2014 a signature that the system undergoes a true thermodynamic phase transition. Onsager's calculation appeared in *Physical Review* in 1944 and remains a landmark of exact statistical mechanics.\n\nWhat made critical phenomena a central topic in twentieth-century physics was not just the existence of phase transitions, but the stunning *universality* discovered in the 1960s and 1970s: near $T_c$, the 2D Ising model, certain liquid-gas systems, and binary alloys all show identical power-law behavior governed by the same numerical exponents, despite having completely different microscopic physics. Leo Kadanoff's block-spin argument (1966) and Kenneth Wilson's renormalization group framework (1971\u201372, earning Wilson the 1982 Nobel Prize in Physics) explained why: near a critical point, microscopic details become irrelevant, and what matters is only the symmetry and dimensionality of the system. This insight \u2014 that very different physical systems can belong to the same *universality class* \u2014 is one of the deepest organizational principles in all of physics.\n\nThe energy\u2013entropy competition explored in this problem is the physical heart of that story. Understanding why 1D order cannot survive fluctuations, while 2D order can (up to $T_c$), is the first step toward understanding why critical behavior is both universal and so mathematically rich.",
+        "tags": [
+          "phase-transitions-critical-phenomena",
+          "1d-ising-model-transfer-matrices",
+          "order-parameters-symmetry-breaking",
+          "mean-field-theory-landau-theory"
+        ],
+        "intent": "teach",
+        "difficulty": 4,
+        "topic_node_id": "43a69506-b4f4-48df-9708-300a5b4b3e9e"
+      },
+      "hints": [
+        {
+          "level": 1,
+          "text": "L1: The central concept here is the competition between energy (which favors order) and entropy (which favors disorder). The free energy $F = E - TS$ determines which wins at a given temperature."
+        },
+        {
+          "level": 2,
+          "text": "L2: The key framework is the Boltzmann weight $e^{-\\beta E}$ and the partition function $Z$. Configurations with lower energy are exponentially more probable at low $T$; at high $T$, all configurations become nearly equally probable."
+        },
+        {
+          "level": 3,
+          "text": "L3: For part (c), separately compute the energy cost of introducing one domain wall and the entropy gained from its positional freedom (how many places can it sit?), then combine them into $\\Delta F = \\Delta E - T \\Delta S$."
+        },
+        {
+          "level": 4,
+          "text": "L4: The energy cost of one domain wall in 1D is exactly $2J$ (one bond is broken, changing from $-J$ to $+J$). The entropy gained is $k_B \\ln(N-1) \\approx k_B \\ln N$ because there are $N-1$ places to put the wall."
+        },
+        {
+          "level": 5,
+          "text": "L5: For part (d), be careful about how the *scaling* of $\\Delta E$ and $\\Delta S$ with system size differs between 1D and 2D. In 1D, $\\Delta E$ is constant while $\\Delta S \\propto \\ln N$; in 2D, both $\\Delta E$ and $\\Delta S$ scale with the *length* of the wall \u2014 ask whether the ratio $\\Delta E / \\Delta S$ can remain large enough to stabilize order."
+        }
+      ],
+      "topic_node": {
+        "slug": "phase-transitions-critical-phenomena",
+        "title": "Phase Transitions & Critical Phenomena",
+        "kind": "interest"
+      }
+    }
+  }
+]

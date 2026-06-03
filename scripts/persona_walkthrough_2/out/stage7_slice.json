@@ -1,0 +1,229 @@
+{
+  "yours": [
+    {
+      "slug": "classical-mechanics",
+      "title": "Classical Mechanics",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "quantum-mechanics-1",
+      "title": "Quantum Mechanics I",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "renormalization-group-fixed-points",
+      "title": "Renormalization Group & Fixed Points",
+      "kind": "interest",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": true
+    },
+    {
+      "slug": "statistical-mechanics",
+      "title": "Statistical Mechanics",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "thermodynamics",
+      "title": "Thermodynamics",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "active",
+      "is_interest": false
+    },
+    {
+      "slug": "phase-transitions-critical-phenomena",
+      "title": "Phase Transitions & Critical Phenomena",
+      "kind": "interest",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": true
+    },
+    {
+      "slug": "electromagnetism-1",
+      "title": "Electromagnetism I",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "active",
+      "is_interest": false
+    }
+  ],
+  "adjacent": [
+    {
+      "slug": "semiconductor-physics",
+      "title": "Semiconductor Physics",
+      "kind": "interest",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "calculus-2",
+      "title": "Calculus II",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "calculus-1",
+      "title": "Calculus I",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "linear-algebra",
+      "title": "Linear Algebra",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "multivariable-calculus",
+      "title": "Multivariable Calculus",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "odes",
+      "title": "Ordinary Differential Equations",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "probability",
+      "title": "Probability Theory",
+      "kind": "foundation",
+      "domain": "math",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "waves-oscillations",
+      "title": "Waves & Oscillations",
+      "kind": "foundation",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "cosmology-lambda-cdm",
+      "title": "Cosmology & the Lambda-CDM Model",
+      "kind": "interest",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    },
+    {
+      "slug": "gravitational-waves-ligo",
+      "title": "Gravitational Waves & LIGO",
+      "kind": "interest",
+      "domain": "physics",
+      "state": "unseen",
+      "is_interest": false
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "c62dc70d-5b53-4e37-89fc-a087ea9fbd2c",
+      "target_node_id": "eda16d4a-461a-4e33-8578-2623e123a802",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "6296e3c9-78e3-4c73-b649-57a2d4fe7a63",
+      "target_node_id": "206f08b5-82f7-4c61-ad9e-1e14ee337156",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "e16abedb-3765-473e-b92b-a0f15ae1c216",
+      "target_node_id": "d60413ce-1cd9-4973-a0cc-82530f131934",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "194ba118-3afd-4a59-81fc-9b104ce105d1",
+      "target_node_id": "d60413ce-1cd9-4973-a0cc-82530f131934",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "edc64617-bb6e-4cfa-a4e0-6a7fd513e354",
+      "target_node_id": "194ba118-3afd-4a59-81fc-9b104ce105d1",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "fbc20270-561b-40e9-8bf3-157dc8e8aaca",
+      "target_node_id": "d60413ce-1cd9-4973-a0cc-82530f131934",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "39ab5ac0-0ca9-45b8-8bfe-7acb25bb2327",
+      "target_node_id": "e16abedb-3765-473e-b92b-a0f15ae1c216",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "eda16d4a-461a-4e33-8578-2623e123a802",
+      "target_node_id": "9bf128c8-c492-4e3e-9a36-23857bc7cc0f",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "194ba118-3afd-4a59-81fc-9b104ce105d1",
+      "target_node_id": "9bf128c8-c492-4e3e-9a36-23857bc7cc0f",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+      "target_node_id": "fbc20270-561b-40e9-8bf3-157dc8e8aaca",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "eda16d4a-461a-4e33-8578-2623e123a802",
+      "target_node_id": "0d961973-0686-4e7a-bc96-de80932ce2dd",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "60190689-ed44-4e76-b50b-fa10d8cdd11c",
+      "target_node_id": "e16abedb-3765-473e-b92b-a0f15ae1c216",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "194ba118-3afd-4a59-81fc-9b104ce105d1",
+      "target_node_id": "0d961973-0686-4e7a-bc96-de80932ce2dd",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "206f08b5-82f7-4c61-ad9e-1e14ee337156",
+      "target_node_id": "0d961973-0686-4e7a-bc96-de80932ce2dd",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "206f08b5-82f7-4c61-ad9e-1e14ee337156",
+      "target_node_id": "fbc20270-561b-40e9-8bf3-157dc8e8aaca",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "e16abedb-3765-473e-b92b-a0f15ae1c216",
+      "target_node_id": "fbc20270-561b-40e9-8bf3-157dc8e8aaca",
+      "edge_kind": "prerequisite"
+    },
+    {
+      "source_node_id": "f5fb38dc-0fc7-4731-a53a-04768832763b",
+      "target_node_id": "eda16d4a-461a-4e33-8578-2623e123a802",
+      "edge_kind": "prerequisite"
+    }
+  ]
+}

@@ -18,7 +18,10 @@ PAPER_ID = str(uuid4())
 VALID_ENGAGEMENT_JSON = json.dumps(
     {
         "why_this_md": "This connects to your interests.",
-        "orienting_concepts_json": ["gravitational waves", "LIGO"],
+        "orienting_concepts_json": [
+            {"term": "gravitational waves", "definition_md": "Ripples in spacetime predicted by general relativity."},
+            {"term": "LIGO", "definition_md": "The Laser Interferometer Gravitational-Wave Observatory."},
+        ],
         "questions_json": [
             {"id": str(uuid4()), "kind": "comprehension", "prompt_md": "Q1?", "order": 1},
             {"id": str(uuid4()), "kind": "critical", "prompt_md": "Q2?", "order": 2},
@@ -180,3 +183,44 @@ def test_already_suggested_paper_skipped(client: TestClient, fakes) -> None:
     assert resp.json()["suggested"] == []
     # No queue items should have been written
     assert not any(c.table == "queue_items" and c.op == "insert" for c in supabase.calls)
+
+
+# ---------------------------------------------------------------------------
+# Interest titles containing PostgREST-special characters (`&`, `,`, `(`, `)`)
+# must be double-quoted in the `or_` filter so the server doesn't reject the
+# query with PGRST100 ("failed to parse logic tree").
+# ---------------------------------------------------------------------------
+
+
+def test_special_chars_in_interest_title_are_quoted_in_or_filter(
+    client: TestClient, fakes
+) -> None:
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+
+    supabase.respond("user_interests", "select", lambda _: [{"node_id": str(uuid4())}])
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [{"title": "Superconductivity & Semiconductor Physics"}],
+    )
+    # No matching papers — short-circuits before the Haiku call.
+    supabase.respond("papers", "select", lambda _: [])
+
+    resp = client.post(
+        "/suggest-papers",
+        json={"user_id": user_id},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+
+    papers_selects = [
+        c for c in supabase.calls if c.table == "papers" and c.op == "select"
+    ]
+    or_filters = [
+        f[2] for c in papers_selects for f in c.filters if f[0] == "or_"
+    ]
+    assert or_filters, "expected an or_ filter to be applied"
+    expected = 'title.ilike."%Superconductivity & Semiconductor Physics%"'
+    assert expected in or_filters[0], or_filters[0]

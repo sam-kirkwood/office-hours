@@ -569,3 +569,169 @@ def test_pool_hit_with_existing_pending_item_is_skipped(
     assert not any(
         c.table == "queue_items" and c.op == "insert" for c in supabase.calls
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 10-rev Step 9a — refresher kind routes to foundation
+# ---------------------------------------------------------------------------
+
+
+def test_refresher_routes_to_foundation_when_subtopic_matches(
+    client: TestClient, fakes
+) -> None:
+    """When the curator emits a refresher rec whose subtopic matches a
+    foundation node's subtopics_json entry, the queue_items row's ref_id
+    is the FOUNDATION node, not the interest_node the rec was emitted under.
+
+    Mirrors the phase-transitions → partition-function-manipulations →
+    statistical-mechanics routing the persona walkthroughs identified as
+    the canonical case for this fix.
+    """
+    supabase, anthropic = fakes
+    interest_node_id = str(uuid4())
+    foundation_node_id = str(uuid4())
+
+    # Minimal context for the planner's input — set up the interest node
+    # responder, but DON'T register a fallback foundation responder yet so
+    # we can dispatch on the eq("kind", "foundation") filter precisely.
+    supabase.respond("surveys", "select", lambda _c: [{"mode_balance": 0.5}])
+    supabase.respond(
+        "user_interests",
+        "select",
+        lambda _c: [{"node_id": interest_node_id, "intent_context": "Studying phase transitions."}],
+    )
+
+    interest_row = {
+        "id": interest_node_id,
+        "slug": "phase-transitions",
+        "title": "Phase Transitions",
+        "kind": "interest",
+        "subtopics_json": [{"slug": "ising-1d", "title": "1D Ising model"}],
+        "description_md": "Phase transitions and critical phenomena.",
+        "difficulty_hint": "advanced",
+    }
+    foundation_row = {
+        "id": foundation_node_id,
+        "slug": "statistical-mechanics",
+        "title": "Statistical Mechanics",
+        "kind": "foundation",
+        "subtopics_json": [
+            {"slug": "partition-function-manipulations", "title": "Partition function manipulations"},
+            {"slug": "boltzmann-distribution", "title": "Boltzmann distribution"},
+        ],
+    }
+
+    def nodes_responder(call):
+        for op, col, val in call.filters:
+            if op == "eq" and col == "kind" and val == "foundation":
+                return [foundation_row]
+            if op == "in_" and col == "id":
+                return [interest_row]
+            if op == "ilike" and col == "title":
+                if str(val).lower() == "phase transitions":
+                    return [interest_row]
+                return []
+        return []
+
+    supabase.respond("nodes", "select", nodes_responder)
+    supabase.respond(
+        "user_node_states",
+        "select",
+        lambda _c: [{
+            "node_id": interest_node_id,
+            "state": "active",
+            "struggle_score": 0.1,
+            "engagement_count": 0,
+            "last_engaged_at": None,
+        }],
+    )
+    supabase.respond("edges", "select", lambda _c: [])
+    supabase.respond("attempts", "select", lambda _c: [])
+    supabase.respond("paper_engagements", "select", lambda _c: [])
+    supabase.respond("papers", "select", lambda _c: [])
+    supabase.respond("surfaced_picks", "select", lambda _c: [])
+    supabase.respond("user_preferences", "select", lambda _c: [])
+    supabase.respond("queue_items", "select", lambda _c: [])
+    supabase.respond("llm_calls", "insert", lambda _c: [{"id": str(uuid4())}])
+    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        _plan_response(
+            [{
+                "action": "add",
+                "interest_node": "Phase Transitions",
+                "kind": "refresher",
+                "intent": "refresh",
+                "subtopic": "Partition function manipulations",
+                "depth": "foundational",
+                "assumed_background": [],
+                "priority": "medium",
+                "reason": "Refresh partition function manipulations before the Ising work.",
+            }]
+        )
+    )
+
+    resp = client.post(
+        "/plan-queue",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items_added"] == 1
+
+    inserts = [
+        c for c in supabase.calls
+        if c.table == "queue_items" and c.op == "insert"
+    ]
+    assert len(inserts) == 1
+    payload = inserts[0].payload
+    assert payload["kind"] == "refresher"
+    # The critical assertion: ref_id is the FOUNDATION, not the interest_node.
+    assert payload["ref_id"] == foundation_node_id
+    assert payload["ref_id"] != interest_node_id
+
+
+def test_refresher_falls_back_to_interest_when_no_foundation_owns_subtopic(
+    client: TestClient, fakes
+) -> None:
+    """When no foundation owns the rec's subtopic, the refresher routes
+    to the interest_node as before. Preserves existing behaviour for
+    truly interest-level refresher recs."""
+    supabase, anthropic = fakes
+    interest_node_id = str(uuid4())
+
+    _prime_minimal_context(supabase, interest_node_id=interest_node_id)
+    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        _plan_response(
+            [{
+                "action": "add",
+                "interest_node": "Superconductivity",
+                "kind": "refresher",
+                "intent": "refresh",
+                "subtopic": "Some subtopic no foundation owns",
+                "depth": "foundational",
+                "assumed_background": [],
+                "priority": "medium",
+                "reason": "Targets a topic-level concept that's not in any foundation.",
+            }]
+        )
+    )
+
+    resp = client.post(
+        "/plan-queue",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items_added"] == 1
+    inserts = [
+        c for c in supabase.calls
+        if c.table == "queue_items" and c.op == "insert"
+    ]
+    assert len(inserts) == 1
+    # Falls back to the interest node.
+    assert inserts[0].payload["ref_id"] == interest_node_id

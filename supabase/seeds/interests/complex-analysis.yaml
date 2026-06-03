@@ -1,0 +1,31 @@
+slug: complex-analysis
+title: Complex Analysis
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The calculus of functions of a complex variable, where the constraint
+  of differentiability is so strong it forces analytic functions to be
+  uniquely determined by their values on any small disk. Builds toward
+  contour integration, the residue theorem, and the deep connection
+  between the complex plane and physics — conformal maps in fluid
+  dynamics, Cauchy's integral formula as a tool throughout theoretical
+  physics, and analytic continuation as a window onto the structure of
+  special functions.
+
+subtopics:
+  - Cauchy-Riemann equations and analytic functions
+  - Contour integration
+  - Cauchy's integral theorem and formula
+  - Laurent series and isolated singularities
+  - Residue calculus
+  - Conformal mappings
+  - Analytic continuation
+  - Introduction to Riemann surfaces
+
+prereq_slugs:
+  - calculus-2
+  - multivariable-calculus
+
+related_slugs:
+  - real-analysis

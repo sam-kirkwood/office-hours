@@ -916,3 +916,103 @@ def build_curator_context(
         "current_queue": current_queue,
         "feedback_signals": feedback_signals,
     }
+
+
+# ---------------------------------------------------------------------------
+# Queue-item dedup (Phase 10-rev Step 9a)
+# ---------------------------------------------------------------------------
+
+
+def find_pending_queue_item(
+    supabase: Client, *, user_id: str, kind: str, ref_id: str
+) -> str | None:
+    """Return the id of an existing pending/surfaced queue_items row for this
+    (user, kind, ref_id), or None.
+
+    Used by dedup checks in both `/generate-problem` (before unconditionally
+    writing a queue row) and `/plan-queue` (before inserting a pool-hit
+    recommendation). Without this check, the curator-pool-miss →
+    generate-problem-cache-hit path can produce multiple queue rows pointing
+    at the same problem under different recommendation rationales
+    (Phase 10-rev Step 9a, surfaced by the persona walkthroughs).
+    """
+    resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("kind", kind)
+        .eq("ref_id", ref_id)
+        .in_("state", ["pending", "surfaced"])
+        .limit(1)
+        .execute()
+    )
+    rows = resp.data or []
+    return rows[0]["id"] if rows else None
+
+
+# Stop-words excluded from token-overlap matching so common conjunctions /
+# articles don't produce spurious matches.
+_SUBTOPIC_STOPWORDS = {
+    "and", "the", "for", "with", "from", "into", "in", "of", "to",
+    "on", "or", "an", "a", "by",
+}
+
+
+def _subtopic_tokens(text: str) -> set[str]:
+    """Tokenise a subtopic name into substantive 4+ char tokens, lowercased
+    and prefix-truncated so 'energy' and 'energies' both match 'energ'."""
+    import re
+
+    words = re.findall(r"[a-z]+", text.lower())
+    return {
+        w[:5] for w in words
+        if len(w) >= 4 and w not in _SUBTOPIC_STOPWORDS
+    }
+
+
+def find_foundation_owning_subtopic(
+    supabase: Client, *, subtopic_slug: str
+) -> dict | None:
+    """Find a foundation node whose subtopics_json contains this concept.
+
+    Used by the curator's refresher dispatch: when Sonnet emits a refresher
+    rec with a subtopic that's owned by a foundation (e.g. "partition
+    function manipulations" → statistical-mechanics, or "Helmholtz and
+    Gibbs free energies" → thermodynamics), route the queue row's ref_id
+    to that foundation rather than to the interest_node it was emitted
+    under. Falls back to None if no foundation owns the subtopic — caller
+    should fall back to interest_node behaviour.
+
+    Matcher tokenises the needle into substantive 4+ char tokens (after
+    truncation to 5-char prefixes — so 'energy'/'energies' both reduce to
+    'energ'). A foundation subtopic matches when it shares at least one
+    such token with the needle. This tolerates pluralisation, conjunctions,
+    and word order differences across the curator's phrasings vs the
+    foundation's canonical subtopic labels.
+    """
+    if not subtopic_slug:
+        return None
+    needle_tokens = _subtopic_tokens(subtopic_slug.replace("-", " "))
+    if not needle_tokens:
+        return None
+
+    # Pull foundation rows and check their subtopics_json client-side.
+    # The seed has ~13 foundations so this is cheap.
+    resp = (
+        supabase.table("nodes")
+        .select("id, slug, title, subtopics_json")
+        .eq("kind", "foundation")
+        .execute()
+    )
+    for n in resp.data or []:
+        for entry in n.get("subtopics_json") or []:
+            if isinstance(entry, dict):
+                label = (entry.get("title") or entry.get("slug") or "")
+            elif isinstance(entry, str):
+                label = entry
+            else:
+                continue
+            entry_tokens = _subtopic_tokens(label.replace("-", " "))
+            if needle_tokens & entry_tokens:
+                return n
+    return None

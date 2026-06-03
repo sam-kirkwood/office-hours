@@ -94,7 +94,13 @@ def suggest_papers(
     # 3. Load papers — pre-filter by ILIKE across ALL interest titles (F16: ILIKE ANY).
     # Cap the candidate set at 20 rows before passing to Haiku.
     if interest_titles:
-        filter_parts = [f"title.ilike.%{t}%" for t in interest_titles]
+        # PostgREST's logic tree treats `,`, `&`, `(`, `)` as syntactic
+        # delimiters. Wrap each ILIKE value in double quotes so titles
+        # containing those characters (e.g. "Superconductivity & Semiconductors")
+        # don't trip the parser. Strip embedded double quotes defensively.
+        def _quote(t: str) -> str:
+            return t.replace('"', "")
+        filter_parts = [f'title.ilike."%{_quote(t)}%"' for t in interest_titles]
         papers_resp = (
             supabase.table("papers")
             .select("id, title, abstract_md")

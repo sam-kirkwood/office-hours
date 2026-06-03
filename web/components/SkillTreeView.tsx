@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -11,10 +11,13 @@ import {
   useNodesState,
   useEdgesState,
   MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
 } from "@xyflow/react";
 import type { Node as RFNode, Edge as RFEdge, NodeProps } from "@xyflow/react";
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import NodePanel from "@/components/NodePanel";
+import EdgePanel from "@/components/EdgePanel";
 import type { Node as AppNode, Edge as AppEdge, UserNodeState } from "@/lib/types";
 
 interface GraphData {
@@ -64,10 +67,14 @@ const EDGE_STROKE_RELATED = "#cec6bc";
 const handleStyle = { opacity: 0, pointerEvents: "none" as const };
 
 function UserNode({ data }: NodeProps) {
-  const { node, state } = data as { node: AppNode; state: UserNodeState | null };
+  const { node, state, highlighted } = data as {
+    node: AppNode;
+    state: UserNodeState | null;
+    highlighted?: boolean;
+  };
   return (
     <div
-      className={`flex h-full w-full items-center justify-center rounded-full px-4 text-center font-serif text-[10px] leading-[1.35] ${stateClasses(state)}`}
+      className={`flex h-full w-full items-center justify-center rounded-full px-4 text-center font-serif text-[10px] leading-[1.35] ${stateClasses(state)} ${highlighted ? "ring-2 ring-[var(--forest)] ring-offset-2 ring-offset-[var(--background)] transition-all duration-[var(--duration-standard)]" : ""}`}
     >
       <Handle type="target" position={Position.Top} style={handleStyle} />
       {node.title}
@@ -77,9 +84,11 @@ function UserNode({ data }: NodeProps) {
 }
 
 function AdjacentNode({ data }: NodeProps) {
-  const { node } = data as { node: AppNode };
+  const { node, highlighted } = data as { node: AppNode; highlighted?: boolean };
   return (
-    <div className="flex h-full w-full items-center justify-center rounded-full border border-dashed border-border/50 bg-background px-3 text-center font-serif text-[9.5px] leading-[1.35] text-muted-foreground/55">
+    <div
+      className={`flex h-full w-full items-center justify-center rounded-full border border-dashed border-border/50 bg-background px-3 text-center font-serif text-[9.5px] leading-[1.35] text-muted-foreground/55 ${highlighted ? "ring-2 ring-[var(--forest)] ring-offset-2 ring-offset-[var(--background)] transition-all duration-[var(--duration-standard)]" : ""}`}
+    >
       <Handle type="target" position={Position.Top} style={handleStyle} />
       {node.title}
       <Handle type="source" position={Position.Bottom} style={handleStyle} />
@@ -116,7 +125,7 @@ function Legend() {
         ))}
         <div className="flex items-center gap-2">
           <div className="h-4 w-4 rounded-full border border-dashed border-border/50 bg-background" />
-          <span className="text-[11px] text-muted-foreground">Suggested</span>
+          <span className="text-[11px] text-muted-foreground">Nearby</span>
         </div>
       </div>
     </div>
@@ -139,7 +148,9 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
     g.setNode(node.id, { width: ADJ_W, height: ADJ_H });
   }
   for (const edge of graphData.edges) {
-    g.setEdge(edge.source_node_id, edge.target_node_id);
+    if (g.hasNode(edge.source_node_id) && g.hasNode(edge.target_node_id)) {
+      g.setEdge(edge.source_node_id, edge.target_node_id);
+    }
   }
 
   dagreLayout(g);
@@ -167,20 +178,24 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
     })),
   ];
 
-  const rfEdges: RFEdge[] = graphData.edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source_node_id,
-    target: edge.target_node_id,
-    animated: false,
-    style:
-      edge.edge_kind === "related"
-        ? { strokeDasharray: "4,4", stroke: EDGE_STROKE_RELATED, strokeWidth: 1 }
-        : { stroke: EDGE_STROKE, strokeWidth: 1 },
-    markerEnd:
-      edge.edge_kind === "prerequisite"
-        ? { type: MarkerType.ArrowClosed, color: EDGE_STROKE, width: 14, height: 14 }
-        : undefined,
-  }));
+  const renderedIds = new Set(rfNodes.map((n) => n.id));
+
+  const rfEdges: RFEdge[] = graphData.edges
+    .filter((e) => renderedIds.has(e.source_node_id) && renderedIds.has(e.target_node_id))
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.source_node_id,
+      target: edge.target_node_id,
+      animated: false,
+      style:
+        edge.edge_kind === "related"
+          ? { strokeDasharray: "4,4", stroke: EDGE_STROKE_RELATED, strokeWidth: 1 }
+          : { stroke: EDGE_STROKE, strokeWidth: 1 },
+      markerEnd:
+        edge.edge_kind === "prerequisite"
+          ? { type: MarkerType.ArrowClosed, color: EDGE_STROKE, width: 14, height: 14 }
+          : undefined,
+    }));
 
   return { nodes: rfNodes, edges: rfEdges };
 }
@@ -203,6 +218,7 @@ interface Props {
     entry: SelectedEntry;
     isUserNode: boolean;
     onClose: () => void;
+    onHighlightNeighbors?: (neighborIds: string[]) => void;
   }) => React.ReactNode;
   // Optional legend override. Pass a node to render instead of the default;
   // pass `null` to render no legend at all. Callers like the Stage 7
@@ -211,10 +227,15 @@ interface Props {
   legend?: React.ReactNode | null;
 }
 
-export default function SkillTreeView({ graphData, renderPanel, legend }: Props) {
+function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
   const [rfNodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+
+  const reactFlow = useReactFlow();
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (graphData.user_nodes.length === 0 && graphData.adjacent_nodes.length === 0) return;
@@ -223,21 +244,79 @@ export default function SkillTreeView({ graphData, renderPanel, legend }: Props)
     setEdges(edges);
   }, [graphData, setNodes, setEdges]);
 
+  // Re-tag rfNodes with `highlighted` whenever the highlighted set changes.
+  useEffect(() => {
+    setNodes((existing) =>
+      existing.map((n) => ({
+        ...n,
+        data: { ...n.data, highlighted: highlightedIds.has(n.id) },
+      })),
+    );
+  }, [highlightedIds, setNodes]);
+
+  // Clear any pending highlight timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
     setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const onEdgeClick = useCallback((_event: React.MouseEvent, edge: RFEdge) => {
+    setSelectedEdgeId(edge.id);
+    setSelectedNodeId(null);
   }, []);
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   }, []);
 
+  // Called by NodePanel's "Highlight on canvas" action. Takes the IDs of
+  // nodes to highlight (typically the selected node + its 1-hop neighbors),
+  // applies a ring style to whichever are present in the rendered graph,
+  // and pans/zooms to fit them. Auto-clears after a few seconds.
+  const handleHighlightNeighbors = useCallback(
+    (neighborIds: string[]) => {
+      if (!selectedNodeId) return;
+      const focusIds = [selectedNodeId, ...neighborIds];
+      const renderedIds = new Set(rfNodes.map((n) => n.id));
+      const visibleFocus = focusIds.filter((id) => renderedIds.has(id));
+      if (visibleFocus.length === 0) return;
+      setHighlightedIds(new Set(visibleFocus));
+      // Fit view to those nodes with some padding.
+      reactFlow.fitView({
+        nodes: visibleFocus.map((id) => ({ id })),
+        padding: 0.3,
+        duration: 350,
+      });
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedIds(new Set());
+      }, 4000);
+    },
+    [rfNodes, reactFlow, selectedNodeId],
+  );
+
   const userNodeIdSet = new Set(graphData.user_nodes.map((un) => un.node.id));
-  const selectedEntry = selectedNodeId
+  const allNodesById = new Map<string, AppNode>();
+  for (const un of graphData.user_nodes) allNodesById.set(un.node.id, un.node);
+  for (const n of graphData.adjacent_nodes) allNodesById.set(n.id, n);
+
+  const selectedEntry: SelectedEntry | null = selectedNodeId
     ? graphData.user_nodes.find((un) => un.node.id === selectedNodeId) ??
       (() => {
-        const adj = graphData.adjacent_nodes.find((n) => n.id === selectedNodeId);
+        const adj = allNodesById.get(selectedNodeId);
         return adj ? { node: adj, state: null } : null;
       })()
+    : null;
+
+  const selectedEdge = selectedEdgeId
+    ? graphData.edges.find((e) => e.id === selectedEdgeId) ?? null
     : null;
 
   const isEmpty = graphData.user_nodes.length === 0 && graphData.adjacent_nodes.length === 0;
@@ -263,6 +342,7 @@ export default function SkillTreeView({ graphData, renderPanel, legend }: Props)
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
@@ -292,6 +372,7 @@ export default function SkillTreeView({ graphData, renderPanel, legend }: Props)
             entry: selectedEntry,
             isUserNode: userNodeIdSet.has(selectedEntry.node.id),
             onClose: () => setSelectedNodeId(null),
+            onHighlightNeighbors: handleHighlightNeighbors,
           })
         ) : (
           <NodePanel
@@ -299,8 +380,27 @@ export default function SkillTreeView({ graphData, renderPanel, legend }: Props)
             state={selectedEntry.state}
             isUserNode={userNodeIdSet.has(selectedEntry.node.id)}
             onClose={() => setSelectedNodeId(null)}
+            onHighlightNeighbors={handleHighlightNeighbors}
+            onSelectNode={(id) => setSelectedNodeId(id)}
           />
         ))}
+
+      {selectedEdge && (
+        <EdgePanel
+          edge={selectedEdge}
+          sourceNode={allNodesById.get(selectedEdge.source_node_id)}
+          targetNode={allNodesById.get(selectedEdge.target_node_id)}
+          onClose={() => setSelectedEdgeId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+export default function SkillTreeView(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <SkillTreeViewInner {...props} />
+    </ReactFlowProvider>
   );
 }

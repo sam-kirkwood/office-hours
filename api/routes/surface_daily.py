@@ -9,7 +9,11 @@ surfaced_picks row. Selection rules (from phase-4-rev-plan.md §Step 8):
   3. Pick at most 3, trying to vary kind.
   4. Fewer than 3 available → surface what exists (length ≤ 3 accepted per F8).
   5. Mark selected items state='surfaced'. Write surfaced_picks.
-  6. For refresher items, resolve content title and original queue_item_id.
+
+Refresher items are not resolved here — the daily card routes through
+/refresher/<queue_item_id>, which calls POST /refresher-resolve at click time
+to enqueue a fresh problem (or concept_review) from the underlying node or
+refresher_schedule subject. See api/routes/refresher.py.
 """
 
 from __future__ import annotations
@@ -28,94 +32,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_SURFACED = 3
-
-
-def _resolve_refresher_content(
-    supabase: Client, item: dict
-) -> tuple[str, str | None, str | None]:
-    """Return (added_reason, subject_kind, subject_queue_item_id) for a refresher item.
-
-    Resolves the refresher_schedule row to content title and the original
-    queue_item_id so the client can construct a back-link.
-    """
-    ref_id = item.get("ref_id")
-    if not ref_id:
-        return "Run through this again to reinforce it.", None, None
-
-    sched_resp = (
-        supabase.table("refresher_schedule")
-        .select("subject_kind, subject_ref_id")
-        .eq("id", ref_id)
-        .execute()
-    )
-    if not sched_resp.data:
-        return "Time to revisit something you've worked on.", None, None
-
-    sched = sched_resp.data[0]
-    subject_kind: str = sched.get("subject_kind", "")
-    subject_ref_id: str = sched.get("subject_ref_id", "")
-
-    if subject_kind == "attempt":
-        att_resp = (
-            supabase.table("attempts")
-            .select("problem_id, queue_item_id")
-            .eq("id", subject_ref_id)
-            .execute()
-        )
-        if not att_resp.data:
-            return "Run through this problem again to reinforce it.", "attempt", None
-        att = att_resp.data[0]
-        prob_resp = (
-            supabase.table("problems")
-            .select("topic_node_id")
-            .eq("id", att.get("problem_id", ""))
-            .execute()
-        )
-        if prob_resp.data:
-            node_resp = (
-                supabase.table("nodes")
-                .select("title")
-                .eq("id", prob_resp.data[0].get("topic_node_id", ""))
-                .execute()
-            )
-            title = node_resp.data[0]["title"] if node_resp.data else "this topic"
-        else:
-            title = "this topic"
-        return (
-            f"A refresher on {title}.",
-            "attempt",
-            att.get("queue_item_id"),
-        )
-
-    elif subject_kind == "engagement":
-        eng_resp = (
-            supabase.table("paper_engagements")
-            .select("paper_id")
-            .eq("id", subject_ref_id)
-            .execute()
-        )
-        if not eng_resp.data:
-            return "Run through this paper again to reinforce it.", "engagement", None
-        paper_resp = (
-            supabase.table("papers")
-            .select("title")
-            .eq("id", eng_resp.data[0].get("paper_id", ""))
-            .execute()
-        )
-        title = paper_resp.data[0]["title"] if paper_resp.data else "this paper"
-        # Look up the original queue item for the engagement
-        qi_resp = (
-            supabase.table("queue_items")
-            .select("id")
-            .eq("kind", "paper_engagement")
-            .eq("ref_id", subject_ref_id)
-            .limit(1)
-            .execute()
-        )
-        orig_qi_id = qi_resp.data[0]["id"] if qi_resp.data else None
-        return f"A refresher on {title}.", "engagement", orig_qi_id
-
-    return "Time to revisit something you've worked on.", subject_kind or None, None
 
 
 def _load_pending(supabase: Client, user_id: str) -> list[dict]:
@@ -190,27 +106,49 @@ def _closest_foundation(supabase: Client, user_id: str) -> dict | None:
 
 
 def _pick_varied(items: list[dict]) -> list[dict]:
-    """Choose up to MAX_SURFACED items, preferring kind variety.
+    """Choose up to MAX_SURFACED items, preferring kind variety and never
+    picking two items with the same ref_id.
 
-    Strategy: greedily take the highest-priority item from each kind in round-
-    robin order, then fill remaining slots from whatever is left.
+    Strategy: greedily take the highest-priority item from each kind in
+    round-robin order, skipping any item whose ref_id is already in the
+    picked set. Two queue items pointing at the same problem (curator dup
+    that slipped through the dedup at /plan-queue time) only contribute
+    one slot to the daily three (Phase 10-rev §9a).
     """
     if not items:
         return []
-    if len(items) <= MAX_SURFACED:
-        return items
 
     by_kind: dict[str, list[dict]] = {}
     for item in items:
         by_kind.setdefault(item["kind"], []).append(item)
 
     picked: list[dict] = []
+    picked_ref_ids: set[str] = set()
     kinds = list(by_kind.keys())
     kind_idx = 0
+    # Guard against infinite loop if every remaining item duplicates an
+    # already-picked ref_id: track whether the last full round made progress.
+    rounds_without_progress = 0
     while len(picked) < MAX_SURFACED and any(by_kind.values()):
         kind = kinds[kind_idx % len(kinds)]
-        if by_kind.get(kind):
-            picked.append(by_kind[kind].pop(0))
+        bucket = by_kind.get(kind, [])
+        progressed = False
+        while bucket:
+            candidate = bucket.pop(0)
+            ref_id = candidate.get("ref_id")
+            if ref_id and ref_id in picked_ref_ids:
+                continue
+            picked.append(candidate)
+            if ref_id:
+                picked_ref_ids.add(ref_id)
+            progressed = True
+            break
+        if progressed:
+            rounds_without_progress = 0
+        else:
+            rounds_without_progress += 1
+            if rounds_without_progress >= len(kinds):
+                break
         kind_idx += 1
 
     return picked
@@ -275,28 +213,16 @@ def surface_daily(
     )
     pick_id = pick_resp.data[0]["id"]
 
-    items = []
-    for item in picked:
-        subject_kind: str | None = None
-        subject_queue_item_id: str | None = None
-        added_reason = item.get("added_reason")
-
-        if item["kind"] == "refresher" and item.get("ref_id"):
-            added_reason, subject_kind, subject_queue_item_id = _resolve_refresher_content(
-                supabase, item
-            )
-
-        items.append(
-            SurfacedItem(
-                queue_item_id=UUID(item["id"]),
-                kind=item["kind"],
-                ref_id=UUID(item["ref_id"]) if item.get("ref_id") else None,
-                added_reason=added_reason,
-                time_estimate_minutes_low=item.get("time_estimate_minutes_low"),
-                time_estimate_minutes_high=item.get("time_estimate_minutes_high"),
-                subject_kind=subject_kind,
-                subject_queue_item_id=UUID(subject_queue_item_id) if subject_queue_item_id else None,
-            )
+    items = [
+        SurfacedItem(
+            queue_item_id=UUID(item["id"]),
+            kind=item["kind"],
+            ref_id=UUID(item["ref_id"]) if item.get("ref_id") else None,
+            added_reason=item.get("added_reason"),
+            time_estimate_minutes_low=item.get("time_estimate_minutes_low"),
+            time_estimate_minutes_high=item.get("time_estimate_minutes_high"),
         )
+        for item in picked
+    ]
 
     return SurfaceDailyResponse(pick_id=UUID(pick_id), items=items)

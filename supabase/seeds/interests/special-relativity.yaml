@@ -1,0 +1,32 @@
+slug: special-relativity
+title: Special Relativity
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  Einstein's 1905 reformulation of space and time as a single
+  four-dimensional structure in which the speed of light is invariant
+  and simultaneity is observer-dependent. The Lorentz transformations
+  replace Galilean ones, mass-energy equivalence emerges as a kinematic
+  identity, and electromagnetism becomes geometrically natural —
+  Maxwell's equations are already Lorentz-invariant. The conceptual
+  on-ramp to general relativity and the geometric language used
+  throughout modern field theory.
+
+subtopics:
+  - Lorentz transformations and the postulates
+  - Time dilation and length contraction
+  - Four-vectors and proper time
+  - Mass-energy equivalence
+  - Relativistic momentum and energy
+  - Relativistic Doppler and aberration
+  - Minkowski spacetime geometry
+  - Covariant electrodynamics
+
+prereq_slugs:
+  - classical-mechanics
+  - electromagnetism-1
+
+related_slugs:
+  - electromagnetism-2
+  - lagrangian-mechanics

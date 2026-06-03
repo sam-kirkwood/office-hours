@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import SkillTreeView from "@/components/SkillTreeView";
+import SkillTreeShell from "@/components/SkillTreeShell";
 import type { Node, Edge, UserNodeState } from "@/lib/types";
 
 export default async function SkillTreePage() {
@@ -58,8 +58,8 @@ export default async function SkillTreePage() {
   const graphData = { user_nodes: userNodes, adjacent_nodes: adjacentNodes, edges: filteredEdges };
 
   return (
-    <main style={{ width: "100%", height: "calc(100vh - 49px)" }}>
-      <SkillTreeView graphData={graphData} />
+    <main>
+      <SkillTreeShell graphData={graphData} />
     </main>
   );
 }

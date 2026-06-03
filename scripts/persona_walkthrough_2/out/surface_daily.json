@@ -1,0 +1,29 @@
+{
+  "pick_id": "ab567d0f-4a65-47e0-ae1d-cffa928f0fc5",
+  "items": [
+    {
+      "queue_item_id": "57c74c7c-51dd-422b-9db3-dd529f1dbf7b",
+      "kind": "refresher",
+      "ref_id": "43a69506-b4f4-48df-9708-300a5b4b3e9e",
+      "added_reason": "Mean-field theory and the Landau approach are written entirely in the language of free energy minimisation \u2014 a quick refresh now means that machinery won't slow you down when you get there.",
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20
+    },
+    {
+      "queue_item_id": "aeccb665-7d9e-4c3d-9186-31da1c509327",
+      "kind": "problem",
+      "ref_id": "55a534f2-2977-48a4-8971-0b517d79e9da",
+      "added_reason": "Scaling laws (Widom, Rushbrooke, Fisher relations) are the quantitative heart of critical phenomena \u2014 once you've seen mean-field exponents, deriving the scaling relations shows why universality is nontrivial and motivates the renormalization group.",
+      "time_estimate_minutes_low": 15,
+      "time_estimate_minutes_high": 30
+    },
+    {
+      "queue_item_id": "c54fdf3b-c0b4-46d9-8c46-08098eb5999a",
+      "kind": "refresher",
+      "ref_id": "dc12f440-a567-454a-939d-c19cb4a2607e",
+      "added_reason": "Linearising RG flow around a fixed point \u2014 and reading off relevant vs irrelevant operators from eigenvalues \u2014 is pure applied linear algebra and Taylor expansion. A short refresher now keeps the physics front and centre when you hit it.",
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20
+    }
+  ]
+}

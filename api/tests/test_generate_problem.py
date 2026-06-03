@@ -811,3 +811,52 @@ def test_intent_in_cache_key(client: TestClient, fakes) -> None:
         if any(f[0] == "eq" and f[1] == "difficulty" for f in c.filters)
     )
     assert ("eq", "intent", "consolidate") in cache_call.filters
+
+
+# ---------------------------------------------------------------------------
+# Phase 10-rev Step 9a — dedup before unconditional queue insert
+# ---------------------------------------------------------------------------
+
+
+def test_generate_problem_dedups_against_existing_queue_row(
+    client: TestClient, fakes
+) -> None:
+    """When the user already has a pending/surfaced queue_items row for the
+    cached problem, /generate-problem returns that existing queue_item_id
+    rather than inserting a new row. Prevents the curator-pool-miss →
+    generate-problem-cache-hit dup path from accumulating queue rows on
+    the same problem under different recommendation rationales.
+    """
+    supabase, anthropic = fakes
+    node_id = str(uuid4())
+    cached_problem_id = str(uuid4())
+    existing_queue_id = str(uuid4())
+    _prime_node(supabase, node_id=node_id)
+
+    # Cache lookup hits the existing problem.
+    supabase.respond("problems", "select", lambda _c: [{"id": cached_problem_id}])
+
+    # The dedup probe (eq ref_id, in_ state) returns an existing row.
+    def queue_select(call):
+        if any(f[0] == "eq" and f[1] == "ref_id" for f in call.filters):
+            return [{"id": existing_queue_id}]
+        return []
+
+    supabase.respond("queue_items", "select", queue_select)
+
+    response = client.post(
+        "/generate-problem",
+        json={"user_id": str(uuid4()), "node_id": node_id},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["problem_id"] == cached_problem_id
+    assert data["queue_item_id"] == existing_queue_id
+    # Critically: no new queue_items row was inserted.
+    assert not any(
+        c.table == "queue_items" and c.op == "insert" for c in supabase.calls
+    )
+    # And no Sonnet call — the original cache-hit path holds.
+    assert anthropic.messages.calls == []

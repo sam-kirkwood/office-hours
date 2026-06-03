@@ -54,9 +54,14 @@ export async function POST(request: Request) {
     // §2.7 Case 2 / Case 3 — queue a one-off on this node without making
     // the user permanently interested in it.
     skip_interest_add?: boolean;
+    // Source queue item id when this request was triggered from inside
+    // another surface (e.g. an orienting concept click in a paper). Used
+    // by the resulting concept_review / refresher reading view to render
+    // a back-link to the source.
+    parent_queue_item_id?: string;
   };
 
-  const { node_id, raw_text, kind_hint, skip_interest_add } = body;
+  const { node_id, raw_text, kind_hint, skip_interest_add, parent_queue_item_id } = body;
 
   if (!node_id && !raw_text) {
     return NextResponse.json({ error: "node_id or raw_text required" }, { status: 400 });
@@ -199,6 +204,35 @@ export async function POST(request: Request) {
         }
       }
 
+      // When the caller targeted a specific topic (raw_text), and that topic
+      // has no prior notebook history for the user, fall back to a
+      // `concept_review` queue item on the resolved node rather than refreshing
+      // an unrelated recent entry. Matches survey-and-difficulty-design.md §2.7
+      // Case 3. When no raw_text was provided (e.g. "any refresher"), keep the
+      // recent-entry fallback.
+      if (!entry && raw_text && resolvedNodeId) {
+        const { data: cr } = await adminClient
+          .from("queue_items")
+          .insert({
+            user_id: user.id,
+            kind: "concept_review",
+            ref_id: resolvedNodeId,
+            state: "pending",
+            priority_score: 0.5,
+            added_reason: "Worth a moment of reading.",
+            time_estimate_minutes_low: 5,
+            time_estimate_minutes_high: 15,
+            parent_queue_item_id: parent_queue_item_id ?? null,
+          })
+          .select("id")
+          .single();
+        return NextResponse.json({
+          queue_item_id: cr?.id ?? null,
+          kind: "concept_review",
+          message: cr?.id ? null : "Added to your queue.",
+        });
+      }
+
       if (!entry) {
         const { data: recentEntry } = await adminClient
           .from("notebook_entries")
@@ -252,6 +286,7 @@ export async function POST(request: Request) {
         added_reason: "Revisit something you've worked on.",
         time_estimate_minutes_low: 10,
         time_estimate_minutes_high: 30,
+        parent_queue_item_id: parent_queue_item_id ?? null,
       })
       .select("id")
       .single();

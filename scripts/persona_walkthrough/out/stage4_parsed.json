@@ -1,0 +1,44 @@
+[
+  {
+    "raw_text": "Information theory for neuroscience \u2014 entropy and mutual information for analysing spike trains.",
+    "response": {
+      "segments": [
+        {
+          "raw_text_segment": "Information theory for neuroscience \u2014 entropy and mutual information for analysing spike trains.",
+          "kind": "interest",
+          "specificity": "specific",
+          "implicit_intent": "teach",
+          "mirror_back_md": "You want to learn information theory applied to neuroscience, specifically entropy and mutual information for spike-train analysis.",
+          "optional_followup_md": "Are you coming to this from a neuroscience background, or are you building up the information-theory foundations alongside?",
+          "path_options": [],
+          "dedup": {
+            "verdict": "same",
+            "matched_node_slug": "information-theory-neural-coding"
+          },
+          "draft_intent_context": "Wants to learn how Shannon entropy and mutual information apply to neural spike trains and neural coding. Interested in the quantitative tools for analysing neural data."
+        }
+      ]
+    }
+  },
+  {
+    "raw_text": "Dynamical systems for neural circuits \u2014 I want to actually understand bifurcations and attractors instead of just dropping the words.",
+    "response": {
+      "segments": [
+        {
+          "raw_text_segment": "Dynamical systems for neural circuits \u2014 I want to actually understand bifurcations and attractors instead of just dropping the words.",
+          "kind": "interest",
+          "specificity": "specific",
+          "implicit_intent": "consolidate",
+          "mirror_back_md": "You want to move beyond name-dropping bifurcations and attractors\u2014to actually understand how they shape neural circuit dynamics.",
+          "optional_followup_md": "Are you working with specific neural models (like Hodgkin\u2013Huxley or rate-based networks), or is the theory itself the main draw?",
+          "path_options": [],
+          "dedup": {
+            "verdict": "related",
+            "matched_node_slug": "odes"
+          },
+          "draft_intent_context": "Wants to deepen understanding of dynamical systems concepts\u2014bifurcations and attractors\u2014in the context of neural circuits. Seeking conceptual clarity and the ability to apply these ideas meaningfully rather than use them superficially."
+        }
+      ]
+    }
+  }
+]

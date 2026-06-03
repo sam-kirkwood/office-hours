@@ -157,9 +157,9 @@ export interface SurfacedQueueItem {
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
-  // Set by server for refresher items; used to construct the back-link
-  subject_kind?: string | null;
-  subject_queue_item_id?: string | null;
+  // Set by resolveTitles for paper_engagement items the user has started.
+  // Drives CTA copy ("Read paper" → "Continue paper").
+  in_progress?: boolean;
 }
 
 export interface QueueResult {
@@ -227,7 +227,7 @@ export interface Attempt {
 export interface NotebookEntry {
   id: string;
   user_id: string;
-  entry_kind: "problem_attempt" | "paper_engagement";
+  entry_kind: "problem_attempt" | "paper_engagement" | "concept_review";
   ref_id: string;
   title: string;
   topic_node_slugs: string[];
@@ -258,12 +258,17 @@ export interface PaperQuestion {
   order: number;
 }
 
+export interface OrientingConcept {
+  term: string;
+  definition_md: string;
+}
+
 export interface PaperEngagement {
   id: string;
   user_id: string;
   paper_id: string;
   why_this_md: string | null;
-  orienting_concepts_json: string[];
+  orienting_concepts_json: (string | OrientingConcept)[];
   questions_json: PaperQuestion[];
   state: "pending" | "in_progress" | "completed";
   current_question_index: number;

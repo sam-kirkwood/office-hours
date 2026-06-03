@@ -310,7 +310,7 @@ function InterestsSection({ interests }: { interests: ProfileInterest[] }) {
                   key={interest.user_interest_id}
                   className="border-b border-border pb-3 last:border-b-0 last:pb-0"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <button
                       type="button"
                       onClick={() => toggleExpanded(interest.user_interest_id)}
@@ -342,7 +342,7 @@ function InterestsSection({ interests }: { interests: ProfileInterest[] }) {
                         </p>
                       )}
                     </button>
-                    <div className="flex shrink-0 gap-2">
+                    <div className="ml-5 flex shrink-0 gap-2 sm:ml-0">
                       <Button
                         type="button"
                         variant="outline"

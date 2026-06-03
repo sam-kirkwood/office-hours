@@ -1,0 +1,44 @@
+[
+  {
+    "raw": "Phase transitions and critical phenomena \u2014 the Ising model in 1D and 2D, mean-field theory, scaling laws, universality classes.",
+    "request": {
+      "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+      "added_via": "survey",
+      "raw_text": "Phase transitions and critical phenomena \u2014 the Ising model in 1D and 2D, mean-field theory, scaling laws, universality classes.",
+      "final_intent_text": "Phase transitions and critical phenomena \u2014 the Ising model in 1D and 2D, mean-field theory, scaling laws, universality classes.",
+      "intent_context": "Wants to learn phase transitions and critical phenomena starting from the Ising model in 1D and 2D, with emphasis on mean-field theory, scaling laws, and universality classes. Interested in the statistical-mechanics foundations of critical behavior.",
+      "existing_node_slug": null,
+      "related_node_slug": "statistical-mechanics"
+    },
+    "response": {
+      "user_interest_id": "963737e9-3d7d-45e7-9591-54104e13df22",
+      "node_id": "43a69506-b4f4-48df-9708-300a5b4b3e9e",
+      "node_slug": "phase-transitions-critical-phenomena",
+      "verdict": "related",
+      "intent_context": "Wants to learn phase transitions and critical phenomena starting from the Ising model in 1D and 2D, with emphasis on mean-field theory, scaling laws, and universality classes. Interested in the statistical-mechanics foundations of critical behavior.",
+      "starter_preview_md": "Your first item will be: A conceptual entry point into why the 1D Ising chain never magnetizes at finite temperature \u2014 and what that tells us about the role of fluctuations in killing long-range order.",
+      "concept_tour": []
+    }
+  },
+  {
+    "raw": "Renormalization group \u2014 Wilson's approach, fixed points of the RG, why it explains critical phenomena, when it works.",
+    "request": {
+      "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+      "added_via": "survey",
+      "raw_text": "Renormalization group \u2014 Wilson's approach, fixed points of the RG, why it explains critical phenomena, when it works.",
+      "final_intent_text": "Renormalization group \u2014 Wilson's approach, fixed points of the RG, why it explains critical phenomena, when it works.",
+      "intent_context": "Wants to understand Wilson's renormalization group formalism\u2014fixed points, scaling, and how it explains universal critical behavior near phase transitions. Interested in both the conceptual foundations and the limits of the approach.",
+      "existing_node_slug": null,
+      "related_node_slug": "statistical-mechanics"
+    },
+    "response": {
+      "user_interest_id": "dc0c2bd4-5a0c-441c-af75-ccb60273937d",
+      "node_id": "dc12f440-a567-454a-939d-c19cb4a2607e",
+      "node_slug": "renormalization-group-fixed-points",
+      "verdict": "related",
+      "intent_context": "Wants to understand Wilson's renormalization group formalism\u2014fixed points, scaling, and how it explains universal critical behavior near phase transitions. Interested in both the conceptual foundations and the limits of the approach.",
+      "starter_preview_md": "Your first item will be: a conceptual entry to Wilson's renormalization group \u2014 why repeatedly coarse-graining a spin system near its critical point always flows toward the same fixed-point Hamiltonian, regardless of microscopic details.",
+      "concept_tour": []
+    }
+  }
+]

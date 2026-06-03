@@ -1,0 +1,33 @@
+slug: electromagnetism-2
+title: "Electromagnetism: Dynamics and Radiation"
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  The full machinery of classical electromagnetism once the source
+  charges and currents are moving — Maxwell's equations in matter, the
+  propagation of electromagnetic waves, radiation from accelerating
+  charges, and the gauge structure that anticipates modern field
+  theory. Where the static-fields pass gives you Coulomb, Gauss, and
+  Faraday's law of induction, this builds the dynamical and
+  relativistic structure: Poynting's theorem, dipole and multipole
+  radiation, waveguides, and the covariant formulation that makes
+  Lorentz invariance manifest.
+
+subtopics:
+  - Maxwell's equations in matter
+  - Electromagnetic waves and polarization
+  - Poynting's theorem and energy-momentum flow
+  - Radiation from accelerating charges
+  - Dipole and multipole radiation
+  - Waveguides and cavity resonators
+  - Gauge potentials and gauge invariance
+  - Covariant formulation and the field tensor
+
+prereq_slugs:
+  - electromagnetism-1
+  - multivariable-calculus
+
+related_slugs:
+  - optics
+  - special-relativity

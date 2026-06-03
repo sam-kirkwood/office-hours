@@ -141,11 +141,14 @@ export default async function NotebookEntryPage({
           <section className="mb-10">
             <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Orienting concepts</h2>
             <div className="flex flex-wrap gap-2">
-              {eng.orienting_concepts_json.map((c: string) => (
-                <span key={c} className="rounded-full border border-border px-3 py-0.5 text-xs font-serif text-foreground">
-                  {c}
-                </span>
-              ))}
+              {eng.orienting_concepts_json.map((c: string | { term: string; definition_md?: string }) => {
+                const term = typeof c === "string" ? c : c.term;
+                return (
+                  <span key={term} className="rounded-full border border-border px-3 py-0.5 text-xs font-serif text-foreground">
+                    {term}
+                  </span>
+                );
+              })}
             </div>
           </section>
         )}
@@ -203,6 +206,99 @@ export default async function NotebookEntryPage({
               ))}
             </div>
           </section>
+        )}
+      </div>
+    );
+  }
+
+  if (entry.entry_kind === "concept_review") {
+    // ref_id points at the node; the brief lives in node_concept_briefs.
+    const { data: node } = await adminClient
+      .from("nodes")
+      .select("id, slug, title, description_md, subtopics_json")
+      .eq("id", entry.ref_id)
+      .maybeSingle();
+
+    if (!node) notFound();
+
+    const { data: cached } = await adminClient
+      .from("node_concept_briefs")
+      .select("brief_md, subtopic_glosses_json")
+      .eq("node_id", entry.ref_id)
+      .maybeSingle();
+
+    const briefMd: string | null = cached?.brief_md ?? null;
+    const glossBySlug: Record<string, string> = Object.fromEntries(
+      ((cached?.subtopic_glosses_json ?? []) as Array<{ slug: string; gloss_md: string }>)
+        .map((g) => [g.slug, g.gloss_md]),
+    );
+
+    const rawSubtopics = (node.subtopics_json ?? []) as Array<
+      string | { slug?: string; title?: string }
+    >;
+    const subtopics: Array<{ slug: string; title: string; gloss_md?: string }> = rawSubtopics
+      .map((raw) => {
+        if (typeof raw === "string") {
+          const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+          return { slug, title: raw };
+        }
+        const slug = raw.slug ?? "";
+        const title = raw.title ?? slug;
+        return { slug, title };
+      })
+      .map((s) => ({
+        ...s,
+        gloss_md: glossBySlug[s.slug],
+      }));
+
+    return (
+      <div className="mx-auto max-w-prose px-5 py-12">
+        <Link
+          href="/notebook"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+        >
+          ← Notebook
+        </Link>
+
+        <div className="mt-8 mb-8">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Concept
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="text-xs text-muted-foreground">{fmt(entry.created_at)}</span>
+          </div>
+          <h1 className="font-serif text-2xl font-semibold text-foreground">
+            {node.title}
+          </h1>
+        </div>
+
+        {briefMd ? (
+          <ReadingBlock source={briefMd} />
+        ) : (
+          node.description_md && <ReadingBlock source={node.description_md} />
+        )}
+
+        {subtopics.length > 0 && (
+          <div className="mt-10">
+            <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Subtopics
+            </h2>
+            <dl className="space-y-4 font-serif text-base leading-[1.7] text-foreground">
+              {subtopics.map((s) => (
+                <div key={s.slug || s.title}>
+                  <dt className="font-medium text-foreground">{s.title}</dt>
+                  {s.gloss_md && (
+                    <dd className="mt-0.5 text-sm text-muted-foreground leading-[1.7]
+                      [&_p]:mb-2 [&_p:last-child]:mb-0
+                      [&_strong]:font-semibold [&_em]:italic">
+                      <ReadingBlock source={s.gloss_md} className="text-sm text-muted-foreground" />
+                    </dd>
+                  )}
+                </div>
+              ))}
+            </dl>
+          </div>
         )}
       </div>
     );

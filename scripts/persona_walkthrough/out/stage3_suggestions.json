@@ -1,0 +1,25 @@
+{
+  "suggestions": [
+    {
+      "node_id": "19adbfe3-2168-4959-92e3-bc55c8fb738f",
+      "slug": "partial-differential-equations",
+      "title": "Partial Differential Equations",
+      "description_md": "The mathematics of fields that vary in space and time \u2014 heat diffusing\nthrough a metal bar, waves spreading on a drum head, the electrostatic\npotential around a charge, the Schr\u00f6dinger evolution of a quantum state.\nBuilds the classification into hyperbolic, parabolic, and elliptic\nequations, the canonical solution techniques (separation of variables,\nFourier methods, Green's functions, method of characteristics), and the\nqualitative differences in behaviour each class produces.",
+      "why_suggested_md": "Builds on the ODEs you're refreshing; essential for modeling spatiotemporal dynamics in neural systems."
+    },
+    {
+      "node_id": "c571e69d-10d5-4155-92f5-5ee8157852a5",
+      "slug": "complex-analysis",
+      "title": "Complex Analysis",
+      "description_md": "The calculus of functions of a complex variable, where the constraint\nof differentiability is so strong it forces analytic functions to be\nuniquely determined by their values on any small disk. Builds toward\ncontour integration, the residue theorem, and the deep connection\nbetween the complex plane and physics \u2014 conformal maps in fluid\ndynamics, Cauchy's integral formula as a tool throughout theoretical\nphysics, and analytic continuation as a window onto the structure of\nspecial functions.",
+      "why_suggested_md": "Underpins Fourier methods and linear stability analysis\u2014tools you'll need for dynamical systems theory."
+    },
+    {
+      "node_id": "73c82e29-e3fe-47ba-8014-a878664f60f0",
+      "slug": "real-analysis",
+      "title": "Real Analysis",
+      "description_md": "The rigorous foundations of calculus \u2014 sequences, limits, continuity,\ndifferentiation, and integration developed from first principles via\n\u03b5-\u03b4 arguments. Where calculus teaches you to compute, real analysis\nteaches you to prove, building toward metric spaces, uniform\nconvergence, and the Lebesgue integral. The discipline behind why the\nmanipulations you've been doing actually work.",
+      "why_suggested_md": "Rigorous foundation for the probability and measure theory that information theory rests on."
+    }
+  ]
+}

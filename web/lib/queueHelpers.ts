@@ -20,8 +20,6 @@ export function toItem(raw: {
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
-  subject_kind?: string | null;
-  subject_queue_item_id?: string | null;
 }): SurfacedQueueItem {
   return {
     queue_item_id: (raw.id ?? raw.queue_item_id)!,
@@ -30,8 +28,6 @@ export function toItem(raw: {
     added_reason: raw.added_reason,
     time_estimate_minutes_low: raw.time_estimate_minutes_low,
     time_estimate_minutes_high: raw.time_estimate_minutes_high,
-    subject_kind: raw.subject_kind ?? null,
-    subject_queue_item_id: raw.subject_queue_item_id ?? null,
   };
 }
 
@@ -94,11 +90,19 @@ export async function resolveTitles(items: SurfacedQueueItem[]): Promise<Surface
     }
   }
 
+  const inProgressByRefId: Record<string, boolean> = {};
+
   if (engagementIds.length > 0) {
     const { data: engagements } = await adminClient
       .from("paper_engagements")
-      .select("id, paper_id")
+      .select("id, paper_id, state, current_question_index")
       .in("id", engagementIds);
+
+    for (const e of engagements ?? []) {
+      const started =
+        (e.state === "in_progress") || ((e.current_question_index ?? 0) > 0);
+      if (started) inProgressByRefId[e.id] = true;
+    }
 
     const paperIds = (engagements ?? [])
       .map((e: { id: string; paper_id: string }) => e.paper_id)
@@ -135,6 +139,7 @@ export async function resolveTitles(items: SurfacedQueueItem[]): Promise<Surface
   return items.map((item) => ({
     ...item,
     title: item.ref_id ? (titleByRefId[item.ref_id] ?? null) : null,
+    in_progress: item.ref_id ? (inProgressByRefId[item.ref_id] ?? false) : false,
   }));
 }
 

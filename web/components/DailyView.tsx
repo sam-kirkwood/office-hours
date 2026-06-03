@@ -172,24 +172,18 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
         ) : item.kind === "paper_engagement" && item.ref_id ? (
           <Button asChild size="sm" variant="secondary">
             <Link href={`/paper/${item.queue_item_id}`}>
-              {KIND_CTA[item.kind]} →
+              {item.in_progress ? "Continue paper" : KIND_CTA[item.kind]} →
             </Link>
           </Button>
-        ) : item.kind === "refresher" && item.subject_queue_item_id ? (
+        ) : item.kind === "refresher" && item.ref_id ? (
           <Button
             asChild
             size="sm"
             variant="outline"
             className="border-[var(--forest)] text-[var(--forest)] hover:bg-[var(--forest-subtle)]"
           >
-            <Link
-              href={
-                item.subject_kind === "engagement"
-                  ? `/paper/${item.subject_queue_item_id}`
-                  : `/problem/${item.subject_queue_item_id}`
-              }
-            >
-              Revisit this →
+            <Link href={`/refresher/${item.queue_item_id}`}>
+              {KIND_CTA[item.kind]} →
             </Link>
           </Button>
         ) : item.kind === "concept_review" && item.ref_id ? (

@@ -14,8 +14,12 @@ You MUST respond with a single JSON object — no prose, no markdown fences. The
 
 - "why_this_md": string. 1–2 sentences explaining why this paper is relevant to this reader's \
 specific interests. Be concrete — name their interests explicitly.
-- "orienting_concepts_json": array of 3–5 strings. Key concepts the reader should have in mind \
-before diving in. Short noun phrases (e.g. "gravitational wave strain", "matched filtering").
+- "orienting_concepts_json": array of 3–5 objects. Each object has:
+  - "term": short noun phrase the reader should have in mind before diving in \
+(e.g. "gravitational wave strain", "matched filtering").
+  - "definition_md": one to two plain sentences explaining the term in language a working professional \
+outside this specific subfield can grasp. May include LaTeX ($...$). Do not introduce further jargon \
+that itself needs defining.
 - "questions_json": array of 3–5 question objects. Each object has:
   - "id": string — a freshly generated UUID v4 (e.g. "f47ac10b-58cc-4372-a567-0e02b2c3d479"). \
 Generate a different UUID for every question.

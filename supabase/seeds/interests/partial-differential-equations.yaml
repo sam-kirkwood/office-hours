@@ -1,0 +1,31 @@
+slug: partial-differential-equations
+title: Partial Differential Equations
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The mathematics of fields that vary in space and time — heat diffusing
+  through a metal bar, waves spreading on a drum head, the electrostatic
+  potential around a charge, the Schrödinger evolution of a quantum state.
+  Builds the classification into hyperbolic, parabolic, and elliptic
+  equations, the canonical solution techniques (separation of variables,
+  Fourier methods, Green's functions, method of characteristics), and the
+  qualitative differences in behaviour each class produces.
+
+subtopics:
+  - Classification — hyperbolic, parabolic, elliptic
+  - Heat equation and diffusion
+  - Wave equation
+  - Laplace and Poisson equations
+  - Separation of variables and Fourier series
+  - Green's functions
+  - Method of characteristics
+  - Boundary value problems
+
+prereq_slugs:
+  - multivariable-calculus
+  - odes
+
+related_slugs:
+  - complex-analysis
+  - real-analysis

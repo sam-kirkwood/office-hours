@@ -29,6 +29,7 @@ from auth import require_internal_token
 from config import HAIKU_MODEL, SONNET_MODEL
 from curator_inputs import (
     build_curator_context,
+    find_foundation_owning_subtopic,
     load_engagement_signals_for_attempt,
     load_engagement_signals_for_paper,
     load_node_state,
@@ -636,16 +637,34 @@ def _execute_add_refresher(
     user_id: str,
     rec: CuratorRecommendation,
 ) -> bool:
-    """Add a refresher queue item on the recommended node."""
-    node = _resolve_interest_node(supabase, title=rec.interest_node or "")
-    if node is None:
+    """Add a refresher queue item.
+
+    Routing (Phase 10-rev §9a): when rec.subtopic matches a subtopic of a
+    foundation node (e.g. "partition function manipulations" →
+    statistical-mechanics), set ref_id to that foundation. The refresher
+    then resolves to refresher/concept-review content on the foundation
+    rather than on the interest node, which is what the added_reason
+    typically promises.
+
+    Falls back to rec.interest_node when no foundation owns the subtopic.
+    """
+    ref_node: dict | None = None
+    if rec.subtopic:
+        ref_node = find_foundation_owning_subtopic(
+            supabase, subtopic_slug=_slugify_phrase(rec.subtopic)
+        )
+    if ref_node is None:
+        ref_node = _resolve_interest_node(supabase, title=rec.interest_node or "")
+    if ref_node is None:
         logger.warning(
-            "plan-queue: could not resolve refresher node=%r — skipping",
+            "plan-queue: could not resolve refresher node "
+            "(subtopic=%r, interest_node=%r) — skipping",
+            rec.subtopic,
             rec.interest_node,
         )
         return False
     if _queue_item_already_exists(
-        supabase, user_id=user_id, kind="refresher", ref_id=node["id"]
+        supabase, user_id=user_id, kind="refresher", ref_id=ref_node["id"]
     ):
         return False
     priority_score = _PRIORITY_SCORE_MAP.get(rec.priority or "medium", 0.6)
@@ -653,7 +672,7 @@ def _execute_add_refresher(
         {
             "user_id": user_id,
             "kind": "refresher",
-            "ref_id": node["id"],
+            "ref_id": ref_node["id"],
             "state": "pending",
             "priority_score": priority_score,
             "added_reason": rec.reason,

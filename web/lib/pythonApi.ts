@@ -287,7 +287,8 @@ export interface ConceptReviewNodeReading {
   slug: string;
   title: string;
   description_md: string;
-  subtopics_json: Array<{ slug: string; title: string }>;
+  subtopics_json: Array<{ slug: string; title: string; gloss_md?: string }>;
+  brief_md: string | null;
 }
 
 export interface ConceptReviewResolveResponse {
@@ -302,6 +303,44 @@ export async function conceptReviewResolve(
   return pythonPost("/concept-review-resolve", {
     user_id: args.userId,
     queue_item_id: args.queueItemId,
+  });
+}
+
+interface RefresherResolveArgs {
+  userId: string;
+  queueItemId: string;
+}
+
+export interface RefresherResolveResponse {
+  kind: "problem" | "paper_engagement" | "concept_review";
+  queue_item_id: string;
+}
+
+export async function refresherResolve(
+  args: RefresherResolveArgs,
+): Promise<RefresherResolveResponse> {
+  return pythonPost("/refresher-resolve", {
+    user_id: args.userId,
+    queue_item_id: args.queueItemId,
+  });
+}
+
+interface GenerateEdgeDescriptionArgs {
+  userId: string;
+  edgeId: string;
+}
+
+interface GenerateEdgeDescriptionResponse {
+  description_md: string;
+  cached: boolean;
+}
+
+export async function generateEdgeDescription(
+  args: GenerateEdgeDescriptionArgs,
+): Promise<GenerateEdgeDescriptionResponse> {
+  return pythonPost("/generate-edge-description", {
+    user_id: args.userId,
+    edge_id: args.edgeId,
   });
 }
 

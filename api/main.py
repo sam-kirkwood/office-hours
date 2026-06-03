@@ -3,7 +3,9 @@ from fastapi import FastAPI
 from routes.add_interest import router as add_interest_router
 from routes.concept_review import router as concept_review_router
 from routes.curator import router as curator_router
+from routes.generate_concept_brief import router as generate_concept_brief_router
 from routes.generate_curation_report import router as generate_curation_report_router
+from routes.generate_edge_description import router as generate_edge_description_router
 from routes.compute_cross_pollination import router as compute_cross_pollination_router
 from routes.generate_paper_engagement import router as generate_paper_engagement_router
 from routes.generate_problem import router as generate_problem_router
@@ -14,13 +16,16 @@ from routes.ingest_paper_user import router as ingest_paper_user_router
 from routes.paper_question import router as paper_question_router
 from routes.parse_solution import router as parse_solution_router
 from routes.propose_papers import router as propose_papers_router
+from routes.refresher import router as refresher_router
 from routes.suggest_papers import router as suggest_papers_router
 from routes.suggest_survey_interests import router as suggest_survey_interests_router
 from routes.surface_daily import router as surface_daily_router
 
 app = FastAPI(title="office-hours API", version="0.1.0")
 
+app.include_router(generate_concept_brief_router)
 app.include_router(generate_curation_report_router)
+app.include_router(generate_edge_description_router)
 app.include_router(generate_problem_router)
 app.include_router(add_interest_router)
 app.include_router(compute_cross_pollination_router)
@@ -33,6 +38,7 @@ app.include_router(generate_paper_engagement_router)
 app.include_router(grade_paper_answer_router)
 app.include_router(paper_question_router)
 app.include_router(propose_papers_router)
+app.include_router(refresher_router)
 app.include_router(suggest_papers_router)
 app.include_router(suggest_survey_interests_router)
 app.include_router(parse_solution_router)

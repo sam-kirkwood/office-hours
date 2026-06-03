@@ -546,7 +546,7 @@ The following additions to the Python FastAPI service are implied by this design
 | `POST /assess-engagement` | After every graded attempt or completed paper | Runs the Haiku engagement assessment call. Input: engagement details + current node state. Output: updated struggle score, state transition, immediate action. |
 | `POST /check-deferred` | Daily background job (runs after /plan-queue) | Deterministic. Checks all deferred items for re-queue eligibility. No LLM call. |
 
-The existing `/update-queue` endpoint (currently described in ARCHITECTURE.md) is superseded by `/plan-queue` and `/assess-engagement`. The `/surface-daily` endpoint remains unchanged (deterministic; selects 3 items from pending queue).
+The earlier `/update-queue` endpoint has been deleted (Phase 10-rev §3f); `/plan-queue` and `/assess-engagement` cover its scope. The `/surface-daily` endpoint remains unchanged (deterministic; selects 3 items from pending queue).
 
 ---
 

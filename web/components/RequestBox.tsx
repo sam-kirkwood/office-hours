@@ -80,25 +80,22 @@ export default function RequestBox() {
 
     try {
       // Paper / refresher kinds don't go through the add-interest dialog —
-      // their old routing is preserved.
+      // fire-and-forget via the shared helper (phase-10-rev §Step 4 #39).
       if (kindHint !== "problem") {
-        const res = await fetch("/api/queue/request", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ raw_text: rawText, kind_hint: kindHint }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Request failed");
-        if (data.queue_item_id) {
-          const path =
-            data.kind === "paper_engagement"
-              ? `/paper/${data.queue_item_id}`
-              : `/problem/${data.queue_item_id}`;
-          router.push(path);
-        } else {
-          setMessage(data.message ?? "Added to your queue.");
-          setText("");
-        }
+        const pendingLabel =
+          kindHint === "paper" ? "Finding a paper…" : "Lining up a refresher…";
+        const queuedLabel =
+          kindHint === "paper"
+            ? "Adding a paper to your queue — it'll appear shortly."
+            : "Refresher added to your queue.";
+        optimisticQueueRequest({
+          body: { raw_text: rawText, kind_hint: kindHint },
+          targetPath: (id) =>
+            kindHint === "paper" ? `/paper/${id}` : `/problem/${id}`,
+          router,
+          labels: { pending: pendingLabel, queued: queuedLabel },
+        }).catch(() => {/* surfaced via toast */});
+        setText("");
         return;
       }
 
@@ -141,7 +138,8 @@ export default function RequestBox() {
 
       if (seg.kind === "concept") {
         if (matchedNodeId) {
-          await queueProblemOnNode(matchedNodeId, true);
+          queueProblemOnNode(matchedNodeId, true);
+          setText("");
         } else {
           setMessage(
             "We couldn't tie that to a topic yet — try adding it as an interest.",
@@ -153,7 +151,8 @@ export default function RequestBox() {
       // kind === "interest"
       if (seg.dedup.verdict === "same" && matchedNodeId && matchedInInterests) {
         // Case 2
-        await queueProblemOnNode(matchedNodeId, true);
+        queueProblemOnNode(matchedNodeId, true);
+        setText("");
         return;
       }
 
@@ -170,18 +169,10 @@ export default function RequestBox() {
     }
   }
 
-  async function handleJustThisOnce() {
+  function handleJustThisOnce() {
     if (!pending || pending.case !== "case1-with-match") return;
-    setParsing(true);
-    setError(null);
-    try {
-      await queueProblemOnNode(pending.matchedNodeId, true);
-      reset();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
-    } finally {
-      setParsing(false);
-    }
+    queueProblemOnNode(pending.matchedNodeId, true);
+    reset();
   }
 
   function handleAddIt() {
@@ -251,7 +242,7 @@ export default function RequestBox() {
               ? "That isn't in your interests yet — want to add it, or just get one item for now?"
               : "That's new to your interests. Want to add it?"}
           </p>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" onClick={handleAddIt}>
               Add it
             </Button>
@@ -289,9 +280,7 @@ export default function RequestBox() {
             addedVia="explicit_request"
             title="Add interest"
             onComplete={(r) => {
-              queueProblemOnNode(r.node_id, false).catch((err) =>
-                setError(err instanceof Error ? err.message : "Queue failed"),
-              );
+              queueProblemOnNode(r.node_id, false);
             }}
           />
         )}

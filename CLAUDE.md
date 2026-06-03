@@ -38,7 +38,7 @@ These are constraints on feature decisions, not slogans. When in doubt, defer to
 Two services:
 
 1. **Next.js on Vercel** — frontend + web API routes. Auth, CRUD, signed upload URLs, queue surfacing. Calls the Python service for all AI operations.
-2. **Python FastAPI on Railway/Fly** — all Claude API calls. Routes include `/generate-problem`, `/parse-solution`, `/grade-solution`, `/generate-paper-engagement`, `/grade-paper-answer`, `/paper-question`, `/suggest-papers`, `/add-interest/parse`, `/add-interest/resolve`, `/assess-engagement`, `/plan-queue`, `/check-deferred`, `/run-daily-planner`, `/generate-curation-report`, `/compute-cross-pollination`.
+2. **Python FastAPI on Railway/Fly** — all Claude API calls. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §Service topology for the full route tree. Headline routes: `/generate-problem`, `/parse-solution`, `/grade-solution`, `/generate-paper-engagement`, `/grade-paper-answer`, `/paper-question`, `/suggest-papers`, `/propose-papers`, `/ingest-paper-user`, `/surface-daily`, `/concept-review-resolve`, `/refresher-resolve`, `/generate-concept-brief`, `/generate-edge-description`, `/add-interest/{parse,resolve,rewrite-summaries}`, `/survey/suggest-interests`, `/assess-engagement`, `/plan-queue`, `/check-deferred`, `/run-daily-planner`, `/generate-curation-report`, `/compute-cross-pollination`.
 
 Shared infrastructure: Postgres (Supabase), Supabase Auth (email magic links), Supabase Storage (handwritten solution images).
 
@@ -79,7 +79,7 @@ npx supabase db push --db-url <your-supabase-db-url>
 - **Sonnet 4.6**: problem generation, paper engagement generation, grading, dialogic feedback, vision parsing, new-interest node generation, weekly curation reports.
 - **Haiku**: deduplication checks, cheap classification, routing decisions.
 - Every Claude call must be logged to the `llm_calls` table (route, model, input/output tokens, estimated cost, optional user_id).
-- Problem pool: cache by `(topic_node_id, difficulty)` so multiple users on the same topic can share problems. Paper-tied problems (`paper_id IS NOT NULL`) are excluded from generic pool reuse.
+- Problem pool: cache by `(topic_node_id, difficulty, intent)` (plus optional subtopic tag) so multiple users on the same topic can share problems. The `intent` axis (`teach` / `refresh` / `consolidate`) was added in Phase 10-rev §2f. Paper-tied problems (`paper_id IS NOT NULL`) are excluded from generic pool reuse.
 
 ## Key design constraints
 
@@ -110,7 +110,7 @@ All tables use UUID PKs and timestamps. Key tables (see ARCHITECTURE.md for full
 - `curation_proposals`, `megagraph_snapshots` — operator curation
 - `llm_calls` — cost observability
 
-Deprecated (kept briefly for migration, no new writes): `canonical_topics`, `canonical_edges`, `user_plans`, `plan_nodes`, `daily_assignments`.
+Dropped in [migration 20250016](supabase/migrations/20250016_drop_deprecated_tables.sql): `canonical_topics`, `canonical_edges`, `user_plans`, `plan_nodes`, `daily_assignments`, `pending_topic_requests`. v1 plan-walking tables are gone from the schema.
 
 ## Build phases (revised)
 
@@ -123,7 +123,9 @@ The pivot plan lives in docs/pivot-plan.md with a status line. Sessions execute 
 5. Phase 7-rev — adaptation, refreshers, cross-pollination
 6. Phase 8-rev — weekly curation and operator surfaces
 7. Phase 9-rev — polish
-8. Deferred (v2.1+): live arXiv search, bespoke megagraph viz, calendar view, BYO API key, notebook export, etc.
+8. Phase 10-rev — survey redesign, curriculum curator, queue UX, spirit gaps, skill-tree interaction, mobile polish, hardening (see [docs/phase-plans/phase-10-rev-plan.md](docs/phase-plans/phase-10-rev-plan.md))
+9. Phase 11-deploy — FastAPI deploy to Fly/Railway, pg_cron schedule for the daily curator, Sentry on both services
+10. Deferred (v2.1+): live arXiv search, bespoke megagraph viz, calendar view, BYO API key, notebook export, etc.
 
 Do not start a phase before the prior phase is committed and the pivot plan's status line is updated.
 

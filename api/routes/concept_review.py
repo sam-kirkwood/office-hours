@@ -17,11 +17,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from anthropic import Anthropic
 from fastapi import APIRouter, Depends, HTTPException, status
 from supabase import Client
 
+from anthropic_client import get_anthropic_client
 from auth import require_internal_token
-from routes.curator import _pool_lookup_for_recommendation
+from routes.curator import _pool_lookup_for_recommendation, _slugify_phrase
+from routes.generate_concept_brief import generate_brief_for_node
 from schemas import (
     ConceptReviewNodeReading,
     ConceptReviewResolveRequest,
@@ -38,12 +41,28 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _primary_subtopic_slug(subtopics_json: list[dict] | None) -> str | None:
+def _normalize_subtopics(subtopics_json: list | None) -> list[dict]:
+    """Coerce legacy `list[str]` subtopics to the `[{slug, title}, ...]` shape
+    the reading-surface UI expects. New rows already write dicts; older nodes
+    (pre-shape-migration) may store plain strings."""
     if not subtopics_json:
+        return []
+    out: list[dict] = []
+    for item in subtopics_json:
+        if isinstance(item, dict):
+            slug = item.get("slug") or _slugify_phrase(item.get("title") or "")
+            title = item.get("title") or slug
+            out.append({"slug": slug, "title": title})
+        elif isinstance(item, str):
+            out.append({"slug": _slugify_phrase(item), "title": item})
+    return out
+
+
+def _primary_subtopic_slug(subtopics_json: list | None) -> str | None:
+    normalized = _normalize_subtopics(subtopics_json)
+    if not normalized:
         return None
-    first = subtopics_json[0]
-    slug = first.get("slug") if isinstance(first, dict) else None
-    return slug or None
+    return normalized[0]["slug"] or None
 
 
 @router.post(
@@ -54,6 +73,7 @@ def _primary_subtopic_slug(subtopics_json: list[dict] | None) -> str | None:
 def concept_review_resolve(
     body: ConceptReviewResolveRequest,
     supabase: Client = Depends(get_supabase_client),
+    anthropic: Anthropic = Depends(get_anthropic_client),
 ) -> ConceptReviewResolveResponse:
     user_id = str(body.user_id)
     queue_item_id = str(body.queue_item_id)
@@ -150,7 +170,36 @@ def concept_review_resolve(
             queue_item_id=new_queue_item_id,
         )
 
-    # 4b. Miss: return the node reading surface. No mutations.
+    # 4b. Miss: return the node reading surface.
+    #
+    # Step 5.5 — generate or fetch a cached concept brief (Haiku) and use its
+    # per-subtopic glosses to enrich the subtopic list. The brief is cached
+    # on node_concept_briefs by node_id and reused across users. If brief
+    # generation fails (e.g. Anthropic outage), fall back to the bare reading
+    # surface so the user still gets *something*.
+    normalized_subtopics = _normalize_subtopics(node.get("subtopics_json"))
+    brief_md: str | None = None
+    try:
+        brief = generate_brief_for_node(
+            supabase=supabase,
+            anthropic=anthropic,
+            user_id=user_id,
+            node_id=node["id"],
+        )
+        brief_md = brief.brief_md
+        gloss_by_slug = {g.slug: g.gloss_md for g in brief.subtopic_glosses_json}
+        for s in normalized_subtopics:
+            gloss = gloss_by_slug.get(s["slug"])
+            if gloss:
+                s["gloss_md"] = gloss
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "concept-review-resolve: brief generation failed for node=%s — "
+            "falling back to bare reading surface: %s",
+            node["id"],
+            exc,
+        )
+
     return ConceptReviewResolveResponse(
         kind="reading",
         node=ConceptReviewNodeReading(
@@ -158,6 +207,7 @@ def concept_review_resolve(
             slug=node["slug"],
             title=node["title"],
             description_md=node.get("description_md") or "",
-            subtopics_json=node.get("subtopics_json") or [],
+            subtopics_json=normalized_subtopics,
+            brief_md=brief_md,
         ),
     )

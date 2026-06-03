@@ -20,7 +20,10 @@ def _make_engagement_json() -> str:
     return json.dumps(
         {
             "why_this_md": "Relevant to your interests.",
-            "orienting_concepts_json": ["concept A", "concept B"],
+            "orienting_concepts_json": [
+                {"term": "concept A", "definition_md": "A definition."},
+                {"term": "concept B", "definition_md": "Another definition."},
+            ],
             "questions_json": [
                 {"id": str(uuid4()), "kind": "comprehension", "prompt_md": "Q1?", "order": 1},
                 {"id": str(uuid4()), "kind": "critical", "prompt_md": "Q2?", "order": 2},

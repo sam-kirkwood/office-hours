@@ -10,6 +10,12 @@ import type { NotebookEntry } from "@/lib/types";
 function KindBadge({ kind }: { kind: string }) {
   if (kind === "problem_attempt")
     return <Badge variant="default">Problem</Badge>;
+  if (kind === "concept_review")
+    return (
+      <Badge variant="outline" className="border-[var(--forest)]/50 text-[var(--forest)]">
+        Concept
+      </Badge>
+    );
   return <Badge variant="secondary">Paper</Badge>;
 }
 

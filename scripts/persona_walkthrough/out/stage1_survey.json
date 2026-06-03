@@ -1,0 +1,44 @@
+{
+  "id": "98c2c2e3-eebd-4481-aa19-0789ac92d91a",
+  "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+  "created_at": "2026-05-29T18:00:45.121134+00:00",
+  "free_text_intent": "Neuro postdoc moving toward computational theory. Linear algebra and ODEs are rusty; information theory and dynamical systems are gaps. I read neuro papers fluently but the math sections are where I get stuck.",
+  "node_ratings_json": {},
+  "comfort_responses_json": {},
+  "mode_balance": 0.5,
+  "updated_at": "2026-05-29T18:00:45.121134+00:00",
+  "background_json": {
+    "domains": [
+      {
+        "key": "mathematics",
+        "subareas": [
+          "linear-algebra",
+          "odes-pdes",
+          "probability-stats"
+        ],
+        "relationship": "studied_reconnecting"
+      },
+      {
+        "key": "computation",
+        "subareas": [
+          "machine-learning",
+          "scientific-computing",
+          "data-analysis"
+        ],
+        "relationship": "encounter_at_work"
+      },
+      {
+        "key": "biology",
+        "subareas": [
+          "neuroscience",
+          "molecular-cell"
+        ],
+        "relationship": "follow_field"
+      }
+    ]
+  },
+  "completed_stages": [
+    "stage1"
+  ],
+  "pending_interests_json": {}
+}

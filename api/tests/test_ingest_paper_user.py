@@ -27,7 +27,10 @@ QUEUE_ITEM_ID = str(uuid4())
 VALID_ENGAGEMENT_JSON = json.dumps(
     {
         "why_this_md": "This connects to your work on gravitational physics.",
-        "orienting_concepts_json": ["general relativity", "interferometry"],
+        "orienting_concepts_json": [
+            {"term": "general relativity", "definition_md": "Einstein's theory of gravity as spacetime curvature."},
+            {"term": "interferometry", "definition_md": "Measuring tiny length differences via wave superposition."},
+        ],
         "questions_json": [
             {"id": str(uuid4()), "kind": "comprehension", "prompt_md": "Q1?", "order": 1},
             {"id": str(uuid4()), "kind": "critical", "prompt_md": "Q2?", "order": 2},

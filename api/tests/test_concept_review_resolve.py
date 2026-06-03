@@ -1,12 +1,15 @@
 """Tests for POST /concept-review-resolve."""
 
+import json
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from anthropic_client import get_anthropic_client
 from main import app
 from supabase_client import get_supabase_client
+from tests.fake_anthropic import FakeAnthropic
 from tests.fake_supabase import FakeSupabase
 
 INTERNAL_TOKEN = "test-internal-token"
@@ -27,6 +30,24 @@ def _cycler(*payloads):
     return _fn
 
 
+def _queue_brief_response(anthropic: FakeAnthropic, subtopic_slugs: list[str]) -> None:
+    """Queue a stub concept-brief response on the Fake Anthropic so the
+    inline brief generation in /concept-review-resolve's miss path doesn't
+    hit the live API. Glosses are keyed by slug so tests can assert
+    enrichment behaviour."""
+    anthropic.queue(
+        json.dumps(
+            {
+                "brief_md": "Stub brief paragraph.\n\nSecond paragraph.\n\nThird paragraph.",
+                "subtopic_glosses_json": [
+                    {"slug": slug, "title": slug.replace("-", " ").title(), "gloss_md": f"Gloss for {slug}."}
+                    for slug in subtopic_slugs
+                ],
+            }
+        )
+    )
+
+
 @pytest.fixture
 def supabase() -> FakeSupabase:
     fs = FakeSupabase()
@@ -38,7 +59,18 @@ def supabase() -> FakeSupabase:
 
 
 @pytest.fixture
-def client(supabase) -> TestClient:  # noqa: ARG001
+def anthropic() -> FakeAnthropic:
+    fa = FakeAnthropic()
+    app.dependency_overrides[get_anthropic_client] = lambda: fa
+    try:
+        yield fa
+    finally:
+        # cleared by the supabase fixture's finally
+        pass
+
+
+@pytest.fixture
+def client(supabase, anthropic) -> TestClient:  # noqa: ARG001
     return TestClient(app)
 
 
@@ -223,7 +255,7 @@ def test_pool_hit_enqueues_problem_and_marks_done(
 
 
 def test_pool_miss_returns_reading(
-    client: TestClient, supabase: FakeSupabase
+    client: TestClient, supabase: FakeSupabase, anthropic: FakeAnthropic
 ) -> None:
     user_id = str(uuid4())
     qi_id = str(uuid4())
@@ -257,6 +289,9 @@ def test_pool_miss_returns_reading(
     )
     # Pool lookup returns nothing
     supabase.respond("problems", "select", lambda _: [])
+    # Step 5.5 — brief generation runs inline on the miss path.
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    _queue_brief_response(anthropic, ["metric-tensor"])
 
     resp = client.post(
         "/concept-review-resolve",
@@ -269,12 +304,23 @@ def test_pool_miss_returns_reading(
     assert data["queue_item_id"] is None
     assert data["node"]["slug"] == "general-relativity"
     assert data["node"]["description_md"] == "Geometry of spacetime."
+    assert data["node"]["brief_md"] == "Stub brief paragraph.\n\nSecond paragraph.\n\nThird paragraph."
     assert data["node"]["subtopics_json"] == [
-        {"slug": "metric-tensor", "title": "Metric tensor"}
+        {
+            "slug": "metric-tensor",
+            "title": "Metric tensor",
+            "gloss_md": "Gloss for metric-tensor.",
+        }
     ]
 
-    # No mutations on miss
-    assert not any(c.op in ("insert", "update") for c in supabase.calls)
+    # No state mutation on the queue_item (concept_review stays pending until
+    # the user marks it done from the reading view). The brief upsert and the
+    # llm_calls insert are expected and not asserted against.
+    qi_mutations = [
+        c for c in supabase.calls
+        if c.table == "queue_items" and c.op in ("insert", "update")
+    ]
+    assert qi_mutations == []
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +329,7 @@ def test_pool_miss_returns_reading(
 
 
 def test_null_subtopics_runs_pool_lookup_without_filter(
-    client: TestClient, supabase: FakeSupabase
+    client: TestClient, supabase: FakeSupabase, anthropic: FakeAnthropic
 ) -> None:
     user_id = str(uuid4())
     qi_id = str(uuid4())
@@ -316,6 +362,8 @@ def test_null_subtopics_runs_pool_lookup_without_filter(
         ],
     )
     supabase.respond("problems", "select", lambda _: [])
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    _queue_brief_response(anthropic, [])
 
     resp = client.post(
         "/concept-review-resolve",
@@ -331,3 +379,205 @@ def test_null_subtopics_runs_pool_lookup_without_filter(
     assert len(problem_selects) == 1
     # No `contains` filter applied when subtopic_slug is None
     assert not any(f[0] == "contains" for f in problem_selects[0].filters)
+
+
+# ---------------------------------------------------------------------------
+# Legacy `subtopics_json` stored as list[str] (pre-shape-migration nodes)
+# is coerced to [{slug, title}] dicts so the reading-surface UI can render
+# without a pydantic validation error.
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_string_subtopics_are_coerced_to_dicts(
+    client: TestClient, supabase: FakeSupabase, anthropic: FakeAnthropic
+) -> None:
+    user_id = str(uuid4())
+    qi_id = str(uuid4())
+    node_id = str(uuid4())
+
+    supabase.respond(
+        "queue_items",
+        "select",
+        lambda _: [
+            {
+                "id": qi_id,
+                "user_id": user_id,
+                "kind": "concept_review",
+                "ref_id": node_id,
+                "state": "pending",
+            }
+        ],
+    )
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [
+            {
+                "id": node_id,
+                "slug": "fourier-analysis",
+                "title": "Fourier Analysis & Transforms",
+                "description_md": "Decomposing signals into frequencies.",
+                "subtopics_json": [
+                    "Fourier series on finite intervals",
+                    "Continuous Fourier transform pairs",
+                ],
+            }
+        ],
+    )
+    supabase.respond("problems", "select", lambda _: [])
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    _queue_brief_response(
+        anthropic,
+        [
+            "fourier-series-on-finite-intervals",
+            "continuous-fourier-transform-pairs",
+        ],
+    )
+
+    resp = client.post(
+        "/concept-review-resolve",
+        json={"user_id": user_id, "queue_item_id": qi_id},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["kind"] == "reading"
+    assert data["node"]["subtopics_json"] == [
+        {
+            "slug": "fourier-series-on-finite-intervals",
+            "title": "Fourier series on finite intervals",
+            "gloss_md": "Gloss for fourier-series-on-finite-intervals.",
+        },
+        {
+            "slug": "continuous-fourier-transform-pairs",
+            "title": "Continuous Fourier transform pairs",
+            "gloss_md": "Gloss for continuous-fourier-transform-pairs.",
+        },
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 — when a cached brief exists in node_concept_briefs, the route
+# reuses it without making an Anthropic call.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_brief_is_reused_without_anthropic_call(
+    client: TestClient, supabase: FakeSupabase, anthropic: FakeAnthropic
+) -> None:
+    user_id = str(uuid4())
+    qi_id = str(uuid4())
+    node_id = str(uuid4())
+
+    supabase.respond(
+        "queue_items",
+        "select",
+        lambda _: [
+            {
+                "id": qi_id,
+                "user_id": user_id,
+                "kind": "concept_review",
+                "ref_id": node_id,
+                "state": "pending",
+            }
+        ],
+    )
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [
+            {
+                "id": node_id,
+                "slug": "topology",
+                "title": "Topology",
+                "description_md": "Shape without measurement.",
+                "subtopics_json": [{"slug": "open-sets", "title": "Open sets"}],
+            }
+        ],
+    )
+    supabase.respond("problems", "select", lambda _: [])
+    # Pre-existing brief in cache — returned directly, no Anthropic call.
+    supabase.respond(
+        "node_concept_briefs",
+        "select",
+        lambda _: [
+            {
+                "brief_md": "Cached brief content.",
+                "subtopic_glosses_json": [
+                    {"slug": "open-sets", "title": "Open sets", "gloss_md": "Cached gloss."}
+                ],
+            }
+        ],
+    )
+
+    resp = client.post(
+        "/concept-review-resolve",
+        json={"user_id": user_id, "queue_item_id": qi_id},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["node"]["brief_md"] == "Cached brief content."
+    assert data["node"]["subtopics_json"][0]["gloss_md"] == "Cached gloss."
+    # Anthropic must NOT have been called when a cache row was present.
+    assert anthropic.messages.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 — brief generation failure (Anthropic outage) is non-fatal: the
+# route still returns a reading surface with the bare description_md.
+# ---------------------------------------------------------------------------
+
+
+def test_brief_generation_failure_falls_back_to_bare_reading(
+    client: TestClient, supabase: FakeSupabase, anthropic: FakeAnthropic
+) -> None:
+    user_id = str(uuid4())
+    qi_id = str(uuid4())
+    node_id = str(uuid4())
+
+    supabase.respond(
+        "queue_items",
+        "select",
+        lambda _: [
+            {
+                "id": qi_id,
+                "user_id": user_id,
+                "kind": "concept_review",
+                "ref_id": node_id,
+                "state": "pending",
+            }
+        ],
+    )
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [
+            {
+                "id": node_id,
+                "slug": "linear-algebra",
+                "title": "Linear Algebra",
+                "description_md": "Vectors and the maps between them.",
+                "subtopics_json": [{"slug": "eigenvalues", "title": "Eigenvalues"}],
+            }
+        ],
+    )
+    supabase.respond("problems", "select", lambda _: [])
+    # No brief response queued — FakeAnthropic.messages.create will raise on
+    # an empty queue, simulating an upstream failure. Route should swallow it
+    # and return the bare reading surface.
+
+    resp = client.post(
+        "/concept-review-resolve",
+        json={"user_id": user_id, "queue_item_id": qi_id},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["kind"] == "reading"
+    assert data["node"]["brief_md"] is None
+    assert data["node"]["description_md"] == "Vectors and the maps between them."
+    # Subtopic still surfaced even without gloss.
+    assert data["node"]["subtopics_json"] == [
+        {"slug": "eigenvalues", "title": "Eigenvalues"}
+    ]

@@ -53,21 +53,21 @@ can be visualised over months.
 The initial seed of foundation nodes is the v1 canonical curriculum,
 shrunk:
 
-| Foundation                  | Domain   | Why foundational                                           |
-|-----------------------------|----------|------------------------------------------------------------|
-| Calculus I                  | math     | Universal prerequisite                                     |
-| Calculus II                 | math     | Series, integration techniques used everywhere             |
-| Multivariable Calculus      | math     | Partial derivatives, multiple integrals — applied widely   |
-| Linear Algebra              | math     | Required for quantum mechanics, signal processing, ML      |
-| Ordinary Differential Eqs   | math     | The math backbone of most physical models                  |
-| Probability                 | math     | Required for statistics, stat mech, ML, signal processing  |
-| Statistics                  | math     | Applied widely; needed by many interests                   |
-| Classical Mechanics         | physics  | Almost any physics interest builds on Newtonian mechanics  |
-| Waves & Oscillations        | physics  | Building block for QM, optics, signal processing           |
-| Electromagnetism I          | physics  | Building block for E&M II, optics, solid state, devices    |
-| Thermodynamics              | physics  | Building block for stat mech, condensed matter, chemistry  |
-| Statistical Mechanics       | physics  | Underlies condensed matter, much of soft matter, ML        |
-| Quantum Mechanics I         | physics  | Building block for QM II, solid state, particle physics    |
+| Foundation                                                          | Domain   | Why foundational                                           |
+|---------------------------------------------------------------------|----------|------------------------------------------------------------|
+| Calculus: Derivatives and Basic Integration                         | math     | Universal prerequisite                                     |
+| Calculus: Integration Techniques and Series                         | math     | Series, integration techniques used everywhere             |
+| Multivariable Calculus                                              | math     | Partial derivatives, multiple integrals — applied widely   |
+| Linear Algebra                                                      | math     | Required for quantum mechanics, signal processing, ML      |
+| Ordinary Differential Equations                                     | math     | The math backbone of most physical models                  |
+| Probability                                                         | math     | Required for statistics, stat mech, ML, signal processing  |
+| Statistics                                                          | math     | Applied widely; needed by many interests                   |
+| Classical Mechanics                                                 | physics  | Almost any physics interest builds on Newtonian mechanics  |
+| Waves & Oscillations                                                | physics  | Building block for QM, optics, signal processing           |
+| Electromagnetism: Static Fields and Maxwell's Equations             | physics  | Building block for the dynamical pass, optics, devices     |
+| Thermodynamics                                                      | physics  | Building block for stat mech, condensed matter, chemistry  |
+| Statistical Mechanics                                               | physics  | Underlies condensed matter, much of soft matter, ML        |
+| Quantum Mechanics: Wavefunctions, Operators, and the Hydrogen Atom  | physics  | Building block for the advanced pass, solid state, HEP     |
 
 13 nodes. The 8 v1 canonical topics not on this list (PDEs, real
 analysis, complex analysis, Lagrangian mechanics, special relativity,

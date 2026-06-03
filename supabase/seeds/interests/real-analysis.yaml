@@ -1,0 +1,28 @@
+slug: real-analysis
+title: Real Analysis
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The rigorous foundations of calculus — sequences, limits, continuity,
+  differentiation, and integration developed from first principles via
+  ε-δ arguments. Where calculus teaches you to compute, real analysis
+  teaches you to prove, building toward metric spaces, uniform
+  convergence, and the Lebesgue integral. The discipline behind why the
+  manipulations you've been doing actually work.
+
+subtopics:
+  - Sequences, limits, and Cauchy completeness
+  - Continuity and uniform continuity
+  - Differentiation and the mean value theorem
+  - Riemann integration
+  - Sequences and series of functions
+  - Uniform convergence
+  - Metric spaces and compactness
+  - Introduction to Lebesgue integration
+
+prereq_slugs:
+  - calculus-2
+
+related_slugs:
+  - complex-analysis

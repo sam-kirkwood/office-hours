@@ -1,0 +1,25 @@
+{
+  "suggestions": [
+    {
+      "node_id": "d60413ce-1cd9-4973-a0cc-82530f131934",
+      "slug": "semiconductor-physics",
+      "title": "Semiconductor Physics",
+      "description_md": "Semiconductor physics explains how crystalline materials with a moderate band gap give rise to controllable electrical behavior through doping, carrier transport, and junction formation. It bridges quantum mechanics and solid-state theory to explain why silicon can act as a switch, a diode, or an amplifier depending on how it is structured and biased. Anyone who wants to understand transistors, solar cells, or LEDs at a physical rather than circuit level needs this foundation.",
+      "why_suggested_md": "Builds on linear algebra and ODEs through band structure theory and transport equations in materials."
+    },
+    {
+      "node_id": "0d961973-0686-4e7a-bc96-de80932ce2dd",
+      "slug": "cosmology-lambda-cdm",
+      "title": "Cosmology & the Lambda-CDM Model",
+      "description_md": "Cosmology is the study of the origin, structure, and evolution of the universe as a whole. The Lambda-CDM model is the current standard framework, combining cold dark matter and a cosmological constant (dark energy) to explain observations ranging from the cosmic microwave background to large-scale structure. Understanding it reveals how the universe expanded from a hot dense state, why galaxies cluster as they do, and what determines the universe's ultimate fate.",
+      "why_suggested_md": "Adjacent to the foundations you flagged."
+    },
+    {
+      "node_id": "9bf128c8-c492-4e3e-9a36-23857bc7cc0f",
+      "slug": "gravitational-waves-ligo",
+      "title": "Gravitational Waves & LIGO",
+      "description_md": "Gravitational waves are ripples in spacetime curvature produced by accelerating masses \u2014 most dramatically by merging black holes and neutron stars. LIGO and Virgo detect these signals using kilometer-scale laser interferometers sensitive to displacements smaller than a proton. Understanding this field spans general relativity, precision measurement, signal processing, and astrophysics, making it one of the richest intersections of theory and experiment in modern physics.",
+      "why_suggested_md": "Adjacent to the foundations you flagged."
+    }
+  ]
+}

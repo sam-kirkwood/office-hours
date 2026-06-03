@@ -221,9 +221,6 @@ class SurfacedItem(BaseModel):
     added_reason: str | None = None
     time_estimate_minutes_low: int | None = None
     time_estimate_minutes_high: int | None = None
-    # Populated for kind='refresher' so the client can link back to original content
-    subject_kind: str | None = None            # 'attempt' | 'engagement'
-    subject_queue_item_id: UUID | None = None  # original queue item for the link
 
 
 class SurfaceDailyResponse(BaseModel):
@@ -442,7 +439,7 @@ class GeneratedEngagement(BaseModel):
     """Strict shape the Sonnet engagement-generation call must return as JSON."""
 
     why_this_md: str
-    orienting_concepts_json: list[str]
+    orienting_concepts_json: list[dict]  # [{term, definition_md}]
     questions_json: list[dict]  # [{id, kind, prompt_md, order}]
 
 
@@ -625,7 +622,8 @@ class ConceptReviewNodeReading(BaseModel):
     slug: str
     title: str
     description_md: str
-    subtopics_json: list[dict]  # [{slug, title}, ...] — may be empty
+    subtopics_json: list[dict]  # [{slug, title, gloss_md?}, ...] — may be empty
+    brief_md: str | None = None  # generated concept brief (Step 5.5)
 
 
 class ConceptReviewResolveResponse(BaseModel):
@@ -634,6 +632,89 @@ class ConceptReviewResolveResponse(BaseModel):
     kind: Literal["problem", "reading"]
     queue_item_id: UUID | None = None      # set when kind='problem'
     node: ConceptReviewNodeReading | None = None  # set when kind='reading'
+
+
+# ---------------------------------------------------------------------------
+# /refresher-resolve (phase-10-rev Step 8 fix)
+# ---------------------------------------------------------------------------
+# Called when the user taps a kind='refresher' queue card. Two shapes of
+# refresher exist:
+#   (a) Legacy/deterministic — ref_id points to a refresher_schedule row whose
+#       subject is a prior attempt or paper engagement. Resolution redirects
+#       back to the original problem/paper queue item.
+#   (b) Curator-style — ref_id points directly to a node (the curator emits
+#       this for ad-hoc refreshers; see api/routes/curator.py). Resolution
+#       pool-looks-up at intent='refresh', difficulty=1 on that node. On hit,
+#       enqueues a kind='problem' row; on miss, enqueues a kind='concept_review'
+#       row pointing at the same node so the user still has somewhere to land.
+# In both cases the original refresher queue_items row is marked 'done'.
+
+
+class RefresherResolveRequest(BaseModel):
+    user_id: UUID
+    queue_item_id: UUID
+
+
+class RefresherResolveResponse(BaseModel):
+    # kind='problem' → client redirects to /problem/<queue_item_id>.
+    # kind='paper_engagement' → client redirects to /paper/<queue_item_id>.
+    # kind='concept_review' → client redirects to /concept-review/<queue_item_id>.
+    kind: Literal["problem", "paper_engagement", "concept_review"]
+    queue_item_id: UUID
+
+
+# ---------------------------------------------------------------------------
+# /generate-concept-brief — Step 5.5. One-shot generation of a warm
+# concept-orientation brief + per-subtopic glosses, cached on
+# node_concept_briefs by node_id. Called inline from /concept-review-resolve's
+# miss path when no brief exists yet for the node.
+# ---------------------------------------------------------------------------
+
+
+class GenerateConceptBriefRequest(BaseModel):
+    user_id: UUID  # logged on llm_calls; brief itself is not user-specific
+    node_id: UUID
+
+
+class ConceptBriefSubtopicGloss(BaseModel):
+    slug: str
+    title: str
+    gloss_md: str
+
+
+class GeneratedConceptBrief(BaseModel):
+    """Strict shape Haiku must return as JSON."""
+    brief_md: str
+    subtopic_glosses_json: list[ConceptBriefSubtopicGloss]
+
+
+class GenerateConceptBriefResponse(BaseModel):
+    brief_md: str
+    subtopic_glosses_json: list[ConceptBriefSubtopicGloss]
+    cached: bool  # true if returned from existing node_concept_briefs row
+
+
+# ---------------------------------------------------------------------------
+# /generate-edge-description — Step 6 follow-up. One-shot generation of a
+# short paragraph explaining why two nodes are connected (what specific
+# concepts bridge from source to target), cached on edge_descriptions by
+# edge_id. Called inline from the EdgePanel surface on first click.
+# ---------------------------------------------------------------------------
+
+
+class GenerateEdgeDescriptionRequest(BaseModel):
+    user_id: UUID  # logged on llm_calls; description itself is not user-specific
+    edge_id: UUID
+
+
+class GeneratedEdgeDescription(BaseModel):
+    """Strict shape Haiku must return as JSON."""
+    description_md: str
+
+
+class GenerateEdgeDescriptionResponse(BaseModel):
+    description_md: str
+    cached: bool  # true if returned from existing edge_descriptions row
 
 
 # ---------------------------------------------------------------------------

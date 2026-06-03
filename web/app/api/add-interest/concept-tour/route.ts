@@ -130,6 +130,25 @@ export async function POST(request: Request) {
       }
     }
 
+    // 3) Write per-subtopic rows to user_subtopic_states (Step 6, §7). This is
+    //    the durable per-subtopic store the skill tree node panel reads. We
+    //    write every addressed tile, including 'new', so re-running the tour
+    //    can downgrade a stale 'familiar' to 'refresh' if the user changes
+    //    their mind.
+    const subtopicRows = addressed.map((t) => ({
+      user_id: user.id,
+      node_id: t.node_id,
+      subtopic_slug: t.subtopic_key,
+      state: t.state,
+      updated_at: new Date().toISOString(),
+    }));
+    if (subtopicRows.length > 0) {
+      const { error } = await admin
+        .from("user_subtopic_states")
+        .upsert(subtopicRows, { onConflict: "user_id,node_id,subtopic_slug" });
+      if (error) console.error("user_subtopic_states upsert failed:", error);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";

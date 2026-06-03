@@ -1,0 +1,31 @@
+slug: quantum-mechanics-2
+title: "Quantum Mechanics: Spin, Perturbation, and Scattering"
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  The apparatus required to read modern atomic, condensed-matter, and
+  particle physics — angular momentum and spin developed properly,
+  time-independent and time-dependent perturbation theory, scattering
+  theory, identical particles and quantum statistics, and density
+  matrices for handling mixed states. Where the introductory pass
+  introduces the Schrödinger equation and solves a handful of canonical
+  problems, this builds the toolkit that working theorists actually use.
+
+subtopics:
+  - Angular momentum and spin
+  - Addition of angular momenta and Clebsch-Gordan
+  - Time-independent perturbation theory
+  - Time-dependent perturbation theory and transitions
+  - Scattering theory and partial waves
+  - Identical particles and quantum statistics
+  - WKB approximation
+  - Density matrices and mixed states
+
+prereq_slugs:
+  - quantum-mechanics-1
+  - linear-algebra
+
+related_slugs:
+  - lagrangian-mechanics
+  - statistical-mechanics

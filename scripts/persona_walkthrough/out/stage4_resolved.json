@@ -1,0 +1,115 @@
+[
+  {
+    "raw": "Information theory for neuroscience \u2014 entropy and mutual information for analysing spike trains.",
+    "request": {
+      "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+      "added_via": "survey",
+      "raw_text": "Information theory for neuroscience \u2014 entropy and mutual information for analysing spike trains.",
+      "final_intent_text": "Information theory for neuroscience \u2014 entropy and mutual information for analysing spike trains.",
+      "intent_context": "Wants to learn how Shannon entropy and mutual information apply to neural spike trains and neural coding. Interested in the quantitative tools for analysing neural data.",
+      "existing_node_slug": "information-theory-neural-coding",
+      "related_node_slug": null
+    },
+    "response": {
+      "user_interest_id": "fa90a039-0e29-4493-966a-93de38cb58cd",
+      "node_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+      "node_slug": "information-theory-neural-coding",
+      "verdict": "same",
+      "intent_context": "Wants to learn how Shannon entropy and mutual information apply to neural spike trains and neural coding. Interested in the quantitative tools for analysing neural data.",
+      "starter_preview_md": "Your first item will be: a conceptual entrance to Information Theory for Neural Coding.",
+      "concept_tour": [
+        {
+          "node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+          "node_slug": "probability",
+          "subtopic_key": "probability-spaces-events",
+          "name": "Probability spaces & events",
+          "gloss": null
+        },
+        {
+          "node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+          "node_slug": "probability",
+          "subtopic_key": "random-variables-distributions",
+          "name": "Random variables & distributions",
+          "gloss": null
+        },
+        {
+          "node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+          "node_slug": "probability",
+          "subtopic_key": "expectation-variance",
+          "name": "Expectation & variance",
+          "gloss": null
+        },
+        {
+          "node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+          "node_slug": "probability",
+          "subtopic_key": "conditional-probability-independence",
+          "name": "Conditional probability & independence",
+          "gloss": null
+        },
+        {
+          "node_id": "1cf2cdb3-af32-4815-a52f-7348714d0cdc",
+          "node_slug": "probability",
+          "subtopic_key": "law-of-large-numbers-clt",
+          "name": "Law of large numbers & CLT",
+          "gloss": null
+        },
+        {
+          "node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+          "node_slug": "statistics",
+          "subtopic_key": "point-interval-estimation",
+          "name": "Point & interval estimation",
+          "gloss": null
+        },
+        {
+          "node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+          "node_slug": "statistics",
+          "subtopic_key": "hypothesis-testing",
+          "name": "Hypothesis testing",
+          "gloss": null
+        },
+        {
+          "node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+          "node_slug": "statistics",
+          "subtopic_key": "confidence-intervals",
+          "name": "Confidence intervals",
+          "gloss": null
+        },
+        {
+          "node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+          "node_slug": "statistics",
+          "subtopic_key": "linear-regression",
+          "name": "Linear regression",
+          "gloss": null
+        },
+        {
+          "node_id": "773fb97f-5e80-47bd-a242-669d8ce134d8",
+          "node_slug": "statistics",
+          "subtopic_key": "bayesian-inference",
+          "name": "Bayesian inference",
+          "gloss": null
+        }
+      ]
+    }
+  },
+  {
+    "raw": "Dynamical systems for neural circuits \u2014 I want to actually understand bifurcations and attractors instead of just dropping the words.",
+    "request": {
+      "user_id": "4386f329-485a-40e4-b8a4-de57944c5e05",
+      "added_via": "survey",
+      "raw_text": "Dynamical systems for neural circuits \u2014 I want to actually understand bifurcations and attractors instead of just dropping the words.",
+      "final_intent_text": "Dynamical systems for neural circuits \u2014 I want to actually understand bifurcations and attractors instead of just dropping the words. Coming at it from the neuroscience application side \u2014 I want to model neural circuits \u2014 but I genuinely don't have this material yet, I want to learn it.",
+      "intent_context": "Wants to deepen understanding of dynamical systems concepts\u2014bifurcations and attractors\u2014in the context of neural circuits. Seeking conceptual clarity and the ability to apply these ideas meaningfully rather than use them superficially.",
+      "existing_node_slug": null,
+      "related_node_slug": "odes"
+    },
+    "response": {
+      "user_interest_id": "1a85d8db-e453-4f33-9e3f-09a70a1cf2ad",
+      "node_id": "eb06a1b2-65e5-4892-9ea9-040f9766fe67",
+      "node_slug": "dynamical-systems-neural-circuits",
+      "verdict": "related",
+      "intent_context": "Wants to deepen understanding of dynamical systems concepts\u2014bifurcations and attractors\u2014in the context of neural circuits. Seeking conceptual clarity and the ability to apply these ideas meaningfully rather than use them superficially.",
+      "starter_preview_md": "Your first item will be: A conceptual entry point into why a neuron can be either excitable or oscillatory depending on a single parameter \u2014 and what a bifurcation diagram reveals about that transition in the FitzHugh\u2013Nagumo model.",
+      "concept_tour": []
+    }
+  }
+]

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import MarkdownLatex from "@/lib/markdown";
+import OrientingConceptsPanel from "@/components/OrientingConceptsPanel";
+import PaperProgress from "@/components/PaperProgress";
 import type { Paper, PaperEngagement, PaperAnswer, PaperQuestion } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +244,16 @@ export default function PaperView({ queueItemId, paper, engagement, existingAnsw
         )}
       </div>
 
+      {/* Progress (resumed/in-progress engagements) */}
+      {phase !== "intro" && sortedQuestions.length > 0 && (
+        <PaperProgress
+          total={sortedQuestions.length}
+          currentIdx={currentIdx}
+          answeredIds={new Set(Object.keys(answers))}
+          questionIds={sortedQuestions.map((q) => q.id)}
+        />
+      )}
+
       {/* Section A — Why this paper (always visible) */}
       <section className="mb-10">
         {engagement.why_this_md && (
@@ -252,16 +264,10 @@ export default function PaperView({ queueItemId, paper, engagement, existingAnsw
 
         {engagement.orienting_concepts_json?.length > 0 && (
           <div className="mb-6">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Orienting concepts
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {engagement.orienting_concepts_json.map((concept) => (
-                <Badge key={concept} variant="outline" className="font-serif text-xs">
-                  {concept}
-                </Badge>
-              ))}
-            </div>
+            <OrientingConceptsPanel
+              concepts={engagement.orienting_concepts_json}
+              parentQueueItemId={queueItemId}
+            />
           </div>
         )}
 

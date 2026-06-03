@@ -1,0 +1,31 @@
+slug: optics
+title: Optics
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  How light propagates, interacts with matter, and reveals itself as
+  the electromagnetic phenomenon it is. Spans the geometrical regime
+  (ray tracing, lens systems, aberrations) through the wave regime
+  (interference, diffraction, polarization) into the modern apparatus
+  of coherence, lasers, and Fourier optics. The shared thread is that
+  every effect — from a rainbow to a holograph to a single-photon
+  interferometer — falls out of Maxwell's equations and the
+  superposition principle applied carefully.
+
+subtopics:
+  - Geometrical optics and ray tracing
+  - Lens systems and optical aberrations
+  - Polarization and birefringence
+  - Two-beam interference and Young's slits
+  - Fraunhofer and Fresnel diffraction
+  - Gratings and spectroscopy
+  - Coherence and laser physics
+  - Fourier optics and image formation
+
+prereq_slugs:
+  - waves-oscillations
+  - electromagnetism-1
+
+related_slugs:
+  - electromagnetism-2

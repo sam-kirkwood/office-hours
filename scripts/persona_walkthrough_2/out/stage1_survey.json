@@ -1,0 +1,39 @@
+{
+  "id": "2bca41a7-97dc-4a87-9ea9-59bff71e8c74",
+  "user_id": "4ca9260e-8b61-4db6-b706-2f7acfcbe781",
+  "created_at": "2026-05-29T18:49:02.003935+00:00",
+  "free_text_intent": "Quant taking semi-retirement next year. Physics undergrad 30 years ago, been doing applied math in finance since. My math is solid \u2014 calculus, linear algebra, probability are daily tools \u2014 but my physics has faded to almost nothing. I want to actually do statistical mechanics properly: partition functions, the Ising model, phase transitions, eventually renormalization group. I've been using Boltzmann distributions analogically in market models for years but never derived them from scratch.",
+  "node_ratings_json": {},
+  "comfort_responses_json": {},
+  "mode_balance": 0.5,
+  "updated_at": "2026-05-29T18:49:02.003935+00:00",
+  "background_json": {
+    "domains": [
+      {
+        "key": "physics",
+        "subareas": [
+          "classical-mechanics",
+          "electromagnetism",
+          "quantum",
+          "thermo-stat-mech",
+          "condensed-matter"
+        ],
+        "relationship": "studied_reconnecting"
+      },
+      {
+        "key": "mathematics",
+        "subareas": [
+          "calculus-analysis",
+          "linear-algebra",
+          "odes-pdes",
+          "probability-stats"
+        ],
+        "relationship": "encounter_at_work"
+      }
+    ]
+  },
+  "completed_stages": [
+    "stage1"
+  ],
+  "pending_interests_json": {}
+}

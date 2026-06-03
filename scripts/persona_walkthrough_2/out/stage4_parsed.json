@@ -1,0 +1,44 @@
+[
+  {
+    "raw_text": "Phase transitions and critical phenomena \u2014 the Ising model in 1D and 2D, mean-field theory, scaling laws, universality classes.",
+    "response": {
+      "segments": [
+        {
+          "raw_text_segment": "Phase transitions and critical phenomena \u2014 the Ising model in 1D and 2D, mean-field theory, scaling laws, universality classes.",
+          "kind": "interest",
+          "specificity": "specific",
+          "implicit_intent": "teach",
+          "mirror_back_md": "You want to learn phase transitions and critical phenomena, with a focus on the Ising model across dimensions, mean-field theory, scaling laws, and universality classes.",
+          "optional_followup_md": "Are you approaching this from a statistical-mechanics angle, or are you more interested in the broader condensed-matter physics picture?",
+          "path_options": [],
+          "dedup": {
+            "verdict": "related",
+            "matched_node_slug": "statistical-mechanics"
+          },
+          "draft_intent_context": "Wants to learn phase transitions and critical phenomena starting from the Ising model in 1D and 2D, with emphasis on mean-field theory, scaling laws, and universality classes. Interested in the statistical-mechanics foundations of critical behavior."
+        }
+      ]
+    }
+  },
+  {
+    "raw_text": "Renormalization group \u2014 Wilson's approach, fixed points of the RG, why it explains critical phenomena, when it works.",
+    "response": {
+      "segments": [
+        {
+          "raw_text_segment": "Renormalization group \u2014 Wilson's approach, fixed points of the RG, why it explains critical phenomena, when it works.",
+          "kind": "interest",
+          "specificity": "specific",
+          "implicit_intent": "teach",
+          "mirror_back_md": "You want to learn the renormalization group via Wilson's approach\u2014fixed points, how it explains critical phenomena, and its scope of validity.",
+          "optional_followup_md": "Are you coming at this from a statistical mechanics angle, or more from quantum field theory?",
+          "path_options": [],
+          "dedup": {
+            "verdict": "related",
+            "matched_node_slug": "statistical-mechanics"
+          },
+          "draft_intent_context": "Wants to understand Wilson's renormalization group formalism\u2014fixed points, scaling, and how it explains universal critical behavior near phase transitions. Interested in both the conceptual foundations and the limits of the approach."
+        }
+      ]
+    }
+  }
+]

@@ -10,9 +10,13 @@ import type { ConceptReviewNodeReading } from "@/lib/pythonApi";
 interface Props {
   queueItemId: string;
   node: ConceptReviewNodeReading;
+  // Set when this concept review was triggered from inside another surface
+  // (currently only paper engagements). Drives the top-of-page back-link so
+  // the user can return to where they came from.
+  parentPaper?: { queue_item_id: string; paper_title: string } | null;
 }
 
-export default function ConceptReadingView({ queueItemId, node }: Props) {
+export default function ConceptReadingView({ queueItemId, node, parentPaper }: Props) {
   const router = useRouter();
   const [marking, setMarking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +32,8 @@ export default function ConceptReadingView({ queueItemId, node }: Props) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Couldn't mark done");
       }
-      router.push("/daily");
+      // If the user came here from a paper, return to it. Otherwise back to daily.
+      router.push(parentPaper ? `/paper/${parentPaper.queue_item_id}` : "/daily");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't mark done");
@@ -37,9 +42,21 @@ export default function ConceptReadingView({ queueItemId, node }: Props) {
   }
 
   const subtopics = node.subtopics_json ?? [];
+  const readingClass = `font-serif text-base leading-[1.7] text-foreground
+    [&_p]:mb-4 [&_p:last-child]:mb-0
+    [&_strong]:font-semibold [&_em]:italic
+    [&_code]:font-mono [&_code]:text-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded`;
 
   return (
     <div className="mx-auto max-w-prose px-5 py-12">
+      {parentPaper && (
+        <Link
+          href={`/paper/${parentPaper.queue_item_id}`}
+          className="mb-6 inline-block text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+        >
+          ← Back to {parentPaper.paper_title}
+        </Link>
+      )}
       <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         Concept
       </p>
@@ -47,25 +64,41 @@ export default function ConceptReadingView({ queueItemId, node }: Props) {
         {node.title}
       </h1>
 
-      {node.description_md && (
-        <div className={`font-serif text-base leading-[1.7] text-foreground
-          [&_p]:mb-4 [&_p:last-child]:mb-0
-          [&_strong]:font-semibold [&_em]:italic
-          [&_code]:font-mono [&_code]:text-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded`}>
-          <MarkdownLatex source={node.description_md} />
+      {/* Brief takes precedence over description_md when present — it's the
+          generated reading surface. description_md is shown only as a fallback
+          if brief generation failed. */}
+      {node.brief_md ? (
+        <div className={readingClass}>
+          <MarkdownLatex source={node.brief_md} />
         </div>
+      ) : (
+        node.description_md && (
+          <div className={readingClass}>
+            <MarkdownLatex source={node.description_md} />
+          </div>
+        )
       )}
 
       {subtopics.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <div className="mt-10">
+          <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Subtopics
           </h2>
-          <ul className="space-y-1.5 font-serif text-base leading-[1.7] text-foreground">
+          <dl className="space-y-4 font-serif text-base leading-[1.7] text-foreground">
             {subtopics.map((s) => (
-              <li key={s.slug}>{s.title}</li>
+              <div key={s.slug}>
+                <dt className="font-medium text-foreground">{s.title}</dt>
+                {s.gloss_md && (
+                  <dd className="mt-0.5 text-sm text-muted-foreground leading-[1.7]
+                    [&_p]:mb-2 [&_p:last-child]:mb-0
+                    [&_strong]:font-semibold [&_em]:italic
+                    [&_code]:font-mono [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded">
+                    <MarkdownLatex source={s.gloss_md} />
+                  </dd>
+                )}
+              </div>
             ))}
-          </ul>
+          </dl>
         </div>
       )}
 

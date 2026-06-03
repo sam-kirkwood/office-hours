@@ -98,50 +98,39 @@ The Step 1 design docs resolved D1, D2, and D4 from the previous version of
 this plan. Two decisions remain open and must be locked in before the
 relevant steps begin.
 
-### D3 — Concept review content source (still open)
+### D3 — Concept review content source ✅ LOCKED (Step 4 entry)
 
-`queue_items.kind = 'concept_review'` points to `nodes(id)` and is intended
-to surface concept-level material on a node without generating a full
-problem. The design docs partially constrain this: the add-interest flow's
-"Case 3" (concept-level request from the input box, see
-[survey-and-difficulty-design.md §2.7](../survey-and-difficulty-design.md))
-queries the problem pool for a subtopic-tagged problem; the skill-tree node
-panel's per-subtopic "request a refresher" action does the same.
+`queue_items.kind = 'concept_review'` points to `nodes(id)` and surfaces
+concept-level material on a node without generating a full problem.
 
-But what does the `concept_review` *card* itself render when clicked? The
-options remain:
+**Locked:** option (b) with fallback to option (a). The
+`/concept-review-resolve` route queries the pool at
+`(topic_node_id, intent='teach', difficulty=1, tags ⊇ [primary_subtopic])`.
+On hit, atomically enqueues a `kind='problem'` row pointing at the pool
+problem and marks the original concept_review row `done`. On miss, returns
+the node's `description_md` + `subtopics_json` for the client to render as
+a serif reading surface (`ConceptReadingView`). Implemented in Step 4.
 
-a) **Node description + subtopics** as a structured reading surface — a
-   "what this is and what it covers" page rather than a problem.
-b) **A pool-drawn problem** at conceptual depth (intent = teach, assumed
-   background minimal) for the node's primary subtopic.
-c) **A Claude-generated concept brief** (new LLM call) — discouraged unless
-   (a) and (b) are insufficient.
+Option (c) (Claude-generated concept brief) was rejected as cost-additive
+without sufficient benefit; the reading surface already covers the miss
+path adequately for v2.
 
-Default recommendation pending decision: (b) — reuse the problem pool, since
-the curriculum curator and subtopic tagging already make this cheap. (a)
-remains a fallback for nodes with no eligible pool content.
+### D5 — Bookmark → interest promotion trigger ✅ LOCKED (Step 5 entry)
 
-**Decide before Step 4.**
+**Locked:** option (a) — explicit "Promote to interest" button surfaced
+prominently on bookmarked nodes (re-styled and hoisted in [NodePanel.tsx](../../web/components/NodePanel.tsx)
+when the node is bookmarked-not-yet-interest), invoking the existing
+add-interest dialog pre-filled. Consistent with "the system curates, but the
+user trusts." Options (b) and (c) rejected as too autonomous for v2 — could
+revisit as enhancements later.
 
-### D5 — Bookmark → interest promotion trigger (still open)
+### D3 (revisited) — Concept review reading-surface depth ✅ LOCKED (Step 5.5)
 
-Drift S8 asks for a forward path from bookmarked nodes to active interests.
-The add-interest flow specified in Section 2 of the survey design doc is the
-mechanism, but the *trigger* — what user action invokes it for a bookmarked
-node — is not specified. Options:
-
-a) **Explicit "Add to my interests" button** on the bookmark, which invokes
-   the add-interest flow with the node pre-filled.
-b) **Automatic promotion** after N engagements with the bookmarked node.
-c) **A "Ready to explore?" prompt** surfaced in the queue after a week.
-
-Default recommendation pending decision: (a) — explicit, consistent with
-"the system curates, but the user trusts" (the user remains in charge of
-what becomes a permanent interest). (c) is a possible enhancement once (a)
-exists.
-
-**Decide before Step 5.**
+Walkthrough surfaced that the bare description_md + subtopic-titles reading
+surface (locked at Step 4 entry) was insufficiently informative. The
+previously-rejected option (c) — Haiku-generated concept brief — was added
+as Step 5.5 (see below), keyed on `node_id` and cached in
+`node_concept_briefs` so cost is one-shot per node, shared across users.
 
 ---
 
@@ -711,131 +700,640 @@ may be added for any gaps surfaced during curator implementation.
 
 ---
 
-### Step 4 — Queue UX + behavior
+### Step 4 — Queue UX + behavior ✅ DONE
 
 Spec-correct fixes that complement the curator but don't depend on it being
-fully wired. Decide D3 before implementing concept_review.
+fully wired. D3 locked at entry (option b with fallback to a).
 
-- **#3** Implement `concept_review` queue items per D3 (see Open
-  Decisions). The queue card links to a page (or modal) that renders the
-  node's content. Update `web/app/daily/page.tsx` and add the concept review
-  route/component. Reuse the problem pool by default (D3 option b); fall
-  back to node description + subtopics (D3 option a) when no pool match
-  exists.
-- **#5** Paper request flow: when `POST /api/queue/request` receives
-  `kind_hint='paper'` and `/suggest-papers` returns nothing, automatically
-  call `/propose-papers` to expand the pool, then re-run `/suggest-papers`.
-  The user should never see "check back soon" for a paper request on a
-  topic the system knows about.
-- **#39** Non-blocking queue requests: "Get a problem" and "Request a
-  paper" currently block the UI for the duration of the LLM call. Change to
-  fire-and-forget: kick off the API call, immediately return a confirmation
-  ("Added to your queue — it'll be ready soon."), and let the item appear on
-  next page load or queue refresh. If the item is already available (fast
-  cache hit / paper already in pool), offer a "Go to it now →" link in the
-  confirmation. Applies to `NodePanel` and the daily-tab input.
-- Copy/tone: tighten queue card text and empty-state messages per the tone
-  guidelines in
-  [survey-and-difficulty-design.md §5](../survey-and-difficulty-design.md).
+#### 4a — `concept_review` view (#3) ✅ DONE
 
-Files: `web/components/DailyView.tsx`, `web/components/NodePanel.tsx`,
-`web/app/api/queue/request/route.ts`, `api/routes/propose_papers.py`, new
-concept-review route/component.
+New FastAPI route `POST /concept-review-resolve` ([api/routes/concept_review.py](../../api/routes/concept_review.py))
+takes `{user_id, queue_item_id}`, verifies ownership + `kind='concept_review'`,
+then:
+- **Pool hit** (re-using `_pool_lookup_for_recommendation` from
+  [api/routes/curator.py:507-530](../../api/routes/curator.py#L507-L530) with
+  `difficulty=1, intent='teach', subtopic_slug=subtopics_json[0]?.slug`):
+  atomically inserts a `kind='problem'` queue_items row pointing at the
+  matched problem and marks the original concept_review row `done`. Returns
+  `{kind:'problem', queue_item_id: <new>}`. Client redirects to
+  `/problem/<new_id>`.
+- **Pool miss**: returns the node payload
+  (`description_md`, `subtopics_json`, `title`, `slug`, `id`). Client renders
+  [`ConceptReadingView`](../../web/components/ConceptReadingView.tsx) as a
+  serif reading surface; "I've looked through this" button POSTs to
+  [/api/concept-review/[id]/done](../../web/app/api/concept-review/[id]/done/route.ts).
+
+[`DailyView`](../../web/components/DailyView.tsx) routes `concept_review`
+cards to `/concept-review/<queue_item_id>`. [`resolveTitles`](../../web/lib/queueHelpers.ts)
+extended to lift node titles for concept_review queue cards.
+
+Schema additions: `ConceptReviewResolveRequest`/`Response` +
+`ConceptReviewNodeReading` in [api/schemas.py](../../api/schemas.py); router
+registered in [api/main.py](../../api/main.py); web helper
+`conceptReviewResolve` in [pythonApi.ts](../../web/lib/pythonApi.ts).
+
+7 new tests in [test_concept_review_resolve.py](../../api/tests/test_concept_review_resolve.py)
+(auth, wrong kind, not found, already-done, pool hit, pool miss, null
+subtopics).
+
+#### 4b — Paper request fallback (#5) ✅ DONE
+
+[web/app/api/queue/request/route.ts](../../web/app/api/queue/request/route.ts)
+paper branch now: `suggestPapers` → DB pick → on miss: `proposePapers` +
+`suggestPapers` again → DB pick. `propose-papers` is idempotent (dedups by
+title/arxiv_id/doi) so the retry is cheap. Empty fallback message changed
+from "check back soon" to "Adding a paper to your queue — it'll appear
+shortly."
+
+**Known deploy follow-up:** the full chain can take 30–60s server-side. If
+Vercel function timeouts trigger (Hobby=10s, Pro=60s), the fix is to detach
+`proposePapers` as `void proposePapers(...)` on first miss and return
+immediately — `propose-papers` is fully idempotent. Phase-11-deploy item.
+
+#### 4c — Fire-and-forget UX (#39) ✅ DONE
+
+Installed `sonner@2.0.7`; `<Toaster position="bottom-right" closeButton />`
+mounted in [web/app/layout.tsx](../../web/app/layout.tsx).
+
+New helper [web/lib/optimisticQueueRequest.ts](../../web/lib/optimisticQueueRequest.ts):
+- Shows a `toast.loading(labels.pending)` immediately.
+- Awaits `/api/queue/request` in the background.
+- On resolve with `queue_item_id`: upgrades to `toast.success("Ready.", {action: "Go to it now →"})`.
+- On resolve with null id: upgrades to `toast.message(labels.queued)`.
+- On reject: `toast.error("Couldn't add that — try again.")`.
+- Always calls `router.refresh()` on resolution so /daily reloads silently.
+
+Wired into:
+- [`NodePanel`](../../web/components/NodePanel.tsx) `handleGetProblem` +
+  `handleRequestPaper` — handlers are now sync, with an 800ms button
+  debounce to prevent double-click.
+- [`RequestBox`](../../web/components/RequestBox.tsx) `queueProblemOnNode`,
+  the paper/refresher branch in `handleSubmit`, `handleJustThisOnce`, and
+  the dialog `onComplete` callback. Form clears on fire.
+
+#### 4d — Tone pass ✅ DONE
+
+[`DailyView`](../../web/components/DailyView.tsx):
+- `KIND_CTA.problem`: "Work on this" → "Try this"
+- `KIND_CTA.refresher`: "Practice again" → "Look at this again"
+- `KIND_CTA.concept_review`: "Review" → "Read"
+- `defaultDescription` tightened across all kinds (e.g. problem →
+  "A problem on this topic."; suggested_interest gets the §S4-aligned
+  "Someone studying adjacent topics recently explored this." framing).
+- `MoreComingCard`: "More items are being prepared — check back soon." →
+  "More to come — give it a moment."
+
+#### Step 4 acceptance
+
+- `concept_review` cards on `/daily` link to a working surface (pool hit →
+  problem; miss → serif reading page with mark-done).
+- Paper requests on an empty pool no longer dead-end — `/propose-papers`
+  fires server-side and the queue gains a paper.
+- "Get a problem" / "Request a paper" / RequestBox no longer block on the
+  LLM call; toast confirms immediately and upgrades to "Go to it now →" on
+  fast resolution.
+- All queue card copy passes §5 tone re-read.
+- `uv run pytest`: 160/160 (was 153 + 7 new).
+- `npm run build`: clean.
 
 **Drift report reconciliation:** #3, #5, #39 → `done`. (S10 mode balance
 post-survey is resolved in Step 2e — the profile page is its home.)
 
 ---
 
-### Step 5 — Spirit gaps: engagement quality
+### Step 5 — Spirit gaps: engagement quality ✅ DONE
 
-Resolve D5 before implementing S8.
+Resolved D5 (option a — explicit "Promote to interest" CTA on bookmarked
+nodes) at entry. Shipped:
 
-- **S1** `web/app/paper/[id]/page.tsx`: when a user returns to an in-progress
-  engagement, show progress state prominently — "Question 2 of 4" with a
-  visual indicator of which questions are answered and which remain. Source
-  from `paper_engagements.current_question_index` and `paper_answers` count.
-- **S2/S3** Orienting concepts: render `context_hooks` /
-  `orienting_concepts_json` as interactive named terms rather than flat
-  text. Clicking a term expands a brief definition and offers "get a
-  refresher on this" — which queues a `refresher` or `concept_review` item
-  for that foundation node before the user starts the paper. This is the
-  same mechanic as Section 2.7 Case 3 and Section 7 of the survey design
-  doc.
-- **S4** Cross-pollination suggestions in the queue must include anonymous
-  social framing: "Someone studying adjacent topics recently explored this."
-  The card copy for `kind='suggested_interest'` items should convey this
-  without identifying anyone.
-- **S8** Bookmarks: implement the forward path per D5. The default
-  recommendation is an explicit "Add to my interests" action that invokes
-  the add-interest flow (the same one used everywhere else) with the node
-  pre-filled.
-- **S9** Audit the notebook's place in the navigation hierarchy. The
-  notebook is described in personas as "the lasting treasured artefact"; it
-  should be reachable within one tap from the daily view. Promote it if it
-  is currently secondary. Consider a subtle notebook entry count or recent
-  activity indicator in the nav link.
+- **S1** Resume-progress component [PaperProgress.tsx](../../web/components/PaperProgress.tsx)
+  at the top of [PaperView.tsx](../../web/components/PaperView.tsx) when
+  `phase !== "intro"`: "Question N of M" + per-question dots
+  (forest = answered, amber-ringed = current, muted = remaining). Sourced
+  from `current_question_index` + the `answers` map already in client state.
 
-Files: `web/app/paper/[id]/page.tsx`, `web/components/PaperView.tsx`,
-`web/app/notebook/page.tsx`, `web/components/DailyView.tsx`,
-`web/app/layout.tsx`.
+- **S2/S3** Orienting concepts are now interactive. Shape change to
+  `paper_engagements.orienting_concepts_json` (`string[]` → `[{term,
+  definition_md}]`); prompt rewritten in [paper_engagement.py](../../api/prompts/paper_engagement.py);
+  legacy `string[]` rows tolerated (non-interactive chip). New
+  [OrientingConceptsPanel.tsx](../../web/components/OrientingConceptsPanel.tsx)
+  expands a definition card on click with a "Get a refresher on this" button
+  that wraps `optimisticQueueRequest({ raw_text, kind_hint: "refresher" })`.
+  `/api/queue/request` refresher branch tightened: when raw_text targets a
+  node the user has no notebook history on, falls back to inserting a
+  `concept_review` queue item on the resolved node (matches survey-design
+  §2.7 Case 3) instead of refreshing an unrelated recent entry. The
+  optimisticQueueRequest helper's `targetPath` signature widened to
+  `(id, kind)` so callers can route refresher→/problem and
+  concept_review→/concept-review correctly.
+
+- **S4** Cross-pollination `added_reason` rewritten in
+  [compute_cross_pollination.py](../../api/routes/compute_cross_pollination.py):
+  "Someone studying adjacent topics recently explored this." (no LLM on
+  this path; literal string update).
+
+- **S8** [NodePanel.tsx](../../web/components/NodePanel.tsx): when a node is
+  bookmarked-not-yet-interest, the "Add to my interests" button is hoisted
+  to slot 2 (under "Get a problem"), re-styled solid amber, and re-labelled
+  "Promote to interest." Unbookmarked non-user nodes keep the original
+  outline "Add to my interests" CTA at the bottom of the panel.
+
+- **S9** Root [layout.tsx](../../web/app/layout.tsx) is now async; serves a
+  past-7-day notebook entry count next to the link as "Notebook (N)" when
+  N > 0 (muted text, no badge chrome — restraint rules).
+
+- **Plus, mid-step incidental fixes:**
+  - **Concept-review CTA copy** on the queue card: paper engagements the
+    user has started now read "Continue paper →" rather than "Read paper →"
+    (in-progress flag computed in [queueHelpers.ts](../../web/lib/queueHelpers.ts)
+    from `current_question_index > 0` OR `state === "in_progress"`).
+  - **suggest-papers PostgREST escape bug** ([suggest_papers.py](../../api/routes/suggest_papers.py)):
+    titles containing `&`, `,`, `(`, `)` were breaking the `or=` logic-tree
+    parser. ILIKE values now wrapped in double quotes.
+  - **subtopics_json tolerance** in [concept_review.py](../../api/routes/concept_review.py):
+    legacy `string[]` subtopics on interest nodes are normalized to
+    `[{slug, title}]` dicts before pydantic serialization, preventing a 500
+    on any pre-shape-migration node.
+
+Files modified: `api/prompts/paper_engagement.py`, `api/schemas.py`,
+`api/routes/compute_cross_pollination.py`,
+`api/routes/concept_review.py`, `api/routes/suggest_papers.py`,
+`web/lib/types.ts`, `web/lib/queueHelpers.ts`, `web/lib/optimisticQueueRequest.ts`,
+`web/app/api/queue/request/route.ts`, `web/app/layout.tsx`,
+`web/components/PaperView.tsx`, `web/components/NodePanel.tsx`,
+`web/components/DailyView.tsx`, `web/app/notebook/[id]/page.tsx`,
+`web/components/survey/SurveyNodePanel.tsx` (entry-kind labels propagation
+via NodePanel).
+New: `web/components/PaperProgress.tsx`, `web/components/OrientingConceptsPanel.tsx`.
+Tests updated: `test_generate_paper_engagement.py`, `test_ingest_paper_user.py`,
+`test_propose_papers.py`, `test_suggest_papers.py`, `test_concept_review_resolve.py`.
 
 **Drift report reconciliation:** S1, S2, S3, S4, S8, S9 → `done`.
 
 ---
 
-### Step 6 — Skill tree: interaction completeness
+### Step 5.5 — Concept brief generation + lineage + notebook persistence ✅ DONE
 
-- **#12** Edge click: clicking an edge in `SkillTreeView` should open a
-  small tooltip or side panel showing the relationship type (prerequisite vs
-  related) and a one-line description. Source from `edges.edge_kind` and the
-  node titles.
-- **#13** "What's nearby?" affordance: add a control that expands the
-  visible region to show nodes two hops away from the user's active
-  interests. The `/api/graph/me` route may need a `depth` parameter.
-- **Survey-design §7** Per-subtopic refresh action in the node panel. For
-  each subtopic listed in a foundation node's panel:
-  - Show the subtopic name and one-line description.
-  - Show the current state (familiar / refresh / unseen), if known.
-  - Offer a "request a refresher" action. Tapping it triggers the Case 3
-    mechanic from Section 2.7: queries the problem pool for a
-    subtopic-tagged problem and queues it. Reuses the queue request /
-    fire-and-forget plumbing from Step 4 (#39).
+Scope addition surfaced during Step 5 walkthrough. Two user-driven follow-ups:
 
-Files: `web/components/SkillTreeView.tsx`, `web/app/api/graph/me/route.ts`,
-`web/components/NodePanel.tsx`.
+1. **The bare concept reading surface (description_md + subtopic titles only)
+   read as uninformative** — D3 option (c) (Claude-generated concept brief),
+   rejected at Step 4 entry, was reversed.
+2. **The user wanted a way back to the source paper** from a concept review
+   triggered by an orienting-concept click, and **a way to revisit the
+   concept brief later** via the notebook.
+
+Shipped:
+
+- **Migration [20250025_node_concept_briefs.sql](../../supabase/migrations/20250025_node_concept_briefs.sql)** —
+  new `node_concept_briefs` table keyed on `node_id` (PK, FK→nodes),
+  storing `brief_md` + `subtopic_glosses_json` ([{slug, title, gloss_md}]) +
+  `generated_at` + `generated_by_model`. Service-role-only RLS.
+- **New Python route `/generate-concept-brief`**
+  ([api/routes/generate_concept_brief.py](../../api/routes/generate_concept_brief.py)).
+  Cache-check first; on miss, Haiku call ([prompts/concept_brief.py](../../api/prompts/concept_brief.py))
+  produces a ~250-word three-paragraph brief plus 1–2 sentence gloss per
+  subtopic; upserts cache row. Exposes `generate_brief_for_node` as a
+  shared helper.
+- **Wired into `/concept-review-resolve`**: reading-surface (miss) path
+  now calls `generate_brief_for_node` inline. Glosses merged into
+  `subtopics_json[*].gloss_md`. Try/except wrapper means Anthropic outage
+  degrades gracefully to bare reading surface (logged warning, no 500).
+- **[ConceptReadingView.tsx](../../web/components/ConceptReadingView.tsx)**
+  prefers `brief_md` over `description_md`; subtopics render as a
+  definition list with title above gloss.
+- **Migration [20250026_concept_review_lineage.sql](../../supabase/migrations/20250026_concept_review_lineage.sql)** —
+  `queue_items.parent_queue_item_id` (FK ON DELETE SET NULL, partial index
+  WHERE NOT NULL), extends `notebook_entries.entry_kind` CHECK to allow
+  `'concept_review'`.
+- **Lineage**: `/api/queue/request` accepts and propagates
+  `parent_queue_item_id` for both concept_review and refresher inserts.
+  `OrientingConceptsPanel` takes a `parentQueueItemId` prop from
+  `PaperView`. The concept review page reads the parent in parallel with
+  resolve, and if it's a paper engagement passes `{queue_item_id,
+  paper_title}` to `ConceptReadingView`. Back-link renders at the top of
+  the reading view ("← Back to <paper title>"); "I've looked through this"
+  redirects back to the paper instead of `/daily`.
+- **Notebook persistence**: `/api/concept-review/[id]/done` now writes a
+  `notebook_entries` row (entry_kind='concept_review', ref_id=node_id,
+  title="<Node> — Concept", topic_node_slugs=[node.slug]). Idempotent — won't
+  double-insert for the same (user, node). After done, the original
+  `/concept-review/<queue_item_id>` URL is a dead end (route returns 409 in
+  terminal state, page redirects to /daily); the notebook is the
+  persistent surface.
+- **Notebook list + detail** render concept_review entries: forest-outlined
+  "Concept" badge in [notebook/page.tsx](../../web/app/notebook/page.tsx);
+  cached brief + subtopic glosses rendered in
+  [notebook/[id]/page.tsx](../../web/app/notebook/[id]/page.tsx) (fetches
+  from `node_concept_briefs` by ref_id at render time).
+
+Files added: `supabase/migrations/20250025_node_concept_briefs.sql`,
+`supabase/migrations/20250026_concept_review_lineage.sql`,
+`api/prompts/concept_brief.py`, `api/routes/generate_concept_brief.py`,
+`api/tests/test_generate_concept_brief.py`.
+Files modified: `api/main.py`, `api/schemas.py`, `api/routes/concept_review.py`,
+`api/tests/test_concept_review_resolve.py`, `web/lib/types.ts`,
+`web/lib/pythonApi.ts`, `web/lib/optimisticQueueRequest.ts`,
+`web/app/api/queue/request/route.ts`,
+`web/app/api/concept-review/[id]/done/route.ts`,
+`web/app/concept-review/[queue_item_id]/page.tsx`,
+`web/components/ConceptReadingView.tsx`,
+`web/components/OrientingConceptsPanel.tsx`, `web/components/PaperView.tsx`,
+`web/components/NodePanel.tsx`, `web/app/notebook/page.tsx`,
+`web/app/notebook/[id]/page.tsx`.
+
+Test results at close: pytest 168/168, npm build clean.
+
+**Deferred** to future passes: first-render latency for cold concept briefs
+is ~2–4s (synchronous Haiku call). If it bites in practice, move generation
+to a background prefetch and add a "preparing your brief…" state. Flag the
+trade-off in Step 7 mobile polish or Step 8 hardening if needed.
+
+---
+
+### Step 6 — Skill tree: interaction completeness ✅ DONE
+
+Locked at entry: (a) edge UX = panel-on-click (mirrors NodePanel's pattern,
+works on touch); (b) 2-hop shape = split arrays + distinct styling (1-hop
+keeps the existing dashed/muted treatment, 2-hop renders even lighter +
+smaller); (c) per-subtopic state source = new `user_subtopic_states` table
+with backfill from `surveys.comfort_responses_json`.
+
+Shipped:
+
+- **#12** Edge click. New
+  [`EdgePanel`](../../web/components/EdgePanel.tsx) renders on `onEdgeClick`
+  with the relationship type ("Prerequisite" / "Related") and a one-line
+  description sourced from `edge.edge_kind` + the source/target node titles.
+  Selection state mutually excludes node selection — clicking a node closes
+  the edge panel and vice versa; pane click closes both.
+
+- **#13** "What's nearby?" expansion.
+  [`/api/graph/me`](../../web/app/api/graph/me/route.ts) now accepts
+  `?depth=1|2`. At `depth=2` the response includes `adjacent_nodes_2hop`
+  alongside the existing `adjacent_nodes` (1-hop, kept as the default for
+  backwards-compat with `ConfirmGraph`). The route does a second BFS layer
+  outward from the 1-hop set and unions both rings of edges.
+  [`SkillTreeView`](../../web/components/SkillTreeView.tsx) renders a "Show
+  what's nearby" toggle in the top-right when the new `enableWhatsNearby`
+  prop is set; the post-onboarding `/skill-tree` page enables it, the
+  survey-confirm surface deliberately does not. 2-hop nodes use a third
+  custom node type (`adjacent2`) with lighter dashed borders
+  (`border-border/30`) and more transparent text
+  (`text-muted-foreground/35`), smaller than 1-hop adjacent. The Legend
+  conditionally adds a "Further nearby" entry when the toggle is on.
+
+- **Survey-design §7** Per-subtopic refresh in
+  [`NodePanel`](../../web/components/NodePanel.tsx). For foundation nodes
+  with a `[{slug, title}]`-shaped `subtopics_json`, the panel now renders a
+  Subtopics section listing each subtopic with: title, optional cached
+  gloss (read from `node_concept_briefs.subtopic_glosses_json[*].gloss_md`,
+  the Step 5.5 artefact), per-subtopic state label (Familiar / Refresh /
+  Unseen — driven by the new `user_subtopic_states` table; absent when the
+  user hasn't reported), and a "Request a refresher" link. The link wraps
+  `optimisticQueueRequest({raw_text: subtopic.title, kind_hint: "refresher"})`
+  mirroring [`OrientingConceptsPanel`](../../web/components/OrientingConceptsPanel.tsx),
+  which routes through the Step 5 refresher→concept_review fallback path
+  (the user has no notebook history at subtopic granularity, so the
+  fallback in [/api/queue/request](../../web/app/api/queue/request/route.ts)
+  inserts a `concept_review` on the parent node). Interest-node `string[]`
+  subtopics are filtered out — only the `{slug,title}` shape is rendered,
+  since that's the key both the concept tour and `user_subtopic_states` use.
+
+- **Subtopic state durability** — new migration
+  [`20250027_user_subtopic_states.sql`](../../supabase/migrations/20250027_user_subtopic_states.sql)
+  adds `user_subtopic_states (user_id, node_id, subtopic_slug, state)` with
+  PK on the triple, FKs to `profiles(id)` / `nodes(id)` (both ON DELETE
+  CASCADE), RLS on `user_id` (SELECT + ALL policies). State enum:
+  `familiar | refresh | new` — matches the existing concept-tour write
+  payload. The migration includes a backfill that ports existing
+  `surveys.comfort_responses_json.subtopics` entries (keyed
+  `"<node_slug>:<subtopic_key>"`) into rows by joining on `nodes.slug`.
+  Future tours write here on every addressed tile in addition to the
+  existing `comfort_responses_json` + `user_node_states` writes.
+
+- **New surface** GET
+  [`/api/node/[id]/subtopic-states`](../../web/app/api/node/[id]/subtopic-states/route.ts)
+  returns `{states, glosses}` in one round-trip — `states` from the new
+  table for the signed-in user, `glosses` from `node_concept_briefs`
+  (shared cache, not user-specific). Called by `NodePanel` on node change.
+
+Files added:
+- `supabase/migrations/20250027_user_subtopic_states.sql`
+- `web/app/api/node/[id]/subtopic-states/route.ts`
+- `web/components/EdgePanel.tsx`
+
+Files modified:
+- `web/app/api/add-interest/concept-tour/route.ts` (writes
+  `user_subtopic_states` rows alongside existing writes)
+- `web/app/api/graph/me/route.ts` (depth param + ring-2 BFS,
+  `adjacent_nodes_2hop` field)
+- `web/components/SkillTreeView.tsx` (onEdgeClick + EdgePanel + nearby
+  toggle + Adjacent2HopNode + ring-2 layout + Further-nearby legend +
+  `enableWhatsNearby` prop)
+- `web/components/NodePanel.tsx` (Subtopics section, subtopic-states fetch,
+  per-subtopic refresher handler)
+- `web/app/skill-tree/page.tsx` (passes `enableWhatsNearby`)
+
+Test results at close: pytest 168/168, npm build clean.
 
 **Drift report reconciliation:** #12, #13 → `done`. (Survey design §7 is
 not a separate drift item but is satisfied here.)
 
+#### Step 6 revision (post-walkthrough)
+
+Walkthrough surfaced two issues:
+
+1. **EdgePanel body was empty calorie.** The original
+   "X is a prerequisite for Y" body just restated the header; opening an
+   edge panel taught the reader nothing they didn't already see.
+2. **The global "Show what's nearby" toggle conflicted with NodePanel.**
+   The top-right toggle button was occluded when NodePanel opened from the
+   right edge, and the affordance felt detached from the spatial intuition
+   of "what does this node connect to?".
+
+Both fixed:
+
+- **Edge descriptions are now LLM-generated and cached.** New migration
+  [`20250028_edge_descriptions.sql`](../../supabase/migrations/20250028_edge_descriptions.sql)
+  adds an `edge_descriptions` table keyed on `edge_id` (PK, FK→edges,
+  ON DELETE CASCADE) with `description_md`, `generated_at`,
+  `generated_by_model` — same pattern as `node_concept_briefs`. Service-
+  role-only RLS. New Haiku route `/generate-edge-description`
+  ([api/routes/generate_edge_description.py](../../api/routes/generate_edge_description.py),
+  [api/prompts/edge_description.py](../../api/prompts/edge_description.py))
+  produces a 3-5 sentence paragraph naming 2-3 specific bridging concepts
+  (e.g. *"Band theory and Bloch's theorem carry forward into nanotube
+  electronic structure — especially how chirality determines whether a
+  tube is metallic or semiconducting."*). Cache-check first; shared across
+  users (the first viewer of an edge pays the Haiku cost, every subsequent
+  reader gets the cached row). New web proxy
+  [`/api/edge/[id]/description`](../../web/app/api/edge/[id]/description/route.ts)
+  GET. [EdgePanel](../../web/components/EdgePanel.tsx) rewritten to fetch
+  on mount, render via `MarkdownLatex`, with a "Drawing the connection…"
+  loading state. 4 new pytests
+  ([test_generate_edge_description.py](../../api/tests/test_generate_edge_description.py))
+  covering auth, 404, happy-path cache write, and cache-hit short-circuit.
+
+- **"What's nearby" is now node-driven.** Removed the SkillTreeView toggle,
+  the `enableWhatsNearby` prop, the `Adjacent2HopNode` render path, and
+  the "Further nearby" legend entry. Reverted
+  [/api/graph/me](../../web/app/api/graph/me/route.ts) to its pre-Step-6
+  shape (1-hop only). Added a **Connected topics** section to NodePanel
+  listing all 1-hop neighbors of the selected node, fetched from new
+  [`/api/node/[id]/neighbors`](../../web/app/api/node/[id]/neighbors/route.ts)
+  which returns nodes + edges so each row can be labelled "prereq" /
+  "unlocks" / "related" depending on the edge_kind and direction. Each row
+  click swaps NodePanel to that neighbor (new optional `onSelectNode` prop
+  on NodePanel; SkillTreeView wires it to its own `setSelectedNodeId`).
+  Below the list, a **Highlight on canvas** link triggers SkillTreeView to
+  add a forest ring around the selected node + its visible neighbors and
+  `fitView` to fit them — auto-clearing after 4 seconds. SkillTreeView
+  now wraps its body in `ReactFlowProvider` so the inner component can
+  call `useReactFlow().fitView` directly. The `renderPanel` prop signature
+  widened to receive `onHighlightNeighbors` so context-specific panels
+  (Stage 7 confirm) could opt in if they wanted, though Stage 7 still
+  passes its own panel and doesn't use the highlight path.
+
+Files added (this revision):
+- `supabase/migrations/20250028_edge_descriptions.sql`
+- `api/prompts/edge_description.py`
+- `api/routes/generate_edge_description.py`
+- `api/tests/test_generate_edge_description.py`
+- `web/app/api/edge/[id]/description/route.ts`
+- `web/app/api/node/[id]/neighbors/route.ts`
+
+Files modified (this revision):
+- `api/main.py` (router include)
+- `api/schemas.py` (request/response models)
+- `web/lib/pythonApi.ts` (`generateEdgeDescription` helper)
+- `web/components/EdgePanel.tsx` (rewrite — fetch + render)
+- `web/components/SkillTreeView.tsx` (removed toggle/2-hop, added
+  highlight state, wrapped in `ReactFlowProvider`)
+- `web/components/NodePanel.tsx` (Connected topics + Highlight on canvas)
+- `web/app/api/graph/me/route.ts` (reverted to 1-hop)
+- `web/app/skill-tree/page.tsx` (dropped `enableWhatsNearby`)
+
+Test results at revision close: pytest 172/172 (168 + 4 new), npm build clean.
+
 ---
 
-### Step 7 — Mobile polish
+### Step 7 — Mobile polish ✅ CODE DONE (manual validation pending)
 
-- Audit queue (`/daily`), notebook, problem, and profile views on a narrow
-  (375px) viewport. Fix touch targets, overflow, and spacing.
-- Skill tree (`/skill-tree`) is desktop-only. Add a friendly fallback for
-  narrow screens.
-- Test the problem submission flow (camera → upload → parse → review →
-  submit) on mobile.
-- Test the new seven-stage survey on mobile end-to-end. The Stage 7
-  confirmation (megagraph render) may need a simplified mobile rendering.
+Code shipped; visual sweep at 375 px + real-device camera-to-grade flow
+remain pending — see "Validation outstanding" below.
 
-Files: `web/components/DailyView.tsx`, `web/app/notebook/page.tsx`,
-`web/app/problem/[id]/page.tsx`, `web/app/skill-tree/page.tsx`, survey
-components.
+Shape:
+- **Mobile-detection hook** —
+  [`web/lib/useIsMobile.ts`](../../web/lib/useIsMobile.ts) wraps
+  `window.matchMedia('(max-width: 767px)')` (Tailwind's `md` breakpoint).
+  SSR-safe (`false` during server render, updates on mount). Used only by
+  the two graph surfaces below; everything else is already responsive via
+  existing `sm:` rules.
+- **`/skill-tree` mobile fallback** — new
+  [`SkillTreeListView`](../../web/components/SkillTreeListView.tsx) shows
+  two list sections ("Your interests & foundations" with a "Get a problem"
+  CTA per row; "Nearby" with an "Add to my interests" CTA opening the
+  existing `DialogModal` in `preNode` mode) plus a "View on desktop for
+  the full graph" footer. No EdgePanel / Connected-topics / Highlight-on-
+  canvas in this view — the list stands on its own. New thin client
+  wrapper
+  [`SkillTreeShell`](../../web/components/SkillTreeShell.tsx) branches
+  `useIsMobile()` → ListView vs `SkillTreeView`. The page
+  ([`web/app/skill-tree/page.tsx`](../../web/app/skill-tree/page.tsx))
+  now renders `<SkillTreeShell>` and drops the fixed `100vh` wrapper that
+  forced ReactFlow's height even on phones.
+- **Stage 7 confirm mobile fallback** —
+  [`ConfirmGraph.tsx`](../../web/components/survey/ConfirmGraph.tsx) gains
+  a `useIsMobile()` branch on the canvas block only. Mobile path renders
+  three list sections inline (no new file): "Your interests" with
+  Edit/Remove (Edit opens `DialogModal` in `preNode` mode pre-filled with
+  current `intent_context` via `/api/interest/me`; Remove calls
+  `DELETE /api/interest/[node_id]` then `refreshGraph(deletedNodeId)`),
+  "Foundations to refresh" (read-only), "Nearby" (read-only, greyed).
+  Header copy + Back / "Your queue is ready →" CTAs unchanged. Per-row
+  intent fetch is per-row (typically 1-5 rows; not worth batching).
+- **Targeted mobile fixes** on existing surfaces (no new files):
+  - [`ProblemView.tsx`](../../web/components/ProblemView.tsx) Step 1
+    actions: `flex flex-wrap gap-3` → `flex flex-col gap-3 sm:flex-row
+    sm:flex-wrap`. "Start working" `flex-1` → `sm:flex-1`. On phone all
+    three buttons stack full-width with Start as the primary at the
+    bottom, preserving Skip / Defer / Start reading order.
+  - [`RequestBox.tsx`](../../web/components/RequestBox.tsx) confirmation
+    panel button row: added `flex-wrap` so Cancel can drop to a new line
+    at 375 px when Add it + Just this once + Cancel don't fit.
+  - [`ProfileView.tsx`](../../web/components/profile/ProfileView.tsx)
+    interest row: `flex items-start justify-between gap-4` → `flex
+    flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4`,
+    with `ml-5 sm:ml-0` on the Edit/Remove button group so it aligns under
+    the indented title block on mobile.
+  - [`layout.tsx`](../../web/app/layout.tsx) nav:
+    `gap-6` → `gap-4 sm:gap-6` so the four nav links breathe at 375 px.
+- **Survey mobile sweep** — no code changes anticipated.
+  [`BackgroundForm`](../../web/components/survey/BackgroundForm.tsx),
+  [`FoundationsGrid`](../../web/components/survey/FoundationsGrid.tsx),
+  [`InterestSuggestions`](../../web/components/survey/InterestSuggestions.tsx),
+  [`DialogOrchestrator`](../../web/components/survey/DialogOrchestrator.tsx),
+  and [`ModeBalanceSlider`](../../web/components/survey/ModeBalanceSlider.tsx)
+  already use `sm:grid-cols-2` patterns that fall back to single-column
+  below 640 px.
+
+Files added (Step 7):
+- `web/lib/useIsMobile.ts`
+- `web/components/SkillTreeListView.tsx`
+- `web/components/SkillTreeShell.tsx`
+
+Files modified (Step 7):
+- `web/app/skill-tree/page.tsx` (uses `SkillTreeShell`)
+- `web/components/survey/ConfirmGraph.tsx` (mobile branch + inline
+  `ConfirmListView` helper)
+- `web/components/ProblemView.tsx` (Step 1 action row stacking)
+- `web/components/RequestBox.tsx` (confirmation panel `flex-wrap`)
+- `web/components/profile/ProfileView.tsx` (interest row stacking)
+- `web/app/layout.tsx` (nav gap)
+
+Build: `npm run build` clean (Next.js 16.2.6, all 54 routes generated).
+pytest unchanged (no API surface touched); expected to remain 172/172.
+
+**Validation outstanding** — code is done but Step 7 acceptance requires
+two checks that need a human:
+
+1. **Visual sweep at 375 × 667** in browser devtools across /daily,
+   /notebook, /problem, /profile, /skill-tree, and all seven survey
+   stages. Watch for any horizontal overflow, touch-target crowding, or
+   layouts that look broken rather than just compact. Stage 7
+   confirmation should swap to the list view at narrow widths and back to
+   the graph above 768 px.
+2. **Camera → upload → parse → review → submit** on a real phone hitting
+   the dev server over LAN (or a deployed preview). The vision parse step
+   is the most fragile — image sizes, EXIF orientation, slow uploads.
+   ProblemView already uses `<input type="file" accept="image/*"
+   capture="environment" multiple>` so the camera primitive is right; what
+   needs verifying is that the upload-to-parse round trip works end-to-end
+   on a phone.
+
+The status line at the top of `docs/pivot-plan.md` should not flip to
+"Step 7 complete" until these two validations pass.
 
 ---
 
-### Step 8 — Error monitoring + final hardening
+### Step 8 — Final hardening + phase close
 
-- Add Sentry (or equivalent) to the Next.js app (`@sentry/nextjs`) and the
-  FastAPI service (`sentry-sdk`). Instrument uncaught exceptions and API
-  errors. Set up a project in Sentry; store the DSN in env vars.
-- Final walkthrough against the Persona 1 four-week walkthrough document.
-  Read for anything obviously broken or missing; defer cosmetic items.
-- Update `docs/pivot-plan.md` status line:
-  `Phase 10-rev complete. v2 ready for friends.`
+Scope adjusted at entry: Sentry deferred to Phase 11-deploy (more useful
+once the services are public-facing). What ships here is the pre-walkthrough
+audit + any blockers it surfaces + the persona-1 walkthrough itself.
+
+#### 8a — Sentry on Next.js — DEFERRED to Phase 11-deploy
+
+Original plan was `@sentry/nextjs` with DSNs in env vars. Decision at entry:
+defer until the FastAPI service is publicly deployed, since error monitoring
+is most valuable when the deploy/incident path it's instrumenting actually
+exists. Phase 11-deploy picks this up alongside the Fly/Railway deploy.
+
+#### 8b — Sentry on FastAPI — DEFERRED to Phase 11-deploy
+
+Same reasoning as 8a.
+
+#### 8c — Pre-walkthrough audit ✅ DONE
+
+Read [persona-1-walkthrough.md](../persona-1-walkthrough.md) against the
+current code paths. Findings:
+
+- **🔴 Blocker — curator-created refresher cards dead-ended.** The
+  curriculum curator inserts `kind='refresher'` queue items with
+  `ref_id = node_id` (see
+  [api/routes/curator.py:287-294, :645-660](../../api/routes/curator.py#L287)),
+  but `surface_daily._resolve_refresher_content` only recognised the legacy
+  shape where `ref_id` is a `refresher_schedule.id`. So curator-emitted
+  refreshers came through with `subject_queue_item_id=None`, and
+  [DailyView.tsx](../../web/components/DailyView.tsx) fell through to the
+  "coming soon" placeholder. Persona-1 Day 1's multivariable refresher
+  (sourced from the cold-start `planQueue` call) would have hit this
+  dead-end. Fixed in 8d.
+
+- **🟡 Friction (kept).** No inline "mark as refreshed, skip" on the queue
+  card itself — semantic exists behind one click into `/problem`. Per spec
+  this is acceptable; the walkthrough's narrative compression survives.
+  Left alone per user preference.
+
+- **🟠 Cosmetic (deferred).** `/api/queue/bookmark` is misnamed — it
+  actually sets `state='dismissed'`. Functional, just confusing. The
+  "Skip — I've got this" button label vs the walkthrough's "mark as
+  refreshed, skip" — same action, arguably better current label.
+
+#### 8d — Refresher-resolve fix ✅ DONE
+
+Mirrors [/concept-review-resolve](../../api/routes/concept_review.py)'s
+pattern: click-time resolver decides where the card lands.
+
+Shape:
+- New Python route `POST /refresher-resolve`
+  ([api/routes/refresher.py](../../api/routes/refresher.py)) takes
+  `{user_id, queue_item_id}`. Verifies `kind='refresher'` + ownership +
+  non-terminal state. Tries `refresher_schedule.id` first (legacy path),
+  then falls back to `nodes.id` (curator-style). On legacy attempt: looks
+  up the original `attempts.problem_id` and inserts a fresh
+  `kind='problem'` queue_items row (NOT returning the original
+  queue_item_id, which is in state='done' and would bounce off
+  `/problem`). On legacy engagement: same shape for `paper_engagement`.
+  On curator-style: pool lookup at `intent='refresh', difficulty=1` on
+  the node. On hit: inserts a fresh `kind='problem'`. On miss: inserts a
+  `kind='concept_review'` on the same node so the user still lands on
+  the cached brief. In all branches the original refresher row is
+  marked `state='done'`. Schemas added to
+  [api/schemas.py](../../api/schemas.py); router registered in
+  [api/main.py](../../api/main.py).
+
+- New web page
+  [`/refresher/[queue_item_id]/page.tsx`](../../web/app/refresher/[queue_item_id]/page.tsx)
+  — thin server component, calls `refresherResolve()`, `redirect()`s to
+  `/problem`, `/paper`, or `/concept-review` based on `kind`. Helper
+  added to [pythonApi.ts](../../web/lib/pythonApi.ts).
+
+- [DailyView.tsx](../../web/components/DailyView.tsx) refresher branch
+  unified: any refresher card with a `ref_id` now routes through
+  `/refresher/<queue_item_id>`. The old split between
+  `subject_queue_item_id`-based linking and the fall-through placeholder
+  is gone.
+
+- **Cleanup** of now-dead `subject_kind` / `subject_queue_item_id`
+  surfacing infrastructure (the resolver does click-time resolution, so
+  surface-daily no longer needs to pre-resolve refresher subjects):
+  - Removed `subject_kind` / `subject_queue_item_id` from
+    [SurfacedItem](../../api/schemas.py) and
+    [SurfacedQueueItem](../../web/lib/types.ts).
+  - Removed `_resolve_refresher_content` helper from
+    [surface_daily.py](../../api/routes/surface_daily.py) (plus its 4-step
+    SQL chain through refresher_schedule → attempts/engagements →
+    problems/papers → nodes, all replaced by the click-time lookup).
+  - Trimmed
+    [test_surface_daily.py](../../api/tests/test_surface_daily.py) —
+    deleted `test_refresher_resolved_to_content_title` (tested deleted
+    code); other refresher tests slimmed by dropping unused responders.
+
+- Tests: 9 new in
+  [test_refresher_resolve.py](../../api/tests/test_refresher_resolve.py)
+  covering auth, 404, wrong-kind, 409, curator pool-hit, curator
+  pool-miss, unknown ref_id, legacy attempt path, missing ref_id. Net
+  test count: 172 → 180 (added 9, removed 1 deleted test).
+
+- `npm run build` clean (Next.js 16.2.6, 55 routes incl. new
+  `/refresher/[queue_item_id]`). `uv run pytest`: 180/180.
+
+#### 8e — Persona-1 walkthrough — PENDING (user)
+
+Walk [persona-1-walkthrough.md](../persona-1-walkthrough.md) end-to-end on
+a fresh user. `POST /api/survey/reset` (admin-gated) wipes a user's survey
++ interests + node states + queue items so the seven-stage flow can be
+re-walked.
+
+Fold in the two manual validations from Step 7 (mobile sweep at 375×667 +
+real-device camera→upload→parse→review→submit) during the walkthrough.
+
+#### 8f — Phase close — PENDING (user)
+
+After 8e passes, update the [pivot-plan](../pivot-plan.md) status line to
+`Phase 10-rev complete. v2 ready for friends.`
 
 ---
 

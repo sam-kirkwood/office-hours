@@ -1,0 +1,29 @@
+{
+  "pick_id": "e5dbca7a-6d48-427d-aeef-ec7504b9ccc4",
+  "items": [
+    {
+      "queue_item_id": "93730243-cba0-4e7a-89be-709e4595b5d0",
+      "kind": "refresher",
+      "ref_id": "ce171e5d-22b9-4530-ad51-4fbcdb3a059f",
+      "added_reason": "You're jumping into information theory for neural coding \u2014 Shannon entropy is the central tool, and it sits directly on probability. This refresher makes sure that foundation is solid before the concepts get applied to spike trains.",
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20
+    },
+    {
+      "queue_item_id": "8b8664a4-4b58-42d2-87db-d9dc7a4c0c3f",
+      "kind": "problem",
+      "ref_id": "a1f37424-c17f-4d75-bb81-72cc9a2a8586",
+      "added_reason": "This is the core question in neural coding: how much does a neuron's response tell you about the stimulus? Builds from entropy toward the mutual information framework you're here for.",
+      "time_estimate_minutes_low": 15,
+      "time_estimate_minutes_high": 30
+    },
+    {
+      "queue_item_id": "2a0b1261-6747-4e48-a736-957d772d5e54",
+      "kind": "refresher",
+      "ref_id": "eb06a1b2-65e5-4892-9ea9-040f9766fe67",
+      "added_reason": "Bifurcations and attractors \u2014 what you want to understand \u2014 are built on fixed-point analysis. This refresher lays that groundwork so the dynamical systems content lands properly rather than feeling hand-wavy.",
+      "time_estimate_minutes_low": 10,
+      "time_estimate_minutes_high": 20
+    }
+  ]
+}

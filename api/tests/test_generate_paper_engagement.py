@@ -17,9 +17,18 @@ VALID_ENGAGEMENT_JSON = json.dumps(
     {
         "why_this_md": "This paper is directly relevant to your interest in gravitational waves.",
         "orienting_concepts_json": [
-            "gravitational wave strain",
-            "matched filtering",
-            "interferometer noise floor",
+            {
+                "term": "gravitational wave strain",
+                "definition_md": "The fractional change in length a gravitational wave induces in a detector arm.",
+            },
+            {
+                "term": "matched filtering",
+                "definition_md": "Cross-correlating data against a template waveform to extract a known signal from noise.",
+            },
+            {
+                "term": "interferometer noise floor",
+                "definition_md": "The minimum strain detectable above the instrument's intrinsic noise.",
+            },
         ],
         "questions_json": [
             {
@@ -159,7 +168,7 @@ def test_question_count_out_of_range_returns_500(client: TestClient, fakes) -> N
     bad_json = json.dumps(
         {
             "why_this_md": "Relevant.",
-            "orienting_concepts_json": ["concept"],
+            "orienting_concepts_json": [{"term": "concept", "definition_md": "A concept."}],
             "questions_json": [
                 # Only 2 questions — below the minimum of 3
                 {"id": str(uuid4()), "kind": "comprehension", "prompt_md": "Q1?", "order": 1},

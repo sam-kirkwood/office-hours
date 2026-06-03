@@ -76,6 +76,10 @@ class FakeQuery:
         self._filters.append(("text_search", col, query))
         return self
 
+    def or_(self, filter_string: str) -> FakeQuery:
+        self._filters.append(("or_", None, filter_string))
+        return self
+
     def limit(self, _n: int) -> FakeQuery:
         return self
 

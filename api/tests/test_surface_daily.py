@@ -186,7 +186,10 @@ def test_surface_daily_writes_surfaced_picks_row(client: TestClient, fakes) -> N
 
 
 # ---------------------------------------------------------------------------
-# /surface-daily: refresher resolution (step 5)
+# /surface-daily: refresher items are surfaced and prioritised. Resolution
+# of refresher content (linking back to a problem / paper / concept_review)
+# happens click-time in /refresher-resolve; surface-daily itself is content-
+# agnostic about refreshers.
 # ---------------------------------------------------------------------------
 
 
@@ -199,33 +202,16 @@ def _refresher_item(priority: float = 0.9) -> dict:
         "priority_score": priority,
         "time_estimate_minutes_low": 10,
         "time_estimate_minutes_high": 30,
-        "added_reason": None,
+        "added_reason": "A refresher on this topic.",
     }
 
 
-def test_refresher_item_appears_when_due(client: TestClient, fakes) -> None:
+def test_refresher_item_surfaces(client: TestClient, fakes) -> None:
     supabase, _ = fakes
     pick_id = str(uuid4())
-    sched_id = str(uuid4())
-    attempt_id = str(uuid4())
-    problem_id = str(uuid4())
-    node_id = str(uuid4())
-    orig_qi_id = str(uuid4())
-
     r_item = _refresher_item()
-    r_item["ref_id"] = sched_id
 
     supabase.respond("queue_items", "select", lambda _: [r_item])
-    supabase.respond(
-        "refresher_schedule", "select",
-        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
-    )
-    supabase.respond(
-        "attempts", "select",
-        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
-    )
-    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
-    supabase.respond("nodes", "select", lambda _: [{"title": "Real Analysis"}])
     supabase.respond("queue_items", "update", lambda _: [])
     supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
 
@@ -238,76 +224,24 @@ def test_refresher_item_appears_when_due(client: TestClient, fakes) -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert len(body["items"]) == 1
-    assert body["items"][0]["kind"] == "refresher"
-
-
-def test_refresher_resolved_to_content_title(client: TestClient, fakes) -> None:
-    supabase, _ = fakes
-    pick_id = str(uuid4())
-    sched_id = str(uuid4())
-    attempt_id = str(uuid4())
-    problem_id = str(uuid4())
-    node_id = str(uuid4())
-    orig_qi_id = str(uuid4())
-
-    r_item = _refresher_item()
-    r_item["ref_id"] = sched_id
-
-    supabase.respond("queue_items", "select", lambda _: [r_item])
-    supabase.respond(
-        "refresher_schedule", "select",
-        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
-    )
-    supabase.respond(
-        "attempts", "select",
-        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
-    )
-    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
-    supabase.respond("nodes", "select", lambda _: [{"title": "Complex Analysis"}])
-    supabase.respond("queue_items", "update", lambda _: [])
-    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
-
-    response = client.post(
-        "/surface-daily",
-        json={"user_id": str(uuid4())},
-        headers=AUTH_HEADERS,
-    )
-
-    assert response.status_code == 200, response.text
-    item = response.json()["items"][0]
-    assert item["added_reason"] == "A refresher on Complex Analysis."
-    assert item["subject_kind"] == "attempt"
-    assert item["subject_queue_item_id"] == orig_qi_id
+    item = body["items"][0]
+    assert item["kind"] == "refresher"
+    # added_reason is passed through verbatim from the queue_items row
+    assert item["added_reason"] == "A refresher on this topic."
 
 
 def test_refresher_priority_above_problem(client: TestClient, fakes) -> None:
     """Refresher (0.9) surfaces when competing with problems (0.5/0.3/0.2)."""
     supabase, _ = fakes
     pick_id = str(uuid4())
-    sched_id = str(uuid4())
-    attempt_id = str(uuid4())
-    problem_id = str(uuid4())
-    node_id = str(uuid4())
-    orig_qi_id = str(uuid4())
 
     r_item = _refresher_item(priority=0.9)
-    r_item["ref_id"] = sched_id
     p1 = _item("problem", priority=0.5)
     p2 = _item("problem", priority=0.3)
     p3 = _item("problem", priority=0.2)
 
     # Items ordered by priority desc (as the DB query would return)
     supabase.respond("queue_items", "select", lambda _: [r_item, p1, p2, p3])
-    supabase.respond(
-        "refresher_schedule", "select",
-        lambda _: [{"subject_kind": "attempt", "subject_ref_id": attempt_id}],
-    )
-    supabase.respond(
-        "attempts", "select",
-        lambda _: [{"problem_id": problem_id, "queue_item_id": orig_qi_id}],
-    )
-    supabase.respond("problems", "select", lambda _: [{"topic_node_id": node_id}])
-    supabase.respond("nodes", "select", lambda _: [{"title": "Topology"}])
     supabase.respond("queue_items", "update", lambda _: [])
     supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
 
@@ -323,3 +257,88 @@ def test_refresher_priority_above_problem(client: TestClient, fakes) -> None:
     assert "refresher" in kinds
 
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 10-rev Step 9a — ref_id dedup in variety filter
+# ---------------------------------------------------------------------------
+
+
+def _item_with_ref(kind: str, ref_id: str, priority: float = 1.0) -> dict:
+    return {
+        "id": str(uuid4()),
+        "kind": kind,
+        "ref_id": ref_id,
+        "state": "pending",
+        "priority_score": priority,
+        "time_estimate_minutes_low": 10,
+        "time_estimate_minutes_high": 20,
+        "added_reason": f"You expressed interest in {kind}.",
+    }
+
+
+def test_surface_daily_dedups_on_ref_id(client: TestClient, fakes) -> None:
+    """Two queue items pointing at the same problem (curator dup that
+    slipped through the dedup at /plan-queue time) only contribute one
+    slot to the daily three. The variety filter now checks ref_id in
+    addition to kind."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    shared_ref = str(uuid4())
+    other_ref = str(uuid4())
+    third_ref = str(uuid4())
+    items = [
+        _item_with_ref("problem", shared_ref, priority=3.0),
+        _item_with_ref("problem", shared_ref, priority=2.0),  # dup
+        _item_with_ref("problem", other_ref, priority=1.5),
+        _item_with_ref("refresher", third_ref, priority=1.0),
+    ]
+    supabase.respond("queue_items", "select", lambda _: items)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    ref_ids = [it["ref_id"] for it in body["items"]]
+    # No ref_id appears twice in the daily three.
+    assert len(set(ref_ids)) == len(ref_ids)
+    # And the second copy of shared_ref didn't displace other_ref or third_ref.
+    assert other_ref in ref_ids
+    assert third_ref in ref_ids
+
+
+def test_surface_daily_all_dups_falls_through_gracefully(
+    client: TestClient, fakes
+) -> None:
+    """If every queue item duplicates an already-picked ref_id, the
+    variety filter terminates without infinite-looping and surfaces what
+    it could pick uniquely. Belt-and-braces guard."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    shared_ref = str(uuid4())
+    items = [
+        _item_with_ref("problem", shared_ref, priority=3.0),
+        _item_with_ref("problem", shared_ref, priority=2.0),
+        _item_with_ref("problem", shared_ref, priority=1.5),
+    ]
+    supabase.respond("queue_items", "select", lambda _: items)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Only one item — the others all duplicated its ref_id.
+    assert len(body["items"]) == 1
+    assert body["items"][0]["ref_id"] == shared_ref

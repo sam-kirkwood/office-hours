@@ -332,8 +332,9 @@ function Step1View({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-3 pt-2">
+      {/* Actions — stack on phone (Start working primary at the bottom),
+          row on sm+ where the three buttons fit comfortably. */}
+      <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
         <button
           type="button"
           onClick={onSkip}
@@ -354,7 +355,7 @@ function Step1View({
           type="button"
           onClick={onStartWorking}
           disabled={loading}
-          className="flex-1 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/85 transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
+          className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/85 transition-colors duration-[var(--duration-fast)] disabled:opacity-50 sm:flex-1"
         >
           {loading ? "Starting…" : "Start working"}
         </button>

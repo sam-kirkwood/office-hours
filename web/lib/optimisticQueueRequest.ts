@@ -17,6 +17,7 @@ interface Body {
   raw_text?: string;
   kind_hint?: "problem" | "paper" | "refresher";
   skip_interest_add?: boolean;
+  parent_queue_item_id?: string;
 }
 
 interface Labels {
@@ -33,7 +34,11 @@ interface QueueRequestResponse {
 
 interface OptimisticQueueRequestArgs {
   body: Body;
-  targetPath: (queueItemId: string) => string;
+  // Receives the resulting queue item's id and the response `kind`
+  // (e.g. "problem", "paper_engagement", "refresher", "concept_review") so
+  // callers whose kind_hint can resolve to multiple kinds (e.g. refresher
+  // falling back to concept_review) can route correctly.
+  targetPath: (queueItemId: string, kind: string | undefined) => string;
   router: Router;
   labels: Labels;
 }
@@ -65,7 +70,7 @@ export function optimisticQueueRequest({
           id: toastId,
           action: {
             label: "Go to it now →",
-            onClick: () => router.push(targetPath(id)),
+            onClick: () => router.push(targetPath(id, data.kind)),
           },
           duration: 8000,
         });
