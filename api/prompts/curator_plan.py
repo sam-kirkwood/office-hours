@@ -67,6 +67,15 @@ Return a JSON object with two fields:
     "reason": "<one or two sentences, user-tone>"
   }
 
+  When `kind: "refresher"` and the refresher targets a foundation skill \
+(partition functions, eigenvalues, ODE solution techniques, Fourier \
+transforms, etc.), put the FOUNDATION node title in `interest_node` — not \
+the interest node the skill prepares the user for. The skill being \
+refreshed lives on the foundation; the interest just uses it. E.g. a \
+refresher on partition functions for someone studying phase transitions \
+has `interest_node` = "Statistical Mechanics" (the foundation), not \
+"Phase Transitions & Critical Phenomena".
+
   Reprioritise shape:
   {
     "action": "reprioritise",

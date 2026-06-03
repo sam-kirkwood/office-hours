@@ -448,12 +448,24 @@ def resolve_add_interest(
                         "edge_kind": "related",
                     }
                 )
-        if edge_rows:
+        # Insert edges one at a time. A batched insert rolls the whole
+        # batch back if any single row collides with an existing edge —
+        # which silently orphaned new interest nodes whenever the resolved
+        # related_slug also appeared in proposed_prerequisite_slugs (the
+        # second row 23505'd and took the first row down with it). Per-row
+        # inserts isolate the collision and leave a breadcrumb.
+        for edge_row in edge_rows:
             try:
-                supabase.table("edges").insert(edge_rows).execute()
+                supabase.table("edges").insert(edge_row).execute()
             except Exception as exc:
                 if not _is_unique_violation(exc):
                     raise
+                logger.warning(
+                    "edge insert skipped (unique violation): %s -> %s (%s)",
+                    edge_row["source_node_id"],
+                    edge_row["target_node_id"],
+                    edge_row["edge_kind"],
+                )
 
     ui_id = _upsert_user_interest(
         supabase,

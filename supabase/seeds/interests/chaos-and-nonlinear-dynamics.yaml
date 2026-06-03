@@ -1,0 +1,29 @@
+slug: chaos-and-nonlinear-dynamics
+title: Chaos & Nonlinear Dynamics
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The study of deterministic systems whose behaviour is nonetheless
+  unpredictable in the long run, due to sensitive dependence on initial
+  conditions. It covers fixed points and bifurcations, the logistic map and
+  period doubling, strange attractors like the Lorenz system, Lyapunov
+  exponents, and the fractal geometry that chaos produces. A field that
+  overturned the assumption that simple equations must give simple behaviour.
+
+subtopics:
+  - Flows, fixed points, and stability
+  - Bifurcations (saddle-node, transcritical, Hopf)
+  - The logistic map and period doubling
+  - Strange attractors and the Lorenz system
+  - Lyapunov exponents and sensitive dependence
+  - Fractals and self-similarity
+  - Poincaré sections and maps
+  - Routes to chaos
+
+prereq_slugs:
+  - odes
+  - linear-algebra
+
+related_slugs:
+  - dynamical-systems-neural-circuits

@@ -1,0 +1,30 @@
+slug: numerical-methods-pdes
+title: Numerical Methods for PDEs
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  How partial differential equations that resist exact solution are solved
+  approximately on a computer. It covers finite-difference and finite-element
+  discretisations, explicit and implicit time stepping, the stability
+  conditions that govern whether a scheme behaves, and the spectral methods
+  that exploit Fourier structure. The computational backbone of modelling in
+  engineering, climate, and the physical sciences.
+
+subtopics:
+  - Finite difference approximations
+  - Explicit and implicit time stepping
+  - Stability and the CFL condition
+  - The heat, wave, and Poisson equations
+  - Finite element basics
+  - Spectral methods
+  - Convergence and error analysis
+  - Sparse linear solvers
+
+prereq_slugs:
+  - partial-differential-equations
+  - linear-algebra
+
+related_slugs:
+  - fourier-analysis
+  - chaos-and-nonlinear-dynamics

@@ -1,0 +1,30 @@
+slug: signal-processing
+title: Signal Processing
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  The analysis and manipulation of signals — sequences and functions
+  carrying information — primarily through their frequency content. It covers
+  linear time-invariant systems and convolution, the Fourier and z-transforms,
+  sampling and the Nyquist limit, and frequency-domain filtering. The
+  mathematical core behind audio, communications, imaging, and any system
+  that measures a changing quantity over time.
+
+subtopics:
+  - Continuous and discrete-time signals
+  - Linear time-invariant systems and convolution
+  - The Fourier series and Fourier transform
+  - The discrete Fourier transform and FFT
+  - Sampling and the Nyquist theorem
+  - The Laplace and z-transforms
+  - Filtering in the frequency domain
+  - Spectral analysis of signals
+
+prereq_slugs:
+  - fourier-analysis
+  - linear-algebra
+
+related_slugs:
+  - information-theory-neural-coding
+  - probability-stochastic-processes

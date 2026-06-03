@@ -142,6 +142,22 @@ def test_missing_bearer_returns_401(client: TestClient) -> None:
     assert resp.status_code == 401
 
 
+def test_curator_prompt_routes_refreshers_to_foundation_titles() -> None:
+    """Step 9c-iii: the upstream fix for refresher mis-routing is a prompt
+    instruction telling the curator to put the foundation node title in
+    `interest_node` for foundation-skill refreshers, rather than relying solely
+    on the dispatch-layer token matcher. Guard the instruction against
+    regression."""
+    from prompts.curator_plan import build_system_prompt
+
+    prompt = build_system_prompt()
+    lowered = prompt.lower()
+    assert 'kind: "refresher"' in prompt
+    assert "put the foundation node title in `interest_node`" in lowered
+    # The worked example anchors the rule on a concrete foundation/interest pair.
+    assert "statistical mechanics" in lowered
+
+
 def test_empty_recommendations_is_a_valid_response(
     client: TestClient, fakes
 ) -> None:

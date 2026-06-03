@@ -1,0 +1,30 @@
+slug: dynamical-systems-neural-circuits
+title: Dynamical Systems & Neural Circuit Modeling
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  Dynamical systems theory provides the mathematical language for
+  understanding how neural circuits produce rhythms, switches, and
+  persistent states — through concepts like fixed points, limit cycles,
+  bifurcations, and attractors. This node builds genuine working
+  knowledge of phase-plane analysis and bifurcation theory using
+  canonical neuroscience models (FitzHugh–Nagumo, Wilson–Cowan,
+  Hodgkin–Huxley reductions) as the motivating playground. If you want
+  to know *why* a neuron fires repetitively, how a brain region can hold
+  a memory, or what makes a circuit switch between states, this is the
+  foundational framework.
+
+subtopics:
+  - Phase plane and vector fields
+  - Fixed points and linear stability
+  - Limit cycles and neural oscillations
+  - Bifurcations (saddle-node, Hopf, SNIC)
+  - Excitability and spike generation
+  - Multi-stable circuits and memory
+  - Nullcline analysis of neural models
+  - Slow-fast decomposition and bursting
+
+prereq_slugs:
+  - odes
+  - linear-algebra

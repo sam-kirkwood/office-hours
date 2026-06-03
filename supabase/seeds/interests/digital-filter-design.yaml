@@ -1,0 +1,26 @@
+slug: digital-filter-design
+title: Digital Filter Design
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  The design of discrete-time systems that shape a signal's frequency
+  content — passing some components and attenuating others. It covers FIR and
+  IIR structures, the z-transform and pole–zero analysis, classic analog
+  prototypes mapped to digital form, and the practical effects of
+  finite-precision arithmetic. Where the theory of signal processing turns
+  into systems you can actually implement.
+
+subtopics:
+  - FIR and IIR filter structures
+  - The z-transform and transfer functions
+  - Poles, zeros, and stability
+  - Frequency response (magnitude and phase)
+  - Window-based FIR design
+  - The bilinear transform and analog prototypes
+  - Butterworth, Chebyshev, and elliptic filters
+  - Quantization and finite-precision effects
+
+prereq_slugs:
+  - signal-processing
+  - complex-analysis

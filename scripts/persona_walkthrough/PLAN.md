@@ -7,6 +7,18 @@ This plan resolves the issues that surfaced from the two persona walkthroughs:
 
 It covers **Felt off** + **Broken** from both reports, ordered for ship-ability.
 
+**Status:** Step 9a ✓ done (dup queue items + variety filter + refresher
+routing dispatch; 5 new tests). Seed Slice 1 ✓ done (8 v1-demoted interest
+YAMLs + loader + foundation rename migration — applied). Step 9b ✓ done
+(per-row edge inserts + logger breadcrumb; 4 orphans reclaimed as seeds
+with backfilled edges). Step 9c ✓ done (parser denial-of-mastery → teach
+rule; Stage-3 padding fallback dropped; curator refresher→foundation prompt
+line). pytest 190/190 passing (was 185). Slice 3 ✓ done (14 new interest
+YAMLs + 3 user-node reclaims → megagraph now 42 nodes / 29 interests, all
+seeded, 0 orphans, every domain ≥ 6; 7 interest↔interest bridges added;
+stray ligo→cosmology mis-curation dropped; new scripts/megagraph_report.py
+diagnostic). **Phase 10-rev Step 9 fully closed.**
+
 ---
 
 ## Consolidated issue inventory

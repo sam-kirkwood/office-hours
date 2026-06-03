@@ -1,0 +1,31 @@
+slug: general-relativity
+title: General Relativity
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  Einstein's theory of gravity as the curvature of spacetime, in which
+  matter tells spacetime how to bend and spacetime tells matter how to move.
+  Building on special relativity and the language of tensors, it develops
+  the field equations, the Schwarzschild black hole, gravitational time
+  dilation, and the dynamics of an expanding universe. One of the deepest
+  and most experimentally vindicated theories in physics.
+
+subtopics:
+  - The equivalence principle
+  - Spacetime curvature and geodesics
+  - The metric tensor and Christoffel symbols
+  - Einstein's field equations
+  - The Schwarzschild solution and black holes
+  - Gravitational time dilation and redshift
+  - Gravitational waves
+  - Cosmological solutions (the FRW metric)
+
+prereq_slugs:
+  - special-relativity
+  - tensor-calculus-differential-geometry
+  - multivariable-calculus
+
+related_slugs:
+  - gravitational-waves-ligo
+  - cosmology-lambda-cdm

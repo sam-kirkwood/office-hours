@@ -1,0 +1,29 @@
+slug: information-theory-neural-coding
+title: Information Theory for Neural Coding
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  This topic covers the application of Shannon's entropy and mutual
+  information to the analysis of neural spike trains, asking how much
+  information a neuron's firing pattern carries about a stimulus or
+  behaviour. It provides quantitative tools — from direct entropy
+  estimation to decoding approaches — that let neuroscientists move
+  beyond correlation and ask sharp questions about the efficiency and
+  capacity of neural codes. Anyone working with electrophysiology data
+  or building models of sensory and motor systems will find these
+  methods essential.
+
+subtopics:
+  - Shannon entropy and neural firing rates
+  - Mutual information between stimulus and response
+  - Spike train representations and binning
+  - Bias correction in entropy estimation
+  - Noise entropy and coding efficiency
+  - Population codes and redundancy
+  - Information-theoretic decoding methods
+  - Data-limited estimation techniques
+
+prereq_slugs:
+  - probability
+  - statistics

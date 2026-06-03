@@ -1,0 +1,31 @@
+slug: superconductivity
+title: Superconductivity
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  The remarkable state in which certain materials lose all electrical
+  resistance and expel magnetic fields below a critical temperature. It
+  develops the phenomenology of the Meissner effect and the London
+  equations, the microscopic BCS picture of Cooper pairs and the energy gap,
+  and the Ginzburg–Landau description of the transition, through to Josephson
+  junctions and high-temperature superconductors. A striking macroscopic
+  manifestation of quantum mechanics.
+
+subtopics:
+  - Zero resistance and the Meissner effect
+  - Type I and type II superconductors
+  - London equations and the penetration depth
+  - Cooper pairs and the BCS ground state
+  - The energy gap and density of states
+  - Flux quantization and Josephson junctions
+  - Ginzburg–Landau theory
+  - High-temperature superconductors
+
+prereq_slugs:
+  - quantum-mechanics-1
+  - statistical-mechanics
+  - electromagnetism-1
+
+related_slugs:
+  - phase-transitions-critical-phenomena

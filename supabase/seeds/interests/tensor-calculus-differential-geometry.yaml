@@ -1,0 +1,29 @@
+slug: tensor-calculus-differential-geometry
+title: Tensor Calculus & Differential Geometry
+domain: math
+difficulty_hint: advanced
+
+description_md: |
+  The mathematics of curved spaces and the coordinate-free objects that live
+  on them. It develops manifolds, tensors, covariant differentiation, and
+  curvature, giving precise meaning to notions like parallel transport and
+  geodesics. The essential toolkit for general relativity and continuum
+  mechanics, and a beautiful subject in its own right where geometry and
+  analysis meet.
+
+subtopics:
+  - Manifolds and coordinate charts
+  - Tangent vectors and covectors
+  - Tensors and tensor operations
+  - The metric tensor and raising/lowering indices
+  - Covariant derivatives and connections
+  - Christoffel symbols
+  - Curvature (Riemann, Ricci, and scalar)
+  - Geodesics and parallel transport
+
+prereq_slugs:
+  - multivariable-calculus
+  - linear-algebra
+
+related_slugs:
+  - lagrangian-mechanics

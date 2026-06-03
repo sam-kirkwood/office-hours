@@ -1,0 +1,27 @@
+slug: gravitational-waves-ligo
+title: Gravitational Waves & LIGO
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  Gravitational waves are ripples in spacetime curvature produced by
+  accelerating masses — most dramatically by merging black holes and
+  neutron stars. LIGO and Virgo detect these signals using kilometer-scale
+  laser interferometers sensitive to displacements smaller than a proton.
+  Understanding this field spans general relativity, precision measurement,
+  signal processing, and astrophysics, making it one of the richest
+  intersections of theory and experiment in modern physics.
+
+subtopics:
+  - Spacetime strain and wave polarisation
+  - Laser interferometer operating principles
+  - Noise sources and sensitivity limits
+  - Matched filtering and signal recovery
+  - Compact binary coalescence physics
+  - Multi-messenger astronomy
+  - Parameter estimation and sky localisation
+
+prereq_slugs:
+  - classical-mechanics
+  - electromagnetism-1
+  - waves-oscillations

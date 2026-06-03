@@ -1,0 +1,28 @@
+slug: computational-complexity
+title: Computational Complexity & P vs NP
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  The study of what can be computed and, more sharply, what can be computed
+  efficiently. Starting from Turing machines and the notion of an algorithm,
+  it builds the landscape of complexity classes, the theory of
+  NP-completeness and reductions, and the still-open question of whether P
+  equals NP. A largely self-contained subject that rewards careful reasoning
+  over heavy prerequisites, and that frames the limits of what computers can
+  do.
+
+subtopics:
+  - Turing machines and the Church–Turing thesis
+  - Time and space complexity classes
+  - P, NP, and NP-completeness
+  - Polynomial-time reductions
+  - The Cook–Levin theorem
+  - Classic NP-complete problems (SAT, clique, TSP)
+  - Decidability and the halting problem
+  - Hierarchy theorems and beyond NP
+
+prereq_slugs: []
+
+related_slugs:
+  - coding-theory-error-correction

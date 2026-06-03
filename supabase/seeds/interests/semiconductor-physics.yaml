@@ -1,0 +1,29 @@
+slug: semiconductor-physics
+title: Semiconductor Physics
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  Semiconductor physics explains how crystalline materials with a moderate
+  band gap give rise to controllable electrical behavior through doping,
+  carrier transport, and junction formation. It bridges quantum mechanics
+  and solid-state theory to explain why silicon can act as a switch, a
+  diode, or an amplifier depending on how it is structured and biased.
+  Anyone who wants to understand transistors, solar cells, or LEDs at a
+  physical rather than circuit level needs this foundation.
+
+subtopics:
+  - Crystal structure and Brillouin zones
+  - Band theory and effective mass
+  - Doping and carrier statistics
+  - Drift, diffusion, and mobility
+  - p-n junctions and diode behavior
+  - Bipolar and field-effect transistors
+  - Optical and thermal properties
+  - Quantum confinement and heterostructures
+
+prereq_slugs:
+  - electromagnetism-1
+  - quantum-mechanics-1
+  - statistical-mechanics
+  - waves-oscillations

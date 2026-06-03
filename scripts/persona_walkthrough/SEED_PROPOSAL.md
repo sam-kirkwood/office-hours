@@ -148,7 +148,25 @@ machinery for seeding. I'd push back:
 **Effort.** ~4 hours: YAML schema + loader script + tests for
 idempotency + 2-3 hand-authored example files to validate the format.
 
-### Slice 3 — Author the actual seed content
+### Slice 3 — Author the actual seed content — ✓ DONE
+
+**Outcome.** The megagraph is now 42 nodes (13 foundation, 29 interest —
+all 29 seeded with `created_by_user_id = NULL`), 109 edges (76
+prerequisite, 33 related), zero orphan interest nodes, and every domain
+clears the Stage-3 `SUGGESTION_MIN = 6` threshold (applied 7, math 7,
+physics 15). All candidate slugs below were authored, plus three "unusual"
+picks (quantum-information, coding-theory-error-correction,
+computational-complexity), and the 3 previously user-created nodes
+(semiconductor-physics, gravitational-waves-ligo, cosmology-lambda-cdm)
+were reclaimed as seeds. Seven interest↔interest "related" bridges were
+added for cross-pollination and a stray gravitational-waves-ligo→cosmology
+prerequisite mis-curation was dropped. Snapshot any time with
+`uv run --project api python scripts/megagraph_report.py`. Balance note
+for a future pass: physics (15) outweighs math (7) and applied (7) — next
+authoring should tilt math/applied (optimisation, graph theory, Bayesian
+inference, game theory, number theory/cryptography, control theory).
+
+The original plan follows for reference.
 
 What the operator should put in `supabase/seeds/interests/` once Slice 2
 exists. Goal: 18–25 total interest nodes covering physics + math
@@ -172,11 +190,14 @@ already justify them):**
 - fourier-analysis — Persona 3 hits this via signal processing
 - digital-filter-design — Persona 3's cross-pollination suggestion
 
-**Drawn from the orphan-claimed nodes (Hank's walkthrough already
-generated excellent material, claim it as seed):**
+**Drawn from the orphan-claimed nodes — ✓ DONE in Step 9b (all four
+persona orphans reclaimed as seeds with `created_by_user_id = NULL` and
+backfilled edges):**
 
-- phase-transitions-critical-phenomena
-- renormalization-group-fixed-points
+- phase-transitions-critical-phenomena (Hank)
+- renormalization-group-fixed-points (Hank)
+- information-theory-neural-coding (Maya)
+- dynamical-systems-neural-circuits (Maya)
 
 **Worth adding to round out coverage:**
 
@@ -253,7 +274,11 @@ matching slug) — worth a flag on the loader for cleanup.
 
 ---
 
-## Acceptance check
+## Acceptance check — ✓ met
+
+Slice 1 + Slice 2 + Slice 3 have all landed (29 interest nodes, well past
+the ~10-node Slice-3 bar). The original acceptance criteria, for the
+record:
 
 After Slice 1 + Slice 2 + ~10 nodes of Slice 3 land:
 

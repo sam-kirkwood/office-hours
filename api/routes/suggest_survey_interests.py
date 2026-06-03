@@ -216,23 +216,11 @@ def suggest_survey_interests(
         if len(suggestions) >= SUGGESTION_MAX:
             break
 
-    # Belt-and-braces: if Haiku came up short, pad from the heuristic
-    # shortlist in score order, with a neutral fallback rationale.
-    if len(suggestions) < SUGGESTION_MIN:
-        for node in shortlist:
-            if node["slug"] in seen:
-                continue
-            suggestions.append(
-                SurveyInterestSuggestion(
-                    node_id=UUID(node["id"]),
-                    slug=node["slug"],
-                    title=node["title"],
-                    description_md=node.get("description_md") or "",
-                    why_suggested_md="Adjacent to the foundations you flagged.",
-                )
-            )
-            seen.add(node["slug"])
-            if len(suggestions) >= SUGGESTION_MIN:
-                break
-
+    # No padding fallback. If Haiku ranks fewer than SUGGESTION_MIN, we return
+    # the short honest list rather than padding from the unfiltered shortlist
+    # with a rationale ("Adjacent to the foundations you flagged.") that is
+    # provably false when the in-domain pool was thin. A small in-domain list
+    # is better than a padded misleading one; the free-text "Curious about
+    # something specific?" input is the safety net for users whose interests
+    # the megagraph doesn't yet cover. See Step 9c-ii.
     return SuggestSurveyInterestsResponse(suggestions=suggestions)

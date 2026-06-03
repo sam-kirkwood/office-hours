@@ -1,0 +1,26 @@
+slug: coding-theory-error-correction
+title: Coding Theory & Error Correction
+domain: applied
+difficulty_hint: core
+
+description_md: |
+  How information is transmitted or stored reliably over noisy channels by
+  adding carefully structured redundancy. The discipline ranges from the
+  geometry of Hamming distance and linear block codes through the polynomial
+  algebra of cyclic and Reed–Solomon codes, all underpinned by Shannon's
+  theorem on the ultimate limits of reliable communication. The mathematics
+  behind everything from deep-space telemetry to QR codes and storage media.
+
+subtopics:
+  - Error models and Hamming distance
+  - Linear block codes and generator matrices
+  - Parity-check matrices and syndromes
+  - Hamming codes and perfect codes
+  - Cyclic codes and polynomial algebra
+  - Reed–Solomon codes
+  - Shannon's channel coding theorem
+  - Bounds (Singleton, Hamming, Gilbert–Varshamov)
+
+prereq_slugs:
+  - linear-algebra
+  - probability

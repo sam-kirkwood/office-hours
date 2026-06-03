@@ -1,0 +1,30 @@
+slug: quantum-information
+title: Quantum Information & Computation
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  The theory of information stored and processed in quantum systems, where
+  superposition and entanglement enable behaviour with no classical
+  analogue. Built almost entirely from linear algebra, it covers how qubits
+  are manipulated by gates, why entangled states violate Bell inequalities,
+  and how protocols like teleportation and simple quantum algorithms
+  outperform their classical counterparts. The conceptual foundation behind
+  quantum computing, communication, and the second quantum revolution.
+
+subtopics:
+  - Qubits and the Bloch sphere
+  - Quantum gates and circuits
+  - Entanglement and Bell states
+  - Bell inequalities and nonlocality
+  - No-cloning and quantum teleportation
+  - Density matrices and mixed states
+  - Quantum algorithms (Deutsch–Jozsa, Grover)
+  - Quantum error correction basics
+
+prereq_slugs:
+  - linear-algebra
+  - quantum-mechanics-1
+
+related_slugs:
+  - coding-theory-error-correction

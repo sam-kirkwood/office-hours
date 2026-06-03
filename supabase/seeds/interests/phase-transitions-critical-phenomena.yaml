@@ -1,0 +1,31 @@
+slug: phase-transitions-critical-phenomena
+title: Phase Transitions & Critical Phenomena
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  This topic covers how macroscopic systems abruptly change their
+  collective behavior — from paramagnet to ferromagnet, liquid to gas —
+  and the universal mathematical structure that governs these
+  transitions near the critical point. It builds from exactly solvable
+  models like the 1D and 2D Ising model through mean-field approximations
+  to the modern framework of scaling laws, critical exponents, and
+  universality classes. Understanding it reveals why wildly different
+  physical systems (magnets, fluids, alloys) share identical behavior
+  near criticality — one of the deepest results in theoretical physics.
+
+subtopics:
+  - 1D Ising model & transfer matrices
+  - 2D Ising model & Onsager solution
+  - Mean-field theory & Landau theory
+  - Critical exponents & scaling laws
+  - Universality classes & renormalization group
+  - Order parameters & symmetry breaking
+  - Correlation functions & diverging length scales
+
+prereq_slugs:
+  - statistical-mechanics
+  - thermodynamics
+
+related_slugs:
+  - renormalization-group-fixed-points

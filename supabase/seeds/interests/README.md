@@ -85,9 +85,17 @@ uv run --project api python scripts/seed_megagraph.py \
 
 ## What's currently seeded
 
-The eight Slice-1 v1-demoted interests are the initial batch.
-Documented in [SEED_PROPOSAL.md](../../../scripts/persona_walkthrough/SEED_PROPOSAL.md);
-additional candidates listed there but not yet authored.
+All 29 interest nodes in the megagraph are now seeded from this directory
+(`created_by_user_id = NULL`): the 8 Slice-1 v1-demoted interests, the 4
+persona-walkthrough orphan reclaims, the 14 Slice-3 content nodes, and the
+3 reclaimed originally-user-created nodes (semiconductor-physics,
+gravitational-waves-ligo, cosmology-lambda-cdm). The full rationale is in
+[SEED_PROPOSAL.md](../../../scripts/persona_walkthrough/SEED_PROPOSAL.md).
+Snapshot the live node/edge/orphan/density state any time with:
+
+```bash
+uv run --project api python scripts/megagraph_report.py
+```
 
 ## What this directory is NOT for
 

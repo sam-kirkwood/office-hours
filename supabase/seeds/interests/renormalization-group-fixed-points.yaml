@@ -1,0 +1,26 @@
+slug: renormalization-group-fixed-points
+title: Renormalization Group & Fixed Points
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  Wilson's renormalization group (RG) is a framework for systematically
+  integrating out short-scale degrees of freedom to reveal how physical
+  laws change with the scale at which you observe a system. Fixed points
+  of the RG flow govern universality — the striking fact that wildly
+  different physical systems share identical critical exponents near a
+  phase transition. Understanding where the RG works, where it breaks
+  down, and how to extract scaling dimensions from linearized flow gives
+  deep insight into both condensed matter and quantum field theory.
+
+subtopics:
+  - Block-spin and coarse-graining ideas
+  - RG flow equations and fixed points
+  - Relevant, irrelevant, and marginal operators
+  - Universality classes and critical exponents
+  - Epsilon expansion near four dimensions
+  - Basin of attraction and crossover phenomena
+  - Limitations and breakdown of RG
+
+prereq_slugs:
+  - statistical-mechanics

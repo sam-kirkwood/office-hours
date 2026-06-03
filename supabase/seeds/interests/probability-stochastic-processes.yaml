@@ -1,0 +1,31 @@
+slug: probability-stochastic-processes
+title: Probability & Stochastic Processes
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The mathematics of systems that evolve randomly over time, building on
+  basic probability toward processes with memory and continuous-time
+  randomness. It covers Markov chains and their stationary behaviour, Poisson
+  processes, random walks and martingales, Brownian motion, and the
+  differential equations that govern noisy dynamics. The foundation for
+  modelling everything from queues and finance to diffusion and noise in
+  physical systems.
+
+subtopics:
+  - Random variables and distributions
+  - Markov chains and transition matrices
+  - Stationary distributions and ergodicity
+  - Poisson processes
+  - Random walks and martingales
+  - Brownian motion
+  - The Langevin and Fokker–Planck equations
+  - Stochastic differential equations
+
+prereq_slugs:
+  - probability
+  - calculus-2
+
+related_slugs:
+  - information-theory-neural-coding
+  - chaos-and-nonlinear-dynamics

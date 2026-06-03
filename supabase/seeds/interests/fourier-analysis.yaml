@@ -1,0 +1,29 @@
+slug: fourier-analysis
+title: Fourier Analysis
+domain: math
+difficulty_hint: core
+
+description_md: |
+  The decomposition of functions into sums or integrals of sinusoids,
+  revealing the frequency content hidden inside a signal or a differential
+  equation. It covers Fourier series and transforms, their key properties,
+  the role of the Dirac delta, and the fast algorithms that make the theory
+  practical. One of the most widely applied ideas in all of mathematics,
+  from heat flow to spectroscopy.
+
+subtopics:
+  - Fourier series and periodic functions
+  - Convergence of Fourier series
+  - The Fourier transform
+  - Properties (convolution, modulation, duality)
+  - The Dirac delta and distributions
+  - Parseval's and Plancherel's theorems
+  - Discrete and fast Fourier transforms
+  - Applications to differential equations
+
+prereq_slugs:
+  - calculus-2
+
+related_slugs:
+  - partial-differential-equations
+  - optics

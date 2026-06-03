@@ -1,0 +1,30 @@
+slug: band-structure-electron-states
+title: Band Structure & Electron States
+domain: physics
+difficulty_hint: advanced
+
+description_md: |
+  The quantum-mechanical account of how electrons occupy allowed energy
+  bands in a periodic crystal, and why those bands determine whether a
+  material is a metal, insulator, or semiconductor. It develops Bloch's
+  theorem, the reciprocal lattice, and models from nearly-free electrons to
+  tight binding, culminating in effective mass, density of states, and Fermi
+  surfaces. The theoretical engine underneath all of electronic materials
+  science.
+
+subtopics:
+  - Bloch's theorem and Bloch waves
+  - Reciprocal lattice and Brillouin zones
+  - Nearly-free-electron model and band gaps
+  - The tight-binding model
+  - Metals, insulators, and semiconductors from band filling
+  - Effective mass and group velocity
+  - Density of states
+  - Fermi surfaces
+
+prereq_slugs:
+  - quantum-mechanics-1
+  - linear-algebra
+
+related_slugs:
+  - semiconductor-physics

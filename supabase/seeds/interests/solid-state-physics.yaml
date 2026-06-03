@@ -1,0 +1,32 @@
+slug: solid-state-physics
+title: Solid State Physics
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  The physics of crystalline matter — how the periodic arrangement of atoms
+  gives rise to the electrical, thermal, magnetic, and optical properties of
+  real materials. It surveys crystal structure, lattice vibrations,
+  electronic band theory, semiconductors, and magnetism, connecting
+  microscopic quantum behaviour to the macroscopic properties engineers
+  actually use. The bridge between quantum mechanics and the materials that
+  make up modern technology.
+
+subtopics:
+  - Crystal structure and the reciprocal lattice
+  - Lattice vibrations and phonons
+  - Free-electron and band theory of solids
+  - Electrical and thermal conduction
+  - Semiconductors and doping
+  - Magnetism in solids
+  - Dielectric and optical properties
+  - Defects and disorder
+
+prereq_slugs:
+  - quantum-mechanics-1
+  - statistical-mechanics
+
+related_slugs:
+  - semiconductor-physics
+  - band-structure-electron-states
+  - superconductivity

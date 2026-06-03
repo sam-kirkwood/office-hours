@@ -1,0 +1,27 @@
+slug: cosmology-lambda-cdm
+title: Cosmology & the Lambda-CDM Model
+domain: physics
+difficulty_hint: core
+
+description_md: |
+  Cosmology is the study of the origin, structure, and evolution of the
+  universe as a whole. The Lambda-CDM model is the current standard
+  framework, combining cold dark matter and a cosmological constant (dark
+  energy) to explain observations ranging from the cosmic microwave
+  background to large-scale structure. Understanding it reveals how the
+  universe expanded from a hot dense state, why galaxies cluster as they do,
+  and what determines the universe's ultimate fate.
+
+subtopics:
+  - Hubble expansion and cosmic distance ladder
+  - Cosmic Microwave Background radiation
+  - Dark matter evidence and candidates
+  - Dark energy and accelerating expansion
+  - Big Bang nucleosynthesis
+  - Large-scale structure formation
+  - Observational constraints and parameters
+
+prereq_slugs:
+  - classical-mechanics
+  - electromagnetism-1
+  - thermodynamics

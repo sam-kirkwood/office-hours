@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from anthropic_client import get_anthropic_client
 from main import app
+from prompts import add_interest as prompts
 from supabase_client import get_supabase_client
 from tests.fake_anthropic import FakeAnthropic
 from tests.fake_supabase import FakeSupabase
@@ -83,6 +84,22 @@ def test_parse_missing_bearer_returns_401(client: TestClient) -> None:
         json={"user_id": str(uuid4()), "raw_text": "hi", "added_via": "survey"},
     )
     assert resp.status_code == 401
+
+
+def test_parse_system_prompt_classifies_denial_of_mastery_as_teach() -> None:
+    """Step 9c-i: explicit denial of mastery + want-to-learn language should
+    route to 'teach', not 'consolidate'. The rule lives in the parser system
+    prompt; this guards it against regression. Maya's verbatim input ('I want
+    to actually understand bifurcations and attractors instead of just dropping
+    the words') is the motivating case."""
+    # Collapse the prompt's line-continuation whitespace so substring checks
+    # don't depend on the source indentation.
+    normalized = " ".join(prompts.build_parse_system_prompt().lower().split())
+    # The rule names the teach mapping explicitly.
+    assert "i want to actually understand" in normalized
+    assert "all teach" in normalized
+    # And it scopes consolidate away from denial-of-mastery phrasing.
+    assert "consolidate is reserved for users who assert existing mastery" in normalized
 
 
 def test_parse_specific_segment_returns_mirror_back_and_followup(
@@ -394,10 +411,10 @@ def test_resolve_new_node_writes_intent_context_and_tour(client: TestClient, fak
     assert node_inserts[0].payload["slug"] == "kalman-filters"
     assert node_inserts[0].payload["kind"] == "interest"
 
-    # Prerequisite edges inserted: calculus-1 → new, linear-algebra → new.
+    # Prerequisite edges inserted per-row: calculus-1 → new, linear-algebra → new.
     edge_inserts = [c for c in supabase.calls if c.table == "edges" and c.op == "insert"]
-    assert len(edge_inserts) == 1
-    edges = edge_inserts[0].payload
+    assert len(edge_inserts) == 2
+    edges = [c.payload for c in edge_inserts]
     assert {e["source_node_id"] for e in edges} == {CALCULUS_ID, LINALG_ID}
     assert all(e["edge_kind"] == "prerequisite" for e in edges)
 
@@ -465,13 +482,80 @@ def test_resolve_related_slug_writes_related_edge(client: TestClient, fakes) -> 
 
     edge_inserts = [c for c in supabase.calls if c.table == "edges" and c.op == "insert"]
     assert len(edge_inserts) == 1
-    edges = edge_inserts[0].payload
+    edges = [c.payload for c in edge_inserts]
     assert any(
         e["source_node_id"] == CALCULUS_ID
         and e["target_node_id"] == new_node_id
         and e["edge_kind"] == "related"
         for e in edges
     )
+
+
+def test_resolve_writes_edges_when_related_slug_overlaps_prereqs(
+    client: TestClient, fakes
+) -> None:
+    """Regression for the orphaned-node bug: when the resolved related_slug also
+    appears in Sonnet's proposed_prerequisite_slugs, the two edge rows collide on
+    the (source, target) uniqueness constraint. A batched insert rolled the whole
+    batch back, leaving the node with no edges. Per-row inserts must keep the
+    surviving edge instead of dropping both."""
+    supabase, anthropic = fakes
+    new_node_id = str(uuid4())
+    ui_id = str(uuid4())
+
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "select", lambda _: [])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    # Simulate the DB uniqueness constraint: the prerequisite edge inserts
+    # cleanly, but the duplicate (source, target) 'related' edge raises 23505.
+    def edges_insert(call):
+        if call.payload.get("edge_kind") == "related":
+            return Exception("duplicate key value violates unique constraint (23505)")
+        return []
+
+    supabase.respond("edges", "insert", edges_insert)
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Fourier Analysis",
+                "slug": "fourier-analysis",
+                "description_md": "Decomposing functions into sinusoids.",
+                "domain": "math",
+                "difficulty_hint": "core",
+                "subtopics": ["Fourier series", "Fourier transform"],
+                # Sonnet redundantly lists the related slug as a prerequisite too.
+                "proposed_prerequisite_slugs": ["calculus-1"],
+                "entry_point_preview_md": "a conceptual entrance to Fourier methods",
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "fourier",
+            "final_intent_text": "Learn Fourier analysis",
+            "intent_context": "math angle, teach intent",
+            "related_node_slug": "calculus-1",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["verdict"] == "related"
+
+    # Both rows were attempted per-row; the prerequisite survived even though
+    # the related edge collided. The batch was NOT rolled back wholesale.
+    edge_inserts = [c for c in supabase.calls if c.table == "edges" and c.op == "insert"]
+    assert len(edge_inserts) == 2
+    kinds = [c.payload["edge_kind"] for c in edge_inserts]
+    assert "prerequisite" in kinds
+    assert "related" in kinds
 
 
 def test_resolve_rejects_both_existing_and_related(client: TestClient, fakes) -> None:
