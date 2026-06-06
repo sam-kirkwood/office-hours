@@ -751,3 +751,157 @@ def test_refresher_falls_back_to_interest_when_no_foundation_owns_subtopic(
     assert len(inserts) == 1
     # Falls back to the interest node.
     assert inserts[0].payload["ref_id"] == interest_node_id
+
+
+def test_find_foundation_owning_subtopic_ignores_overloaded_tokens(fakes) -> None:
+    """B1 stopword guard: a subtopic whose only overlap with a foundation is an
+    overloaded token must NOT match — "phase relationships" should not route to
+    ODEs just because ODEs lists "Phase plane analysis". A distinctive token
+    ("partition") must still match."""
+    from curator_inputs import find_foundation_owning_subtopic
+
+    supabase, _ = fakes
+    odes_row = {
+        "id": str(uuid4()),
+        "slug": "odes",
+        "title": "Ordinary Differential Equations",
+        "subtopics_json": [
+            {"slug": "phase-plane-analysis", "title": "Phase plane analysis"},
+            {"slug": "laplace-transforms", "title": "Laplace transforms"},
+        ],
+    }
+    statmech_row = {
+        "id": str(uuid4()),
+        "slug": "statistical-mechanics",
+        "title": "Statistical Mechanics",
+        "subtopics_json": [
+            {"slug": "partition-function", "title": "Partition function manipulations"},
+        ],
+    }
+    supabase.respond("nodes", "select", lambda _c: [odes_row, statmech_row])
+
+    # Overloaded-only overlap ("phase") → no match.
+    assert find_foundation_owning_subtopic(
+        supabase, subtopic_slug="phase-relationships"
+    ) is None
+    # Distinctive overlap ("partition") → still matches.
+    matched = find_foundation_owning_subtopic(
+        supabase, subtopic_slug="partition-function-manipulations"
+    )
+    assert matched is not None and matched["slug"] == "statistical-mechanics"
+
+
+def test_refresher_trusts_foundation_named_interest_node(
+    client: TestClient, fakes
+) -> None:
+    """B1: when the curator names a FOUNDATION directly in interest_node (per
+    Step 9c-iii), route the refresher there — even if rec.subtopic would
+    token-match a *different* foundation. Guards the persona-walkthrough
+    mis-route where a wave/phase refresher landed on ODEs."""
+    supabase, anthropic = fakes
+    interest_node_id = str(uuid4())
+    waves_id = str(uuid4())
+    odes_id = str(uuid4())
+
+    supabase.respond("surveys", "select", lambda _c: [{"mode_balance": 0.5}])
+    supabase.respond(
+        "user_interests",
+        "select",
+        lambda _c: [{"node_id": interest_node_id, "intent_context": "Interferometry."}],
+    )
+
+    interest_row = {
+        "id": interest_node_id,
+        "slug": "interferometry",
+        "title": "Interferometry",
+        "kind": "interest",
+        "subtopics_json": [{"slug": "fringe-visibility", "title": "Fringe visibility"}],
+        "description_md": "Interferometry overview.",
+        "difficulty_hint": "core",
+    }
+    waves_row = {
+        "id": waves_id,
+        "slug": "waves-oscillations",
+        "title": "Waves & Oscillations",
+        "kind": "foundation",
+        "subtopics_json": [{"slug": "wave-superposition", "title": "Wave superposition"}],
+    }
+    odes_row = {
+        "id": odes_id,
+        "slug": "odes",
+        "title": "Ordinary Differential Equations",
+        "kind": "foundation",
+        "subtopics_json": [{"slug": "laplace-transforms", "title": "Laplace transforms"}],
+    }
+
+    def nodes_responder(call):
+        for op, col, val in call.filters:
+            if op == "eq" and col == "kind" and val == "foundation":
+                return [waves_row, odes_row]
+            if op == "in_" and col == "id":
+                return [interest_row]
+            if op == "ilike" and col == "title":
+                v = str(val).lower()
+                if v == "waves & oscillations":
+                    return [waves_row]
+                if v == "interferometry":
+                    return [interest_row]
+                return []
+        return []
+
+    supabase.respond("nodes", "select", nodes_responder)
+    supabase.respond(
+        "user_node_states",
+        "select",
+        lambda _c: [{
+            "node_id": interest_node_id,
+            "state": "active",
+            "struggle_score": 0.1,
+            "engagement_count": 0,
+            "last_engaged_at": None,
+        }],
+    )
+    supabase.respond("edges", "select", lambda _c: [])
+    supabase.respond("attempts", "select", lambda _c: [])
+    supabase.respond("paper_engagements", "select", lambda _c: [])
+    supabase.respond("papers", "select", lambda _c: [])
+    supabase.respond("surfaced_picks", "select", lambda _c: [])
+    supabase.respond("user_preferences", "select", lambda _c: [])
+    supabase.respond("queue_items", "select", lambda _c: [])
+    supabase.respond("llm_calls", "insert", lambda _c: [{"id": str(uuid4())}])
+    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        _plan_response(
+            [{
+                "action": "add",
+                "interest_node": "Waves & Oscillations",  # foundation named directly
+                "kind": "refresher",
+                "intent": "refresh",
+                # This subtopic genuinely token-matches ODES ("laplace"), but the
+                # explicit foundation name must win.
+                "subtopic": "Laplace transform methods",
+                "depth": "foundational",
+                "assumed_background": [],
+                "priority": "high",
+                "reason": "Sharpen wave superposition before interferometry.",
+            }]
+        )
+    )
+
+    resp = client.post(
+        "/plan-queue",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items_added"] == 1
+    inserts = [
+        c for c in supabase.calls
+        if c.table == "queue_items" and c.op == "insert"
+    ]
+    assert len(inserts) == 1
+    # Routed to the named foundation, NOT the one the subtopic token-matched.
+    assert inserts[0].payload["ref_id"] == waves_id
+    assert inserts[0].payload["ref_id"] != odes_id

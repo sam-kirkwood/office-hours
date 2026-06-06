@@ -30,3 +30,7 @@ desktop.ini
 
 # Logs at the root (services have their own coverage)
 *.log
+
+# kept local only
+scripts/persona_walkthrough_3/
+docs/operator-walkthrough-notes.md

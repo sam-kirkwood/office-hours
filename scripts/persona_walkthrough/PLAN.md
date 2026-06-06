@@ -7,6 +7,20 @@ This plan resolves the issues that surfaced from the two persona walkthroughs:
 
 It covers **Felt off** + **Broken** from both reports, ordered for ship-ability.
 
+**Refresher routing (B1) ✓ fixed:** refresher cards were routing to the
+wrong foundation node — `find_foundation_owning_subtopic`
+(api/curator_inputs.py) produced token-overlap false positives on generic
+tokens (a subtopic mentioning "phase" matched ODEs via its "phase plane
+analysis" subtopic; a "...distribution" subtopic matched Probability). The
+`added_reason` stayed correct; only the `ref_id` (the node the user opens)
+was wrong. Fixed two ways: (1) `_execute_add_refresher` now trusts an
+explicitly foundation-named `interest_node` (per Step 9c-iii) and routes
+there directly before consulting the subtopic matcher; (2) a stopword guard
+(`_OVERLOADED_PREFIXES`) drops generic cross-domain tokens (phase, distr,
+field, wave, state, funct, energ, …) so a lone overloaded word can't bridge
+two unrelated foundations — while preserving distinctive matches like
+"partition"→statistical-mechanics. 2 new tests (192 total passing).
+
 **Status:** Step 9a ✓ done (dup queue items + variety filter + refresher
 routing dispatch; 5 new tests). Seed Slice 1 ✓ done (8 v1-demoted interest
 YAMLs + loader + foundation rename migration — applied). Step 9b ✓ done

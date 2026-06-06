@@ -639,22 +639,35 @@ def _execute_add_refresher(
 ) -> bool:
     """Add a refresher queue item.
 
-    Routing (Phase 10-rev §9a): when rec.subtopic matches a subtopic of a
-    foundation node (e.g. "partition function manipulations" →
-    statistical-mechanics), set ref_id to that foundation. The refresher
-    then resolves to refresher/concept-review content on the foundation
-    rather than on the interest node, which is what the added_reason
-    typically promises.
+    Routing, in priority order:
+      1. (Phase 10-rev §9, B1) Trust an explicitly foundation-named
+         interest_node. Step 9c-iii asks the curator to put the FOUNDATION
+         node title in interest_node for foundation-skill refreshers; when it
+         does, route there directly. An explicit foundation name beats the
+         subtopic token-matcher, which produced false positives in testing
+         (a "phase relationships" subtopic matched ODEs' "phase plane
+         analysis"; a "...distribution" subtopic matched Probability).
+      2. (Phase 10-rev §9a) Else, when rec.subtopic matches a foundation's
+         subtopics_json entry (e.g. "partition function manipulations" →
+         statistical-mechanics), set ref_id to that foundation.
+      3. Else fall back to rec.interest_node as an interest-level refresher.
 
-    Falls back to rec.interest_node when no foundation owns the subtopic.
+    The refresher then resolves to refresher/concept-review content on the
+    chosen node, which is what the added_reason typically promises.
     """
+    named = _resolve_interest_node(supabase, title=rec.interest_node or "")
     ref_node: dict | None = None
-    if rec.subtopic:
+    # 1. Explicit foundation name wins.
+    if named is not None and named.get("kind") == "foundation":
+        ref_node = named
+    # 2. Otherwise let the subtopic decide which foundation owns the skill.
+    if ref_node is None and rec.subtopic:
         ref_node = find_foundation_owning_subtopic(
             supabase, subtopic_slug=_slugify_phrase(rec.subtopic)
         )
+    # 3. Fall back to whatever interest_node resolved to (interest-kind / None).
     if ref_node is None:
-        ref_node = _resolve_interest_node(supabase, title=rec.interest_node or "")
+        ref_node = named
     if ref_node is None:
         logger.warning(
             "plan-queue: could not resolve refresher node "

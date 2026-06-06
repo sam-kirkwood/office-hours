@@ -957,17 +957,39 @@ _SUBTOPIC_STOPWORDS = {
     "on", "or", "an", "a", "by",
 }
 
+# 5-char prefixes of words so overloaded across physics/math that a match on
+# them alone is meaningless. Without this guard the matcher false-positives:
+# "phase relationships" → ODEs ("phase plane analysis"); a "...distribution"
+# subtopic → Probability ("random variables & distributions"). Foundation
+# refreshers should match on a *distinctive* token (e.g. "partition",
+# "helmholtz"), not a generic one. Deliberately excludes prefixes that collide
+# with distinctive canonical tokens — e.g. "parti" (partition), "trans"
+# (transfer/transform/transition) — so true matches survive. See Phase 10-rev
+# §9 (B1, persona walkthrough).
+_OVERLOADED_PREFIXES = {
+    "phase", "distr", "field", "wave", "state", "funct", "energ", "syste",
+    "equat", "analy", "metho", "model", "theor", "gener", "basic", "probl",
+    "dynam",
+}
+
 
 def _subtopic_tokens(text: str) -> set[str]:
     """Tokenise a subtopic name into substantive 4+ char tokens, lowercased
-    and prefix-truncated so 'energy' and 'energies' both match 'energ'."""
+    and prefix-truncated so 'energy' and 'energies' both match 'energ'.
+    Overloaded prefixes (see _OVERLOADED_PREFIXES) are dropped so a lone
+    generic word can't bridge two unrelated foundations."""
     import re
 
     words = re.findall(r"[a-z]+", text.lower())
-    return {
-        w[:5] for w in words
-        if len(w) >= 4 and w not in _SUBTOPIC_STOPWORDS
-    }
+    out: set[str] = set()
+    for w in words:
+        if len(w) < 4 or w in _SUBTOPIC_STOPWORDS:
+            continue
+        prefix = w[:5]
+        if prefix in _OVERLOADED_PREFIXES:
+            continue
+        out.add(prefix)
+    return out
 
 
 def find_foundation_owning_subtopic(
