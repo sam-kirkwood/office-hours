@@ -211,6 +211,74 @@ def test_happy_path_inserts_papers_and_queue_items(
 
 
 # ---------------------------------------------------------------------------
+# Topic association — interest_titles echo resolves to papers.topic_node_ids
+# ---------------------------------------------------------------------------
+
+
+def test_paper_associated_with_interest_node(client: TestClient, fakes) -> None:
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+    node_id = str(uuid4())
+    paper_id = str(uuid4())
+    engagement_id = str(uuid4())
+
+    supabase.respond("user_interests", "select", lambda _: [{"node_id": node_id}])
+    # nodes.select now returns id + title so the echo-back can resolve to a node
+    supabase.respond("nodes", "select", lambda _: [{"id": node_id, "title": "Quantum Field Theory"}])
+    supabase.respond("notebook_entries", "select", lambda _: [])
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "title": "On Gauge Invariance",
+                        "authors": ["Yang, C."],
+                        "year": 1954,
+                        "arxiv_id": "5401.00001",
+                        "doi": None,
+                        "rationale": "Foundational gauge theory.",
+                        # echoes the provided interest title verbatim
+                        "interest_titles": ["Quantum Field Theory"],
+                    }
+                ]
+            }
+        )
+    )
+
+    # papers.select cycles: arxiv dedup (miss) → topic union read → engagement load
+    supabase.respond(
+        "papers",
+        "select",
+        _cycler(
+            [],  # arxiv_id dedup → miss
+            [{"topic_node_ids": []}],  # _associate_topics current-read
+            [{"id": paper_id, "title": "On Gauge Invariance", "authors_json": ["Yang, C."], "year": 1954, "abstract_md": ""}],
+        ),
+    )
+    supabase.respond("papers", "insert", lambda _: [{"id": paper_id}])
+    supabase.respond("papers", "update", lambda _: [{"id": paper_id}])
+    supabase.respond("paper_engagements", "select", lambda _: [])
+    supabase.respond("paper_engagements", "insert", lambda _: [{"id": engagement_id}])
+    supabase.respond("queue_items", "insert", lambda _: [{"id": str(uuid4())}])
+
+    anthropic.queue(_make_engagement_json())
+
+    resp = client.post(
+        "/propose-papers",
+        json={"user_id": user_id},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    # The paper was updated with the resolved node id.
+    paper_updates = [c for c in supabase.calls if c.table == "papers" and c.op == "update"]
+    assert len(paper_updates) == 1
+    assert paper_updates[0].payload["topic_node_ids"] == [node_id]
+
+
+# ---------------------------------------------------------------------------
 # Existing engagement → queue item skipped
 # ---------------------------------------------------------------------------
 

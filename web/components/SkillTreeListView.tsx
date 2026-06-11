@@ -14,7 +14,7 @@ import type { Node as AppNode, UserNodeState } from "@/lib/types";
 // no "Highlight on canvas" — the list view stands on its own.
 
 interface GraphData {
-  user_nodes: Array<{ node: AppNode; state: UserNodeState | null }>;
+  user_nodes: Array<{ node: AppNode; state: UserNodeState | null; bookmarked?: boolean }>;
   adjacent_nodes: AppNode[];
 }
 
@@ -22,11 +22,14 @@ interface Props {
   graphData: GraphData;
 }
 
+// "struggling" is internal (graph-design.md) and folds into "Active" so it
+// never surfaces as a distinct, guilt-inducing state. Bookmarks are shown via a
+// separate chip, not a state.
 const STATE_LABELS: Record<UserNodeState["state"], string> = {
   unseen: "Unseen",
-  bookmarked: "Bookmarked",
+  bookmarked: "Active",
   active: "Active",
-  struggling: "Struggling",
+  struggling: "Active",
   comfortable: "Comfortable",
 };
 
@@ -37,11 +40,9 @@ function stateBadgeClass(state: UserNodeState["state"]): string {
     case "comfortable":
       return "border-[var(--forest)]/50 bg-[var(--forest-subtle)] text-foreground";
     case "active":
-      return "border-primary/50 bg-[var(--amber-subtle)] text-foreground";
     case "struggling":
-      return "border-destructive/30 bg-destructive/[0.07] text-foreground";
     case "bookmarked":
-      return "border-amber/50 bg-[var(--amber-subtle)] text-foreground";
+      return "border-primary/50 bg-[var(--amber-subtle)] text-foreground";
     default:
       return "border-border bg-background text-muted-foreground";
   }
@@ -104,7 +105,7 @@ export default function SkillTreeListView({ graphData }: Props) {
             Your interests &amp; foundations
           </h2>
           <ul className="space-y-3">
-            {graphData.user_nodes.map(({ node, state }) => {
+            {graphData.user_nodes.map(({ node, state, bookmarked }) => {
               const description = oneLineDescription(node.description_md);
               const stateKey: UserNodeState["state"] = state?.state ?? "unseen";
               return (
@@ -116,11 +117,20 @@ export default function SkillTreeListView({ graphData }: Props) {
                     <p className="font-serif text-base text-foreground">
                       {node.title}
                     </p>
-                    <span
-                      className={`shrink-0 rounded border px-2 py-0.5 text-[10px] uppercase tracking-widest ${stateBadgeClass(stateKey)}`}
-                    >
-                      {STATE_LABELS[stateKey]}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {bookmarked && (
+                        <span className="rounded border border-amber/50 bg-[var(--amber-subtle)] px-2 py-0.5 text-[10px] uppercase tracking-widest text-[var(--amber)]">
+                          Saved
+                        </span>
+                      )}
+                      {stateKey !== "unseen" && (
+                        <span
+                          className={`rounded border px-2 py-0.5 text-[10px] uppercase tracking-widest ${stateBadgeClass(stateKey)}`}
+                        >
+                          {STATE_LABELS[stateKey]}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {description && (
                     <p className="mb-3 text-sm leading-relaxed text-muted-foreground">

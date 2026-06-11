@@ -1,5 +1,17 @@
 # Survey and Difficulty Design — Office Hours (v2)
 
+> ⚠️ **Partially superseded (2026-06-08).** `docs/orientation-and-calibration-design.md`
+> reshapes the onboarding survey and the add-interest flow and amends several
+> sections here. Before building in the survey / add-interest / entry-point /
+> per-problem-controls area, read that doc — it is the newer intent. Affected
+> sections: **§1** (the seven-stage survey → a conversational orientation tutor +
+> four signals), **§2.3** (path options → rich, detailed paths), **§3.4** (entry-
+> point default → keyed on *new-to-the-user*, overridable by a go-deep signal),
+> **§3.5** (per-problem controls → the easier/harder/assume-less correction loop
+> still needs building). The rest of this doc (papers difficulty, tone, schema
+> notes, content reuse) stands. This doc still accurately describes what is
+> *currently built*; the orientation doc describes where it is going.
+
 ## About this document
 
 This document specifies the redesigned onboarding survey, the add-interest flow (used at onboarding and during daily use), the difficulty and problem-character model, and the difficulty model for papers. It supersedes the survey design in `SPEC.md` and adds specifics that were not previously defined.
@@ -221,6 +233,10 @@ If the user marks every tile as "new to me" or leaves all unclicked, the system 
 Subtopic tagging on problems is load-bearing for the concept tour to function correctly. See Section 3.7.
 
 The subtopics shown in concept tours are the same subtopics accessible via the node panel in the skill tree view. Shared data source — the subtopics are defined on the node, surfaced in both places.
+
+Tile selection (`_concept_tour` in `api/routes/add_interest.py`) draws from the resolved node's `prerequisite` edges, foundation nodes first, and takes tiles **round-robin** across those prerequisites so one foundation's long subtopic list can't crowd out the others (Phase 10.5-rev Step 4). Interest-kind prerequisites contribute only as a fallback when foundations don't yield a worthwhile tour.
+
+Cross-tour deduplication (§1.6.5) is **node-scoped and addressed-only**: a tile is suppressed in a later tour only when an exact `(node_id, subtopic_key)` match was actually *answered* in an earlier tour. Tiles the user left unanswered reappear — "unless the state was not captured" is load-bearing. Keying on the subtopic name alone, or marking every shown tile seen, over-fires and silently skips whole sub-tours (the Step 4 s15 bug).
 
 ---
 

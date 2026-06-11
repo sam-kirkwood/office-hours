@@ -23,8 +23,8 @@ interface Props {
   interestTitle: string;
   // 6–10 subtopic tiles from /resolve.
   tiles: ConceptTourTileDTO[];
-  // Subtopic keys already addressed in an earlier tour this session — these
-  // tiles are filtered out (§1.6.5).
+  // Node-scoped keys ("<node_id>:<subtopic_key>") for tiles the user actually
+  // answered in an earlier tour this session — these are filtered out (§1.6.5).
   seenSubtopicKeys: Set<string>;
   // Show the "Skip remaining tours" affordance — orchestrator passes true
   // after the second tour.
@@ -53,7 +53,9 @@ export default function ConceptTour({
   showSkipRemaining = false,
   onSubmit,
 }: Props) {
-  const visibleTiles = tiles.filter((t) => !seenSubtopicKeys.has(t.subtopic_key));
+  const visibleTiles = tiles.filter(
+    (t) => !seenSubtopicKeys.has(`${t.node_id}:${t.subtopic_key}`),
+  );
   const [picks, setPicks] = useState<Record<string, ConceptTourState>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -113,11 +115,13 @@ export default function ConceptTour({
   return (
     <div className="mx-auto max-w-2xl px-5 py-10">
       <h2 className="font-serif text-xl text-foreground">
-        Here&apos;s what will come up for {interestTitle}.
+        First, the groundwork {interestTitle} builds on.
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        Mark anything you already know or want to revisit — leave the rest. This
-        tunes where we start; it&apos;s not a test.
+        These are the foundations {interestTitle} leans on — not the topic
+        itself. Mark anything you already know or want to revisit, and leave the
+        rest. It just helps us judge where to start; it&apos;s not a test, and
+        nothing here is required.
       </p>
 
       <div className="mt-6 flex flex-col gap-3">

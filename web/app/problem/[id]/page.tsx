@@ -39,15 +39,27 @@ export default async function ProblemPage({
 
   const { data: problem } = await adminClient
     .from("problems")
-    .select("id, topic_node_id, statement_md, difficulty, context_hook_id, context_md, created_at")
+    .select("id, topic_node_id, title, statement_md, difficulty, intent, context_hook_id, context_md, created_at")
     .eq("id", queueItem.ref_id)
     .maybeSingle();
 
   if (!problem) redirect("/daily");
 
+  // Topic title for the problem's metadata line (d11). The interest a problem
+  // is drawn from is its topic node; resolve the title from `nodes`.
+  let topicTitle: string | null = null;
+  if (problem.topic_node_id) {
+    const { data: node } = await adminClient
+      .from("nodes")
+      .select("title")
+      .eq("id", problem.topic_node_id)
+      .maybeSingle();
+    topicTitle = node?.title ?? null;
+  }
+
   const { data: hints } = await adminClient
     .from("problem_hints")
-    .select("id, problem_id, level, text")
+    .select("id, problem_id, level, text, part_label")
     .eq("problem_id", problem.id)
     .order("level", { ascending: true });
 
@@ -69,6 +81,7 @@ export default async function ProblemPage({
       <ProblemView
         queueItemId={queueItemId}
         problem={problem as Problem}
+        topicTitle={topicTitle}
         hints={(hints ?? []) as ProblemHint[]}
         existingAttempt={existingAttempt}
       />

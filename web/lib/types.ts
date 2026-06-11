@@ -160,6 +160,15 @@ export interface SurfacedQueueItem {
   // Set by resolveTitles for paper_engagement items the user has started.
   // Drives CTA copy ("Read paper" → "Continue paper").
   in_progress?: boolean;
+  // True when the item was created as a refresher (spaced revisiting). Drives
+  // the "Refresher" badge + revisit copy in DailyView; routing still keys off
+  // `kind`. See api/routes/refresher.py.
+  via_refresher?: boolean;
+  // d22: the topic/interest node(s) this item is drawn from, shown as chips on
+  // the queue card. Resolved by resolveTitles per kind — problem → topic node;
+  // concept_review / suggested_interest → the node itself; paper_engagement →
+  // papers.topic_node_ids. Empty when none resolve.
+  topics?: string[];
 }
 
 export interface QueueResult {
@@ -178,8 +187,10 @@ export interface QueueResult {
 export interface Problem {
   id: string;
   topic_node_id: string | null;
+  title: string | null;
   statement_md: string;
   difficulty: number | null;
+  intent: string | null;
   context_hook_id: string | null;
   context_md: string | null;
   created_at: string;
@@ -190,6 +201,10 @@ export interface ProblemHint {
   problem_id: string;
   level: number;
   text: string;
+  // d10: the part(s) this hint addresses ("Part (c)", "Parts (a)–(b)",
+  // "Whole problem"). Nullable for pre-backfill rows; the chip is omitted
+  // when absent.
+  part_label: string | null;
 }
 
 export interface ContextHook {

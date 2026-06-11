@@ -230,6 +230,7 @@ def _execute_accelerate(
 
 def _execute_surface_prerequisite(
     supabase: Client,
+    anthropic: Anthropic,
     *,
     user_id: str,
     engagement: dict[str, Any],
@@ -239,8 +240,8 @@ def _execute_surface_prerequisite(
     """Enqueue a refresher on a prerequisite of the engagement's topic.
 
     `reinforcement_target` should be the prerequisite subtopic or node slug.
-    If we can match it to a prerequisite edge, we queue a refresher item
-    for that node; otherwise we queue the highest-weight prerequisite.
+    If we can match it to a prerequisite edge, we resolve a refresher for that
+    node; otherwise we use the highest-weight prerequisite.
     """
     topic_node_id = engagement.get("node_id")
     if not topic_node_id:
@@ -285,23 +286,25 @@ def _execute_surface_prerequisite(
     if chosen_node is None:
         return False
 
-    supabase.table("queue_items").insert(
-        {
-            "user_id": user_id,
-            "kind": "refresher",
-            "ref_id": chosen_node["id"],
-            "state": "pending",
-            "priority_score": 0.75,
-            "added_reason": reasoning,
-            "time_estimate_minutes_low": 10,
-            "time_estimate_minutes_high": 20,
-        }
-    ).execute()
-    return True
+    # Resolve the prerequisite refresher to concrete content now (a via_refresher
+    # problem / concept) rather than minting a kind='refresher' row that a
+    # click-time resolver would have to expand. See routes/refresher.py.
+    from routes.refresher import resolve_refresher_to_content  # local: import cycle
+
+    resolved = resolve_refresher_to_content(
+        supabase,
+        anthropic,
+        user_id=user_id,
+        ref_id=chosen_node["id"],
+        reason=reasoning,
+        priority_score=0.75,
+    )
+    return resolved is not None
 
 
 def _execute_immediate_action(
     supabase: Client,
+    anthropic: Anthropic,
     *,
     user_id: str,
     engagement: dict[str, Any],
@@ -328,6 +331,7 @@ def _execute_immediate_action(
     if action == "surface_prerequisite":
         return _execute_surface_prerequisite(
             supabase,
+            anthropic,
             user_id=user_id,
             engagement=engagement,
             reinforcement_target=assessment.reinforcement_target,
@@ -433,6 +437,7 @@ def run_assess_engagement(
     # 4. Execute immediate_action.
     action_executed = _execute_immediate_action(
         supabase,
+        anthropic,
         user_id=user_id,
         engagement=engagement,
         assessment=assessment,
@@ -470,6 +475,12 @@ def assess_engagement(
 # /plan-queue (Step 3b)
 # ---------------------------------------------------------------------------
 
+
+# Hard cap on non-terminal queue stock (pending + surfaced + deferred). The
+# planner stops acting on `add` recommendations once this is reached so the
+# queue can't grow unbounded day over day (curriculum-curator-design §11.1,
+# Phase 10.5-rev Q1 — operator chose a tight band, cap 15).
+MAX_ON_DECK = 15
 
 _PRIORITY_SCORE_MAP = {"low": 0.4, "medium": 0.6, "high": 0.85}
 _DEPTH_DIFFICULTY_MAP = {
@@ -529,6 +540,19 @@ def _pool_lookup_for_recommendation(
     if not resp.data:
         return None
     return resp.data[0]["id"]
+
+
+def _count_on_deck(supabase: Client, *, user_id: str) -> int:
+    """Count the user's non-terminal queue stock (pending + surfaced +
+    deferred). Used to enforce MAX_ON_DECK in the planner."""
+    resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .in_("state", ["pending", "surfaced", "deferred"])
+        .execute()
+    )
+    return len(resp.data or [])
 
 
 def _queue_item_already_exists(
@@ -633,6 +657,7 @@ def _execute_add_problem(
 
 def _execute_add_refresher(
     supabase: Client,
+    anthropic: Anthropic,
     *,
     user_id: str,
     rec: CuratorRecommendation,
@@ -676,24 +701,24 @@ def _execute_add_refresher(
             rec.interest_node,
         )
         return False
-    if _queue_item_already_exists(
-        supabase, user_id=user_id, kind="refresher", ref_id=ref_node["id"]
-    ):
-        return False
+    # Resolve to concrete content now (a via_refresher problem / concept) rather
+    # than minting a kind='refresher' row. resolve_refresher_to_content pool-
+    # looks-up a refresh-intent problem on the node, generates one on miss, and
+    # falls back to the node's concept brief only on generation failure. It
+    # returns None when nothing resolves, so a dead refresher never enters the
+    # queue (prevent-at-source). See routes/refresher.py.
+    from routes.refresher import resolve_refresher_to_content  # local: import cycle
+
     priority_score = _PRIORITY_SCORE_MAP.get(rec.priority or "medium", 0.6)
-    supabase.table("queue_items").insert(
-        {
-            "user_id": user_id,
-            "kind": "refresher",
-            "ref_id": ref_node["id"],
-            "state": "pending",
-            "priority_score": priority_score,
-            "added_reason": rec.reason,
-            "time_estimate_minutes_low": 10,
-            "time_estimate_minutes_high": 20,
-        }
-    ).execute()
-    return True
+    resolved = resolve_refresher_to_content(
+        supabase,
+        anthropic,
+        user_id=user_id,
+        ref_id=ref_node["id"],
+        reason=rec.reason,
+        priority_score=priority_score,
+    )
+    return resolved is not None
 
 
 def _execute_reprioritise(
@@ -750,16 +775,30 @@ def run_plan_queue(
     items_reprioritised = 0
     items_skipped = 0
 
+    on_deck = _count_on_deck(supabase, user_id=user_id)
+
     for rec in plan.recommendations:
         try:
             if rec.action == "add":
+                if on_deck >= MAX_ON_DECK:
+                    # Queue is full — hold this add (reprioritise recs still run
+                    # below). curriculum-curator-design §11.1 / §13.4.
+                    logger.info(
+                        "plan-queue: on-deck cap %d reached; skipping add rec "
+                        "(kind=%s, interest_node=%r)",
+                        MAX_ON_DECK,
+                        rec.kind,
+                        rec.interest_node,
+                    )
+                    items_skipped += 1
+                    continue
                 if rec.kind == "problem":
                     ok = _execute_add_problem(
                         supabase, anthropic, user_id=user_id, rec=rec
                     )
                 elif rec.kind == "refresher":
                     ok = _execute_add_refresher(
-                        supabase, user_id=user_id, rec=rec
+                        supabase, anthropic, user_id=user_id, rec=rec
                     )
                 elif rec.kind == "paper_engagement":
                     logger.info(
@@ -774,6 +813,7 @@ def run_plan_queue(
                     ok = False
                 if ok:
                     items_added += 1
+                    on_deck += 1
                 else:
                     items_skipped += 1
             elif rec.action == "reprioritise":

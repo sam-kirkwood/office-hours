@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { surfaceDaily } from "@/lib/pythonApi";
+import { surfaceDaily, maybeRefillQueue } from "@/lib/pythonApi";
 import { toItem, resolveTitles } from "@/lib/queueHelpers";
 
 export async function POST() {
@@ -65,6 +65,7 @@ export async function POST() {
   } catch (err) {
     // 404 from Python means no pending items left after reroll.
     if (err instanceof Error && err.message.includes("404")) {
+      maybeRefillQueue(user.id, 0);
       return NextResponse.json({ pick_id: null, items: [], more_coming: true });
     }
     const message = err instanceof Error ? err.message : "Unexpected error";

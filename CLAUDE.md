@@ -12,6 +12,7 @@ The product was redesigned. The current source of truth is:
 - **docs/personas.md** — three personas; the primary design tool. Check feature decisions against these.
 - **docs/archive/SPEC-v1.md** and **docs/archive/ARCHITECTURE-v1.md** — prior versions, for context only. Do not use as design guidance.
 - **docs/pivot-plan.md** — the working plan for the pivot work. Status line at the top tracks progress.
+- **docs/orientation-and-calibration-design.md** — proposal (2026-06-08) reshaping onboarding into a conversational "orientation tutor" (four intake signals A/B/C/D), per-interest *paths* as the densest signal, an amended entry-point default, and the in-flight correction loop. **It amends `survey-and-difficulty-design.md` §1, §2.3, §3.4, §3.5.** Read it before building anything in the survey / add-interest / entry-point / per-problem-controls area, or you will rebuild a flow we have already overridden. Status: not yet built; several open decisions (its §11) are unresolved.
 
 When the docs and the existing code disagree, the docs are right. The code is being brought in line with them via the pivot plan.
 
@@ -83,7 +84,8 @@ npx supabase db push --db-url <your-supabase-db-url>
 
 ## Key design constraints
 
-- **Hints are pre-generated at problem creation time** and stored. Never generated on demand. Prevents drift and accidental answer leakage.
+- **Hints are pre-generated at problem creation time** and stored. Never generated on demand. Prevents drift and accidental answer leakage. Each hint carries a `part_label` (which part of a multi-part problem it addresses); the ProblemView renders it as a chip.
+- **Problem statements follow a canonical template** (Phase 10.5-rev Step 3): historical context lives in `context_md` (rendered first, above the statement), the statement uses `## Setup` / `## The problem` headings and bold `**(a)**` parts (never `1.`/"Part 1"), display math for standalone equations. Enforced in the generation prompt; the render layer ([ProblemView.tsx](web/components/ProblemView.tsx), via remark-gfm) stays tolerant of older shapes. The one-off `scripts/reformat_problems.py` (Haiku) brings pre-template problems in line.
 - **Paper engagement questions are pre-generated** when the paper enters a user's queue, for the same reason.
 - **Vision parse is always user-reviewed** before grading. UI must show rendered markdown+LaTeX the user can edit inline.
 - **Original images are always retained** even if parsing fails.
@@ -123,11 +125,14 @@ The pivot plan lives in docs/pivot-plan.md with a status line. Sessions execute 
 5. Phase 7-rev — adaptation, refreshers, cross-pollination
 6. Phase 8-rev — weekly curation and operator surfaces
 7. Phase 9-rev — polish
-8. Phase 10-rev — survey redesign, curriculum curator, queue UX, spirit gaps, skill-tree interaction, mobile polish, hardening (see [docs/phase-plans/phase-10-rev-plan.md](docs/phase-plans/phase-10-rev-plan.md))
-9. Phase 11-deploy — FastAPI deploy to Fly/Railway, pg_cron schedule for the daily curator, Sentry on both services
-10. Deferred (v2.1+): live arXiv search, bespoke megagraph viz, calendar view, BYO API key, notebook export, etc.
+8. Phase 10-rev — survey redesign, curriculum curator, queue UX, spirit gaps, skill-tree interaction, mobile polish, hardening (see [docs/phase-plans/phase-10-rev-plan.md](docs/phase-plans/phase-10-rev-plan.md)). **Done.**
+9. Phase 10.5-rev — pre-launch remediation, the **operator-walkthrough round** (queue/refresher correctness, problem-page template, survey rendering, skill-tree/notebook polish; see [docs/phase-plans/phase-10.5-rev-plan.md](docs/phase-plans/phase-10.5-rev-plan.md)). **Done** — its remediation purpose is served. The remaining survey-copy / Stage-4 items were *not* patched in place; they were superseded by the design-review round below.
+10. Phase 12 — **the responsive daily loop** (design-review round): card action set, the easier/harder/assume-less correction loop, the curiosity box as an intent router, steering. See [docs/orientation-and-calibration-design.md](docs/orientation-and-calibration-design.md) Part A + [phase-12 plan](docs/phase-plans/phase-12-responsive-daily-loop-plan.md).
+11. Phase 13 — **conversational orientation**: the four-signal tutor, rich per-interest paths, the §3.4 entry-point amendment, node-level calibration, the daily add-interest reshape. See orientation doc Part B + [phase-13 plan](docs/phase-plans/phase-13-conversational-orientation-plan.md).
+12. Phase 11-deploy — FastAPI deploy to Fly/Railway, pg_cron for the daily curator, Sentry, plus a reader-facing README. Keeps its original number but **runs last**, once the operator is happy (localhost is the dev/test loop until then). No longer launch-gated by 10.5.
+13. Deferred (v2.1+): live arXiv search, bespoke megagraph viz, calendar view, BYO API key, notebook export, etc.
 
-Do not start a phase before the prior phase is committed and the pivot plan's status line is updated.
+The launch-gating framing (🔴/🟡, soft launch) is retired: the app is finished before it is released. Do not start a phase before the prior phase is committed and the pivot plan's status line is updated.
 
 ## Design principles
 

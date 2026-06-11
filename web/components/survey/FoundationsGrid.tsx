@@ -241,7 +241,7 @@ function FoundationTile({
         </Badge>
       </div>
       {oneLine && (
-        <p className="line-clamp-2 text-sm text-muted-foreground">{oneLine}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{oneLine}</p>
       )}
       <p
         className={`mt-auto text-xs uppercase tracking-widest ${

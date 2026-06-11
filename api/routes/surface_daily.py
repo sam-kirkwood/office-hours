@@ -10,10 +10,11 @@ surfaced_picks row. Selection rules (from phase-4-rev-plan.md §Step 8):
   4. Fewer than 3 available → surface what exists (length ≤ 3 accepted per F8).
   5. Mark selected items state='surfaced'. Write surfaced_picks.
 
-Refresher items are not resolved here — the daily card routes through
-/refresher/<queue_item_id>, which calls POST /refresher-resolve at click time
-to enqueue a fresh problem (or concept_review) from the underlying node or
-refresher_schedule subject. See api/routes/refresher.py.
+Refreshers are not a content kind here: they are concrete problem /
+concept_review / paper_engagement items carrying via_refresher=true (resolved
+at creation time, see api/routes/refresher.py). The flag is passed through to
+the client so the daily card shows the "Refresher" framing while routing by the
+item's real kind.
 """
 
 from __future__ import annotations
@@ -34,12 +35,33 @@ router = APIRouter()
 MAX_SURFACED = 3
 
 
+def _user_has_no_queue_items(supabase: Client, user_id: str) -> bool:
+    """True iff the user has no queue_items rows at all (any state).
+
+    Gate for the F17 starter fallback: it may only seed a concept for a
+    genuinely empty account (brand-new, or a cold-start whose planner produced
+    nothing). Because inserting one row makes the total non-zero, the fallback
+    can fire at most once and can never re-mint the same concept on every empty
+    surface (the d16 duplicate-spam root cause). Normal restocking is the
+    planner + refill-on-drain path — see curriculum-curator-design §11.4.
+    """
+    resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    return not (resp.data or [])
+
+
 def _load_pending(supabase: Client, user_id: str) -> list[dict]:
     resp = (
         supabase.table("queue_items")
         .select(
             "id, kind, ref_id, state, priority_score, "
-            "time_estimate_minutes_low, time_estimate_minutes_high, added_reason"
+            "time_estimate_minutes_low, time_estimate_minutes_high, added_reason, "
+            "via_refresher"
         )
         .eq("user_id", user_id)
         .eq("state", "pending")
@@ -168,12 +190,15 @@ def surface_daily(
     # 1. Fetch all pending queue items ordered by priority.
     pending = _load_pending(supabase, user_id)
 
-    # 2. F17 fallback: empty queue → insert one concept_review starter item.
-    if not pending:
+    # 2. F17 fallback: seed ONE starter concept — only for a genuinely empty
+    #    account. See _user_has_no_queue_items for why this guard matters
+    #    (it's the fix for the d16 duplicate-concept spam).
+    if not pending and _user_has_no_queue_items(supabase, user_id):
         foundation = _closest_foundation(supabase, user_id)
         if foundation and foundation.get("id"):
             logger.info(
-                "F17 fallback: empty queue for user=%s; inserting concept_review for node=%s",
+                "F17 fallback: no queue items for user=%s; seeding starter "
+                "concept_review for node=%s",
                 user_id,
                 foundation["id"],
             )
@@ -184,7 +209,10 @@ def surface_daily(
                     "ref_id": foundation["id"],
                     "state": "pending",
                     "priority_score": 0.3,
-                    "added_reason": "A starting point while your queue is being built.",
+                    "added_reason": (
+                        "A quick read to get you started while we build out "
+                        "the rest of your queue."
+                    ),
                     "time_estimate_minutes_low": 5,
                     "time_estimate_minutes_high": 15,
                 }
@@ -221,8 +249,15 @@ def surface_daily(
             added_reason=item.get("added_reason"),
             time_estimate_minutes_low=item.get("time_estimate_minutes_low"),
             time_estimate_minutes_high=item.get("time_estimate_minutes_high"),
+            via_refresher=bool(item.get("via_refresher")),
         )
         for item in picked
     ]
 
-    return SurfaceDailyResponse(pick_id=UUID(pick_id), items=items)
+    # Pending items left after this pick (everything in `pending` minus the ones
+    # we just flipped to 'surfaced'). Drives refill-on-drain in the web layer.
+    pending_remaining = max(0, len(pending) - len(picked))
+
+    return SurfaceDailyResponse(
+        pick_id=UUID(pick_id), items=items, pending_remaining=pending_remaining
+    )

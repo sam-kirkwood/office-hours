@@ -14,6 +14,20 @@ class GenerateProblemRequest(BaseModel):
     feedback_bias: dict[str, bool] | None = None
 
 
+class GeneratedHint(BaseModel):
+    """One rung of the depth hint ladder.
+
+    `part_label` (d10) names the part(s) the hint addresses — "Parts (a)-(b)",
+    "Part (c)", or "Whole problem" for ladder rungs that apply throughout. It
+    is rendered as a chip so the user can see which part a hint speaks to
+    before opening it. Nullable for tolerance; the render layer omits the chip
+    when absent.
+    """
+
+    text: str
+    part_label: str | None = None
+
+
 class GeneratedProblem(BaseModel):
     """Strict shape the Sonnet generation call must return as JSON."""
 
@@ -21,7 +35,7 @@ class GeneratedProblem(BaseModel):
     statement_md: str
     solution_md: str
     rubric_md: str
-    hints: list[str] = Field(..., min_length=5, max_length=5)
+    hints: list[GeneratedHint] = Field(..., min_length=5, max_length=5)
     context_md: str | None = None  # matches DB column name
     # Required: at least the topic slug + one subtopic slug. Concept-refresher
     # surfaces (§2.7 Case 3, §7) query by tags @> ARRAY['<subtopic>'] so
@@ -221,11 +235,19 @@ class SurfacedItem(BaseModel):
     added_reason: str | None = None
     time_estimate_minutes_low: int | None = None
     time_estimate_minutes_high: int | None = None
+    # True when this item was created as a refresher (spaced revisiting). The
+    # row's own `kind` drives routing/title; this flag drives the "Refresher"
+    # badge + revisit copy in the daily queue. See refresher.py.
+    via_refresher: bool = False
 
 
 class SurfaceDailyResponse(BaseModel):
     pick_id: UUID
     items: list[SurfacedItem]
+    # Non-surfaced pending items left after this pick. The web layer uses this
+    # to fire a background refill when stock runs low (curriculum-curator-design
+    # §11.4 refill-on-drain).
+    pending_remaining: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -531,6 +553,11 @@ class ProposedPaperCandidate(BaseModel):
     arxiv_id: str | None = None
     doi: str | None = None
     rationale: str  # one sentence; stored in queue_items.added_reason
+    # Which of the user's stated interests this paper maps to — a subset of the
+    # interest titles supplied in the prompt, echoed verbatim. Resolved back to
+    # node ids and stored in papers.topic_node_ids so the queue card can show
+    # the topic(s) the paper is drawn from (d22). Defaults to [] for tolerance.
+    interest_titles: list[str] = []
 
 
 class ProposePapersLLMOutput(BaseModel):
@@ -635,30 +662,29 @@ class ConceptReviewResolveResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# /refresher-resolve (phase-10-rev Step 8 fix)
+# /create-refresher (phase-10.5-rev Step 2)
 # ---------------------------------------------------------------------------
-# Called when the user taps a kind='refresher' queue card. Two shapes of
-# refresher exist:
-#   (a) Legacy/deterministic — ref_id points to a refresher_schedule row whose
-#       subject is a prior attempt or paper engagement. Resolution redirects
-#       back to the original problem/paper queue item.
-#   (b) Curator-style — ref_id points directly to a node (the curator emits
-#       this for ad-hoc refreshers; see api/routes/curator.py). Resolution
-#       pool-looks-up at intent='refresh', difficulty=1 on that node. On hit,
-#       enqueues a kind='problem' row; on miss, enqueues a kind='concept_review'
-#       row pointing at the same node so the user still has somewhere to land.
-# In both cases the original refresher queue_items row is marked 'done'.
+# Resolves a refresher reference to a concrete, directly-routable queue item
+# with via_refresher=true. ref_id is either a refresher_schedule.id (legacy:
+# revisit a prior attempt/paper) or a nodes.id (curator-style: pool-first
+# refresh-intent problem, generate on miss, concept_review on generation
+# failure). The in-process callers (the curator planner + post-engagement
+# prerequisite path) call resolve_refresher_to_content directly; this HTTP
+# wrapper serves the Next.js on-demand request route.
 
 
-class RefresherResolveRequest(BaseModel):
+class CreateRefresherRequest(BaseModel):
     user_id: UUID
-    queue_item_id: UUID
+    ref_id: UUID  # a refresher_schedule.id or a nodes.id
+    reason: str | None = None
+    priority_score: float | None = None
+    parent_queue_item_id: UUID | None = None
 
 
 class RefresherResolveResponse(BaseModel):
-    # kind='problem' → client redirects to /problem/<queue_item_id>.
-    # kind='paper_engagement' → client redirects to /paper/<queue_item_id>.
-    # kind='concept_review' → client redirects to /concept-review/<queue_item_id>.
+    # The resolved item's content kind — drives client routing:
+    # problem → /problem, paper_engagement → /paper, concept_review →
+    # /concept-review. The new queue item carries via_refresher=true.
     kind: Literal["problem", "paper_engagement", "concept_review"]
     queue_item_id: UUID
 

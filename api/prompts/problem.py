@@ -75,17 +75,41 @@ commentary. The object has these fields:
 
 - "title": string. 4–8 words plain English. No LaTeX, symbols, or \
 equations. Conveys what the problem asks without giving it away.
-- "statement_md": string. The problem in Markdown + LaTeX ($...$ inline, \
-$$...$$ display).
+- "statement_md": string. The problem in Markdown + LaTeX, following the \
+STATEMENT TEMPLATE below exactly.
 - "solution_md": string. A complete worked solution, deriving the answer \
 rather than asserting it.
 - "rubric_md": string. 3–6 bullet points listing what a correct solution \
 must demonstrate. Read by an automated grader.
-- "hints": array of EXACTLY 5 strings, levels 1..5 in order. Each hint \
-reveals strictly more than the previous one. Hints NEVER state the final \
-answer.
+- "hints": array of EXACTLY 5 objects, levels 1..5 in order. Each object is \
+{"text": <string>, "part_label": <string>}. "text" is the hint, following \
+the ladder below and revealing strictly more than the previous one. Hints \
+NEVER state the final answer. "part_label" names the part(s) the hint \
+addresses using the SAME labels as the statement — "Part (c)", \
+"Parts (a)–(b)", or "Whole problem" for rungs that apply throughout (usually \
+L1–L2). For a single-part problem every part_label is "Whole problem".
 - "context_md": string OR null. 2–4 paragraphs of historical / scientific \
-context ONLY when no curated context hook is supplied; otherwise null.
+context ONLY when no curated context hook is supplied; otherwise null. \
+Historical / biographical framing belongs HERE, never in the statement.
+
+# Statement template (follow exactly)
+
+Every problem must read the same way. Write "statement_md" to this skeleton:
+
+1. Do NOT open with historical context, a date, or a named-scientist story — \
+that belongs in "context_md". Open with at most one sentence framing what the \
+problem is about.
+2. If the problem needs definitions, notation, or apparatus the user must \
+use, introduce them under a Markdown heading "## Setup" — and only what the \
+assumed-background dial permits.
+3. Put the questions under a Markdown heading "## The problem".
+4. Label every part with a bold parenthesised letter, in order: "**(a)**", \
+"**(b)**", "**(c)**", … NEVER number parts "1." / "2.", and NEVER write \
+"Part 1". A single-part problem carries no part label.
+5. Standalone equations use display math "$$ … $$" on their own line with a \
+blank line before and after; only short expressions sit inline as "$ … $".
+6. Any tabular data must be a valid GitHub-flavoured Markdown table (a header \
+row followed by a "|---|---|" separator row).
 - "tags": array of slug strings. MUST include the primary topic slug AND \
 at least one subtopic-level tag identifying what the problem actually \
 addresses. Example for a power-in-mechanics problem: \
@@ -101,6 +125,18 @@ list supplied in the user prompt where applicable.
 - L3: Suggest a setup or starting move (no algebra performed).
 - L4: Identify a specific first step the student should take.
 - L5: Flag a subtle pitfall, sign issue, or limiting case to watch for.
+
+# Hints obey the assumed-background dial (load-bearing)
+
+Hints are bound by the SAME assumed-background rule as the statement. A hint \
+may only invoke concepts, named results, equations, or notation that the \
+statement has already established or that the confirmed background permits. \
+Never let a hint introduce machinery the problem deliberately avoided: if a \
+rung would need a tool the statement did not build, either the statement is \
+under-built or the hint over-reaches — fix it so the hint escalates within \
+the problem's OWN apparatus. A good hint makes the next step findable with \
+what the user already has, not with knowledge the problem withheld. This is \
+the most common hint defect; check every rung against it before returning.
 
 # Difficulty mapping (legacy 1–5 scale → label)
 

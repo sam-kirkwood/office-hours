@@ -96,7 +96,7 @@ export default function InterestSuggestions({
               >
                 <p className="font-serif text-base text-foreground">{s.title}</p>
                 {s.description_md && (
-                  <p className="line-clamp-2 text-sm text-muted-foreground">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
                     {s.description_md.replace(/[*_`#]/g, "").trim()}
                   </p>
                 )}

@@ -23,5 +23,9 @@ subtopics:
 
 prereq_slugs:
   - classical-mechanics
-  - electromagnetism-1
   - thermodynamics
+  - statistical-mechanics
+  - multivariable-calculus
+
+related_slugs:
+  - general-relativity

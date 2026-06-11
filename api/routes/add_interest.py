@@ -505,11 +505,59 @@ def _starter_preview_for_existing(node: dict) -> str:
     return f"Your first item will be: a conceptual entrance to {title}."
 
 
+def _round_robin_tiles(
+    nodes: list[dict],
+    *,
+    limit: int,
+    seen: set[tuple[str, str]],
+) -> list[ConceptTourTile]:
+    """Take subtopic tiles from `nodes` one-at-a-time in round-robin order
+    (node 0's first subtopic, node 1's first, …, then everyone's second, …).
+
+    Round-robin instead of draining each node in turn so a single foundation
+    with a long subtopic list (e.g. Classical Mechanics' intro topics) can't
+    monopolise the tour — the tiles sample breadth across the prerequisites
+    rather than dumping one node's whole list. Stops at `limit` tiles."""
+    tiles: list[ConceptTourTile] = []
+    if limit <= 0:
+        return tiles
+    per_node = [(n, _subtopic_entries(n.get("subtopics_json"))) for n in nodes]
+    max_len = max((len(entries) for _, entries in per_node), default=0)
+    for idx in range(max_len):
+        for node, entries in per_node:
+            if idx >= len(entries):
+                continue
+            entry = entries[idx]
+            subtopic_key = _slugify(entry["name"])
+            dedup_key = (node["id"], subtopic_key)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            tiles.append(
+                ConceptTourTile(
+                    node_id=UUID(node["id"]),
+                    node_slug=node["slug"],
+                    subtopic_key=subtopic_key,
+                    name=entry["name"],
+                    gloss=entry["gloss"] or None,
+                )
+            )
+            if len(tiles) >= limit:
+                return tiles
+    return tiles
+
+
 def _concept_tour(
     supabase: Client, *, node_id: str, all_nodes: list[dict]
 ) -> list[ConceptTourTile]:
-    """Build 6–10 subtopic-level tiles drawn from the node's prerequisite
-    foundation nodes (survey-and-difficulty-design.md §1.6.2)."""
+    """Build up to CONCEPT_TOUR_MAX subtopic-level tiles drawn from the node's
+    prerequisite foundation nodes (survey-and-difficulty-design.md §1.6.2).
+
+    Tiles live at the foundation-subtopic level, so foundation prerequisites
+    supply the tour; interest-kind prerequisites contribute only as a fallback
+    when foundations don't yield enough to be worth showing. Within each group
+    the tiles are taken round-robin (see `_round_robin_tiles`) so one node's
+    long intro list doesn't crowd out the others."""
     edges_resp = (
         supabase.table("edges")
         .select("source_node_id, edge_kind, target_node_id")
@@ -524,33 +572,18 @@ def _concept_tour(
     nodes_by_id = {n["id"]: n for n in all_nodes}
     prereqs = [nodes_by_id[i] for i in prereq_ids if i in nodes_by_id]
 
-    # Surface foundation prerequisites first; concept tour tiles live at the
-    # foundation-subtopic level. Interest-kind prerequisites can supply tiles
-    # only if we'd otherwise come up short.
-    foundation_first = [p for p in prereqs if p.get("kind") == "foundation"] + [
-        p for p in prereqs if p.get("kind") != "foundation"
-    ]
+    foundations = [p for p in prereqs if p.get("kind") == "foundation"]
+    others = [p for p in prereqs if p.get("kind") != "foundation"]
 
-    tiles: list[ConceptTourTile] = []
     seen_keys: set[tuple[str, str]] = set()
-    for prereq in foundation_first:
-        for entry in _subtopic_entries(prereq.get("subtopics_json")):
-            subtopic_key = _slugify(entry["name"])
-            dedup_key = (prereq["id"], subtopic_key)
-            if dedup_key in seen_keys:
-                continue
-            seen_keys.add(dedup_key)
-            tiles.append(
-                ConceptTourTile(
-                    node_id=UUID(prereq["id"]),
-                    node_slug=prereq["slug"],
-                    subtopic_key=subtopic_key,
-                    name=entry["name"],
-                    gloss=entry["gloss"] or None,
-                )
-            )
-            if len(tiles) >= CONCEPT_TOUR_MAX:
-                return tiles
+    tiles = _round_robin_tiles(foundations, limit=CONCEPT_TOUR_MAX, seen=seen_keys)
+    # Only fall back to interest-kind prerequisites if the foundations alone
+    # didn't produce a worthwhile tour (e.g. a node whose only prereqs are
+    # themselves interest nodes).
+    if len(tiles) < CONCEPT_TOUR_MIN:
+        tiles += _round_robin_tiles(
+            others, limit=CONCEPT_TOUR_MAX - len(tiles), seen=seen_keys
+        )
     return tiles
 
 

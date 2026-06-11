@@ -399,8 +399,13 @@ def generate_problem(
             problem_id = insert_resp.data[0]["id"]
             # 9. Hints (5 rows, levels 1..5) — only when we won the race
             hint_rows = [
-                {"problem_id": problem_id, "level": i + 1, "text": text}
-                for i, text in enumerate(generated.hints)
+                {
+                    "problem_id": problem_id,
+                    "level": i + 1,
+                    "text": hint.text,
+                    "part_label": hint.part_label,
+                }
+                for i, hint in enumerate(generated.hints)
             ]
             supabase.table("problem_hints").insert(hint_rows).execute()
 

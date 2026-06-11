@@ -159,7 +159,13 @@ queue, varied in length and mode when the queue permits. Each item
 shows:
 
 - Title and short description
-- Mode badge (problem / paper / refresher / suggested interest)
+- The relevant topic(s) it's drawn from — the interest and/or foundation
+  node(s) the item belongs to, shown as a label/chip so the user can see at a
+  glance what area each card covers
+- Mode badge (problem / paper / concept / suggested interest). Items that
+  revisit material the user has already worked on additionally carry a
+  "refresher" badge — a framing flag (`via_refresher`) on a concrete item,
+  not a separate kind (see Phase 10.5-rev Step 2)
 - Estimated time as a coarse range
 - Brief "why this" — connection to user's interests, recent work, or the
   megagraph

@@ -19,6 +19,7 @@ import {
   DropdownExample,
   TooltipExample,
   HintPanel,
+  NotebookTabsOptions,
 } from "@/components/DesignInteractiveExamples";
 import { BookOpen, FileText, RefreshCw, Sparkles, AlertTriangle } from "lucide-react";
 
@@ -103,6 +104,7 @@ export default function DesignPage() {
               ["badges", "Badges"],
               ["alerts", "Alerts"],
               ["tabs", "Tabs"],
+              ["notebook-tabs", "Notebook tabs"],
               ["overlays", "Overlays"],
               ["loading", "Loading"],
               ["product", "Product"],
@@ -479,6 +481,17 @@ export default function DesignPage() {
               </p>
             </TabsContent>
           </Tabs>
+        </Section>
+
+        {/* ── NOTEBOOK TABS ── */}
+        <Section title="Notebook tabs — pick a styling" id="notebook-tabs">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            The notebook groups entries by interest (plus All and Come back to
+            this). With several interests the strip overflows; the current build
+            scrolls horizontally with a visible scrollbar. Four alternatives —
+            click around each:
+          </p>
+          <NotebookTabsOptions />
         </Section>
 
         {/* ── OVERLAYS ── */}

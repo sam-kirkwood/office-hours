@@ -553,11 +553,38 @@ def test_accelerate_bumps_next_difficulty_priority(client: TestClient, fakes) ->
 # ---------------------------------------------------------------------------
 
 
-def test_surface_prerequisite_enqueues_refresher(client: TestClient, fakes) -> None:
+def test_surface_prerequisite_enqueues_refresher(
+    client: TestClient, fakes, monkeypatch
+) -> None:
     supabase, anthropic = fakes
     user_id = str(uuid4())
     attempt_id = str(uuid4())
     topic_node_id = str(uuid4())
+
+    # The prerequisite refresher is resolved to concrete content via
+    # resolve_refresher_to_content (tested in test_refresher_resolve.py). Here
+    # we assert the post-engagement path routes to the right prerequisite node.
+    import routes.refresher as rr
+    from schemas import RefresherResolveResponse
+
+    captured: dict = {}
+
+    def fake_resolve(  # noqa: PLR0913
+        supabase,
+        anthropic,
+        *,
+        user_id,
+        ref_id,
+        reason=None,
+        priority_score=0.55,
+        parent_queue_item_id=None,
+    ):
+        captured["ref_id"] = ref_id
+        captured["user_id"] = user_id
+        captured["reason"] = reason
+        return RefresherResolveResponse(kind="problem", queue_item_id=str(uuid4()))
+
+    monkeypatch.setattr(rr, "resolve_refresher_to_content", fake_resolve)
     prereq_node_id = str(uuid4())
 
     _prime_attempt_load(
@@ -590,7 +617,6 @@ def test_surface_prerequisite_enqueues_refresher(client: TestClient, fakes) -> N
         return [{"title": "Superconductivity", "slug": "superconductivity"}]
 
     supabase.respond("nodes", "select", nodes_responder)
-    supabase.respond("queue_items", "insert", lambda _call: [{"id": str(uuid4())}])
 
     anthropic.queue(
         _haiku_response(
@@ -609,15 +635,9 @@ def test_surface_prerequisite_enqueues_refresher(client: TestClient, fakes) -> N
 
     assert response.status_code == 200, response.text
     assert response.json()["action_executed"] is True
-    inserts = [
-        c for c in supabase.calls
-        if c.table == "queue_items" and c.op == "insert"
-    ]
-    assert len(inserts) == 1
-    payload = inserts[0].payload
-    assert payload["kind"] == "refresher"
-    assert payload["ref_id"] == prereq_node_id
-    assert payload["user_id"] == user_id
+    # Resolved a refresher on the prerequisite node (ODEs), not the topic node.
+    assert captured["ref_id"] == prereq_node_id
+    assert captured["user_id"] == user_id
 
 
 # ---------------------------------------------------------------------------

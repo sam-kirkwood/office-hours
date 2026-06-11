@@ -91,6 +91,157 @@ export function TooltipExample() {
   );
 }
 
+// Candidate stylings for the notebook's by-interest tab strip. The live
+// version uses a horizontally-scrolling underline strip whose native scrollbar
+// reads as "gross"; these are alternatives to pick from. Each is interactive
+// and constrained to a notebook-ish column width so overflow/wrap is visible.
+const NB_TABS = [
+  "All",
+  "Quantum Mechanics",
+  "Cosmology & ΛCDM",
+  "Fourier Analysis",
+  "Statistical Mechanics",
+  "Differential Equations",
+  "Come back to this",
+];
+const NB_COMEBACK = "Come back to this";
+
+function CountBadge({ n }: { n: number }) {
+  return (
+    <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      {n}
+    </span>
+  );
+}
+
+function OptionFrame({
+  label,
+  note,
+  children,
+}: {
+  label: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xs font-semibold uppercase tracking-widest text-foreground">
+          {label}
+        </span>
+        <span className="text-xs text-muted-foreground">{note}</span>
+      </div>
+      <div className="max-w-md rounded-md border border-border bg-card p-4">
+        {children}
+        <p className="mt-4 font-serif text-sm leading-relaxed text-muted-foreground">
+          Entries for the selected tab would appear here.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function NotebookTabsOptions() {
+  const [a, setA] = useState(NB_TABS[0]);
+  const [b, setB] = useState(NB_TABS[0]);
+  const [c, setC] = useState(NB_TABS[0]);
+  const [d, setD] = useState(NB_TABS[0]);
+
+  const pill = (active: boolean) =>
+    `shrink-0 rounded-full border px-3 py-1 text-sm transition-colors duration-[var(--duration-fast)] ${
+      active
+        ? "border-amber/50 bg-[var(--amber-subtle)] text-foreground"
+        : "border-border text-muted-foreground hover:text-foreground"
+    }`;
+
+  const underline = (active: boolean) =>
+    `shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors duration-[var(--duration-fast)] ${
+      active
+        ? "border-primary font-medium text-foreground"
+        : "border-transparent text-muted-foreground hover:text-foreground"
+    }`;
+
+  const cInterests = NB_TABS.filter((t) => t !== "All" && t !== NB_COMEBACK);
+  const cInterestActive = c !== "All" && c !== NB_COMEBACK;
+
+  return (
+    <div className="space-y-7">
+      {/* A — wrapping pills */}
+      <OptionFrame label="Option A" note="Wrapping pills — no scroll, chips flow onto new rows">
+        <div className="flex flex-wrap gap-2">
+          {NB_TABS.map((t) => (
+            <button key={t} type="button" onClick={() => setA(t)} className={pill(a === t)}>
+              {t}
+              {t === NB_COMEBACK && <CountBadge n={3} />}
+            </button>
+          ))}
+        </div>
+      </OptionFrame>
+
+      {/* B — wrapping underline tabs */}
+      <OptionFrame label="Option B" note="Wrapping underline tabs — same family as current, but wraps">
+        <div className="flex flex-wrap items-center gap-x-1">
+          {NB_TABS.map((t) => (
+            <button key={t} type="button" onClick={() => setB(t)} className={underline(b === t)}>
+              {t}
+              {t === NB_COMEBACK && <CountBadge n={3} />}
+            </button>
+          ))}
+        </div>
+      </OptionFrame>
+
+      {/* C — fixed tabs + interest dropdown */}
+      <OptionFrame label="Option C" note="Fixed tabs + a Topics dropdown — minimal chrome, scales to many interests">
+        <div className="flex items-center gap-1 border-b border-border">
+          <button type="button" onClick={() => setC("All")} className={underline(c === "All")}>
+            All
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={`flex items-center gap-1 ${underline(cInterestActive)}`}
+              >
+                {cInterestActive ? c : "Topics"}
+                <ChevronDown className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {cInterests.map((t) => (
+                <DropdownMenuItem key={t} onClick={() => setC(t)}>
+                  {t}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button
+            type="button"
+            onClick={() => setC(NB_COMEBACK)}
+            className={underline(c === NB_COMEBACK)}
+          >
+            {NB_COMEBACK}
+            <CountBadge n={3} />
+          </button>
+        </div>
+      </OptionFrame>
+
+      {/* D — hidden-scrollbar strip (current behaviour, scrollbar removed) */}
+      <OptionFrame label="Option D" note="Current scrolling strip with the scrollbar hidden — swipe / shift-scroll / drag">
+        <div className="overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex w-max items-center gap-1">
+            {NB_TABS.map((t) => (
+              <button key={t} type="button" onClick={() => setD(t)} className={underline(d === t)}>
+                {t}
+                {t === NB_COMEBACK && <CountBadge n={3} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      </OptionFrame>
+    </div>
+  );
+}
+
 export function HintPanel() {
   const [openHint, setOpenHint] = useState<number | null>(null);
 

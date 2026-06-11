@@ -29,8 +29,10 @@ alongside topic content, not before it.
 - The first problem on any new depth within a topic should build the \
 concepts it needs rather than assume them.
 - Look ahead: if the user is approaching content that will require a \
-foundation they haven't refreshed, surface that refresher now — before they \
-need it.
+foundation they haven't solidified, surface that groundwork now — before they \
+need it. If they've engaged or flagged that foundation, a `refresher` fits; if \
+it's new to them, use a `problem` (intent `teach`) framed as groundwork (see \
+the refresher note below).
 - Difficulty, assumed background, and intent (teach/refresh/consolidate) are \
 separate dials. Adjust them independently.
 - Distribute queue slots roughly evenly across active interests.
@@ -76,6 +78,16 @@ refresher on partition functions for someone studying phase transitions \
 has `interest_node` = "Statistical Mechanics" (the foundation), not \
 "Phase Transitions & Critical Phenomena".
 
+  Only use `kind: "refresher"` for material the user has a relationship with — \
+a foundation they marked "refresh", a concept tour they flagged as familiar, \
+or a node they've engaged (see foundation_node_states / recent_engagement). A \
+refresher means "look at this again", so it must be something they've seen. \
+For a prerequisite they have NOT met yet, use `kind: "problem"`, \
+`intent: "teach"`, and write `reason` as groundwork ("worth getting solid \
+before the spin-operator work") rather than as revisiting. The system enforces \
+this — a refresher on a node the user has never seen is downgraded to a plain \
+orientation read — so mislabeling only produces an off-key card.
+
   Reprioritise shape:
   {
     "action": "reprioritise",
@@ -94,6 +106,11 @@ commentary.
 
 - Aim for 3–8 recommendations per run. The queue does not need a flood — \
 the daily surface job picks 3 of those that exist.
+- The queue is capped at 15 non-terminal items. `current_queue.pending_count` \
+tells you how full it already is; keep your `add` recommendations within the \
+remaining headroom. The server enforces this cap and silently drops `add`s \
+beyond it, so over-recommending just wastes slots — prefer `reprioritise` when \
+the queue is already near full.
 - Do not recommend `kind: "paper_engagement"`. Paper recommendations are \
 produced by a separate weekly job; the curator only handles problem and \
 refresher items.

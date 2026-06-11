@@ -194,12 +194,16 @@ export default function DialogOrchestrator({ inputs }: Props) {
     setCompletedTourCount((n) => n + 1);
     if (args.skipRemaining) setSkipAllRemainingTours(true);
 
-    // Merge subtopic keys we just addressed into the seen set so subsequent
-    // tours dedup them out.
-    if (resolved) {
+    // Merge the tiles the user actually answered into the seen set so
+    // subsequent tours dedup them out. Per survey-and-difficulty-design.md
+    // §1.6.5 a tile is only "covered" when its state was captured — tiles the
+    // user left unanswered must reappear in later tours, not be silently
+    // hidden. Keys are node-scoped (node_id:subtopic_key) so the same subtopic
+    // name under a different foundation node isn't wrongly suppressed.
+    if (args.addressed.length > 0) {
       setSeenSubtopicKeys((prev) => {
         const next = new Set(prev);
-        for (const t of resolved.tiles) next.add(t.subtopic_key);
+        for (const a of args.addressed) next.add(`${a.nodeId}:${a.subtopicKey}`);
         return next;
       });
     }

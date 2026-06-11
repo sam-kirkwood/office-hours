@@ -462,9 +462,17 @@ The Sonnet call does not need explicit rules for this — it reasons from contex
 
 ### 11.1 Queue size
 
-The daily job aims to maintain 20–30 `pending` items in the queue at all times. This gives the surface-daily job (`/surface-daily`) enough variety to select three meaningfully varied items.
+The queue is **bounded**. The daily job aims to keep roughly 10–15 non-terminal
+items (`pending` + `surfaced` + `deferred`) on hand and **never exceeds a hard
+cap of 15** (Phase 10.5-rev Q1 decision — the operator wanted a tighter band
+than the original 20–30). This gives the surface-daily job (`/surface-daily`)
+enough variety to select three meaningfully varied items without the queue
+growing without limit day over day.
 
-If the queue drops below 10 pending items, the daily job is triggered early (or runs an expedited pass).
+If the non-terminal stock drops below **6**, a refill is triggered (see §11.4)
+rather than waiting for the next scheduled daily run. The executor enforces the
+cap deterministically: once on-deck stock reaches 15 it stops acting on `add`
+recommendations (it still applies `reprioritise` recommendations).
 
 ### 11.2 Composition targets (soft)
 
@@ -481,6 +489,104 @@ The Sonnet call is given these as targets, not hard constraints:
 ### 11.3 Variety
 
 The surface-daily job selects 3 items from the pending queue using `priority_score`. It applies a variety constraint: the three items should not all be the same kind (e.g. not three problems) or from the same interest. The variety constraint is deterministic logic in the surface-daily job, not an LLM call.
+
+### 11.4 Queue lifecycle (Phase 10.5-rev Q1)
+
+These are the resolved semantics behind the daily-queue surface. They are the
+contract the surfacing, reroll, refill, and fallback code implement.
+
+- **Reroll ("Show me something else").** Re-surfaces the *next* highest-priority
+  pending items in place of the current three. It is a pure re-pick — it never
+  generates content on click and never re-runs the planner. Passed-over items
+  are recorded (length-1 `surfaced_picks` rows with `chosen_item_id = null`) so
+  the curator can read the reroll pattern, and they drop in effective priority
+  but remain in the queue and can resurface later. If fewer than three distinct
+  items remain, the user sees what's left plus a "more coming" affordance, and a
+  background refill is triggered.
+- **Stocking / refill-on-drain.** The queue is kept stocked by the daily planner
+  *and* by an on-demand refill: whenever surfacing leaves non-terminal stock
+  below 6, a background `run-daily-planner` pass is fired for that user. This
+  decouples "queue stays full" from the once-a-day cron, which is what the F17
+  fallback was previously (badly) compensating for.
+- **Length / growth.** Bounded — see §11.1. Hard cap 15; the queue does not grow
+  unbounded across days.
+- **Duplicate prevention.** Enforced at every write path, not just the planner:
+  `_queue_item_already_exists` already guards planner `add`s; the same
+  `(user, kind, ref_id)` guard now also covers the surface-daily F17 fallback and
+  the refresher click-time resolver. A user never has two non-terminal queue rows
+  pointing at the same content, and never gets a second concept card for a node
+  they've already reviewed.
+- **Cold start.** On survey completion the system seeds a *varied* queue: the
+  planner adds problems and (proactive) refreshers, and — when the user's mode
+  balance gives papers a meaningful share — `propose-papers` seeds paper
+  engagements so the very first queue honours the slider. Papers are no longer
+  orphaned behind a never-run weekly job.
+- **The F17 fallback is now a true last resort.** It inserts a single starter
+  concept *only when the user has no queue rows at all* (a brand-new or
+  generation-failed queue). Because inserting one row makes the total non-zero,
+  it can fire at most once and can never spam. Normal stocking is the planner +
+  refill path above.
+- **Removing items.** Dismissing a suggested interest already removes it
+  (`state = 'dismissed'`). A general "remove / not now" affordance for other
+  kinds and a clear home for deferred items is tracked in Phase 10.5-rev Step 7
+  (g1), not here.
+
+UI copy that communicates this (d1, g3): a one-line orientation under the "Up
+next" heading explaining the queue is curated and refreshes itself, and concept
+cards carry a short "why this is here" line rather than the bare "A starting
+point while your queue is being built."
+
+### 11.5 Refreshers are a framing, not a kind (Phase 10.5-rev Step 2)
+
+A refresher is **not a distinct content type**. It is a concrete queue item — a
+`problem` (active recall), a `concept_review` (a gentle read), or a
+`paper_engagement` (revisit a paper) — carrying `via_refresher = true`. The
+item's own `kind` drives routing and title resolution; the flag drives the
+"Refresher" badge and revisit copy in the daily queue.
+
+- **Resolved at creation time, not at click time.** When the curator planner,
+  the post-engagement prerequisite path, or an on-demand request decides to
+  refresh something, it calls `resolve_refresher_to_content`
+  ([api/routes/refresher.py](../api/routes/refresher.py)) immediately:
+  pool-lookup a refresh-intent problem on the node → generate one on a pool
+  miss → fall back to the node's concept brief only if generation fails (reusing
+  an existing concept rather than minting a duplicate). The legacy
+  `refresher_schedule` shape (revisit a specific prior attempt/paper) resolves
+  to a problem / paper_engagement pointing at that subject. The HTTP entry point
+  for the web layer is `POST /create-refresher`.
+- **No click-time resolver page.** The old `kind='refresher'` row + the
+  `/refresher/[id]` page that resolved on load is gone. That page mutated state
+  on navigation: visiting consumed the refresher and minted a replacement, so a
+  "back to queue" lost it (d4), a non-resolving refresher silently bounced to
+  `/daily` (d18), and a paper-triggered refresher routed to the wrong reader
+  (d21). Resolving at creation removes the whole class of bug — a refresher card
+  behaves like any other queue card.
+- **A refresher needs a basis.** "Refresher" means *look at this again*, so it
+  only applies to a node the user has a relationship with: real engagement
+  (`user_node_states.engagement_count > 0` or state `active`/`struggling`/
+  `comfortable`), a Stage-2 foundation marked "refresh" (which writes
+  `state='active'`), or concept-tour familiarity. When the curator wants to
+  front-load a prerequisite the user has **not** met (proactive prereq-surfacing
+  is a deliberate feature — §10), `resolve_refresher_to_content` downgrades it to
+  **groundwork**: a plain orientation read (`via_refresher=false`, a Concept
+  card), not a "Refresher / look at this again" card on something never seen. The
+  planner prompt is also told to emit `kind:"problem"`/`intent:"teach"` framed as
+  groundwork for unmet prerequisites; the resolver guard is the deterministic
+  backstop. This was the fix for a cold-start queue showing a "Refresher" on
+  linear algebra the user had neither engaged nor marked.
+- **Consumed on completion, never on open.** Because the card is a normal
+  problem/concept/paper, opening it does nothing destructive; it is marked done
+  only when its content is completed. Back-to-queue preserves it.
+- **Prevent-at-source.** `resolve_refresher_to_content` returns `None` when
+  nothing resolves; callers skip creating a dead row, so a blank refresher never
+  enters the queue (d18).
+- **Navigate-there-and-back (g2).** A refresher requested from inside another
+  surface records `parent_queue_item_id`; the resulting reading view renders a
+  "← Back to …" link to its origin (the paper case is wired today, mirroring
+  `ConceptReadingView`). A refresher requested from the skill tree lands in the
+  daily queue as a clearly-badged card; the round trip is queue-mediated. The
+  deep "back to this exact node" link rides on the skill-tree deep-linking work
+  tracked under Step 7 (n2).
 
 ---
 
@@ -515,7 +621,10 @@ Possible signal of `marked_refreshed` spam (user skipping everything). The Sonne
 
 ### 13.4 Queue overflow
 
-If the pending queue exceeds 40 items (e.g. because the user hasn't engaged in several days), the daily job deprioritises adding new items and instead adjusts priority scores on existing items. The Sonnet call is instructed to manage the existing queue rather than adding to it.
+Superseded by the §11.1 hard cap of 15 (Phase 10.5-rev Q1). The executor stops
+acting on `add` recommendations once non-terminal stock reaches the cap and only
+applies `reprioritise` recommendations; the 40-item figure from the original
+draft no longer applies.
 
 ### 13.5 Single active interest
 

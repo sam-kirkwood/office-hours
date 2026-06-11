@@ -21,7 +21,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import DialogModal from "@/components/addInterest/DialogModal";
-import { optimisticQueueRequest } from "@/lib/optimisticQueueRequest";
+import { optimisticQueueRequest, queueItemPath } from "@/lib/optimisticQueueRequest";
 import type { ParsedInterestSegmentDTO } from "@/lib/pythonApi";
 
 type KindHint = "problem" | "paper" | "refresher";
@@ -90,8 +90,9 @@ export default function RequestBox() {
             : "Refresher added to your queue.";
         optimisticQueueRequest({
           body: { raw_text: rawText, kind_hint: kindHint },
-          targetPath: (id) =>
-            kindHint === "paper" ? `/paper/${id}` : `/problem/${id}`,
+          // Paper requests always land on /paper; refreshers resolve to a
+          // concrete kind (problem / concept_review / paper_engagement).
+          targetPath: kindHint === "paper" ? (id) => `/paper/${id}` : queueItemPath,
           router,
           labels: { pending: pendingLabel, queued: queuedLabel },
         }).catch(() => {/* surfaced via toast */});

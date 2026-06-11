@@ -5,7 +5,7 @@ Coverage:
   - Add problem with pool hit -> single queue_items insert; no second Sonnet call.
   - Add problem with pool miss -> /generate-problem called inline; the
     generator's queue row is updated to the curator's reason + priority.
-  - Add refresher -> queue_items insert with kind='refresher'.
+  - Add refresher -> resolve_refresher_to_content called with the routed node.
   - Reprioritise -> queue_items update with mapped priority_score.
   - Paper-engagement rec -> ignored (no write); counted as skipped.
   - added_reason from the curator's `reason` field flows through verbatim.
@@ -128,6 +128,40 @@ def _plan_response(recommendations: list[dict], observations: str = "") -> str:
     return json.dumps(
         {"recommendations": recommendations, "observations": observations}
     )
+
+
+def _capture_refresher(monkeypatch) -> list[dict]:
+    """Patch resolve_refresher_to_content so the planner's refresher *routing*
+    (which node it targets) can be asserted in isolation from resolution
+    (pool lookup / generation), which has its own tests in
+    test_refresher_resolve.py. Returns the list of captured calls."""
+    import routes.refresher as rr
+    from schemas import RefresherResolveResponse
+
+    calls: list[dict] = []
+
+    def fake(  # noqa: PLR0913
+        supabase,
+        anthropic,
+        *,
+        user_id,
+        ref_id,
+        reason=None,
+        priority_score=0.55,
+        parent_queue_item_id=None,
+    ):
+        calls.append(
+            {
+                "ref_id": ref_id,
+                "reason": reason,
+                "priority_score": priority_score,
+                "user_id": user_id,
+            }
+        )
+        return RefresherResolveResponse(kind="problem", queue_item_id=str(uuid4()))
+
+    monkeypatch.setattr(rr, "resolve_refresher_to_content", fake)
+    return calls
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +316,11 @@ VALID_GEN_PROBLEM_JSON = json.dumps(
         "solution_md": "Worked solution.",
         "rubric_md": "- Names the Meissner effect.\n- Connects to flux expulsion.",
         "hints": [
-            "L1: Recall what a superconductor expels.",
-            "L2: Think about magnetic field lines inside the material.",
-            "L3: Connect to flux quantisation.",
-            "L4: What changes at the critical temperature?",
-            "L5: Edge effect: thin-film behaviour differs.",
+            {"text": "L1: Recall what a superconductor expels.", "part_label": "Whole problem"},
+            {"text": "L2: Think about magnetic field lines inside the material.", "part_label": "Whole problem"},
+            {"text": "L3: Connect to flux quantisation.", "part_label": "Whole problem"},
+            {"text": "L4: What changes at the critical temperature?", "part_label": "Whole problem"},
+            {"text": "L5: Edge effect: thin-film behaviour differs.", "part_label": "Whole problem"},
         ],
         "context_md": "Discovered by Meissner and Ochsenfeld in 1933.",
         "tags": ["superconductivity", "meissner-effect"],
@@ -383,11 +417,16 @@ def test_add_problem_pool_miss_triggers_generation(
 # ---------------------------------------------------------------------------
 
 
-def test_add_refresher_writes_queue_item(client: TestClient, fakes) -> None:
+def test_add_refresher_resolves_to_content(
+    client: TestClient, fakes, monkeypatch
+) -> None:
+    """A refresher rec resolves to concrete content via
+    resolve_refresher_to_content (a via_refresher problem/concept), passing the
+    routed node id, the curator's reason, and the mapped priority."""
     supabase, anthropic = fakes
     interest_node_id = str(uuid4())
     _prime_minimal_context(supabase, interest_node_id=interest_node_id)
-    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+    calls = _capture_refresher(monkeypatch)
 
     anthropic.queue(
         _plan_response(
@@ -416,16 +455,10 @@ def test_add_refresher_writes_queue_item(client: TestClient, fakes) -> None:
     assert resp.status_code == 200, resp.text
     assert resp.json()["items_added"] == 1
 
-    inserts = [
-        c for c in supabase.calls
-        if c.table == "queue_items" and c.op == "insert"
-    ]
-    assert len(inserts) == 1
-    payload = inserts[0].payload
-    assert payload["kind"] == "refresher"
-    assert payload["ref_id"] == interest_node_id
-    assert payload["added_reason"] == "Refresh on ODEs before BCS theory."
-    assert payload["priority_score"] == 0.6  # "medium"
+    assert len(calls) == 1
+    assert calls[0]["ref_id"] == interest_node_id
+    assert calls[0]["reason"] == "Refresh on ODEs before BCS theory."
+    assert calls[0]["priority_score"] == 0.6  # "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -588,16 +621,94 @@ def test_pool_hit_with_existing_pending_item_is_skipped(
 
 
 # ---------------------------------------------------------------------------
+# Phase 10.5-rev Step 1 — queue cap (MAX_ON_DECK)
+# ---------------------------------------------------------------------------
+
+
+def test_add_recs_skipped_when_queue_at_cap(client: TestClient, fakes) -> None:
+    """When non-terminal stock is already at the cap, `add` recs are held
+    (skipped) while `reprioritise` recs still apply (curriculum-curator-design
+    §11.1 / §13.4, Phase 10.5-rev Q1)."""
+    supabase, anthropic = fakes
+    interest_node_id = str(uuid4())
+    target_queue_id = str(uuid4())
+    _prime_minimal_context(supabase, interest_node_id=interest_node_id)
+
+    def queue_items_select(call):
+        for op, col, val in call.filters:
+            if op == "in_" and col == "state":
+                # _count_on_deck includes 'deferred'; report a full queue.
+                if "deferred" in val:
+                    return [{"id": str(uuid4())} for _ in range(15)]
+                # load_current_queue_summary (pending, surfaced) — keep cheap.
+                return []
+        return []
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+    supabase.respond(
+        "queue_items", "update", lambda _c: [{"id": target_queue_id}]
+    )
+
+    anthropic.queue(
+        _plan_response(
+            [
+                {
+                    "action": "add",
+                    "interest_node": "Superconductivity",
+                    "kind": "refresher",
+                    "intent": "refresh",
+                    "subtopic": "ODE basics",
+                    "depth": "foundational",
+                    "assumed_background": [],
+                    "priority": "medium",
+                    "reason": "Would add — but the queue is full.",
+                },
+                {
+                    "action": "reprioritise",
+                    "queue_item_id": target_queue_id,
+                    "new_priority": "high",
+                    "reason": "Bump the most relevant pending item instead.",
+                },
+            ]
+        )
+    )
+
+    resp = client.post(
+        "/plan-queue",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["items_added"] == 0
+    assert data["items_skipped"] == 1
+    assert data["items_reprioritised"] == 1
+
+    # The capped add wrote no queue row...
+    assert not any(
+        c.table == "queue_items" and c.op == "insert" for c in supabase.calls
+    )
+    # ...but the reprioritise still updated priority_score.
+    updates = [
+        c for c in supabase.calls if c.table == "queue_items" and c.op == "update"
+    ]
+    assert len(updates) == 1
+    assert updates[0].payload["priority_score"] == 0.85  # "high"
+
+
+# ---------------------------------------------------------------------------
 # Phase 10-rev Step 9a — refresher kind routes to foundation
 # ---------------------------------------------------------------------------
 
 
 def test_refresher_routes_to_foundation_when_subtopic_matches(
-    client: TestClient, fakes
+    client: TestClient, fakes, monkeypatch
 ) -> None:
     """When the curator emits a refresher rec whose subtopic matches a
-    foundation node's subtopics_json entry, the queue_items row's ref_id
-    is the FOUNDATION node, not the interest_node the rec was emitted under.
+    foundation node's subtopics_json entry, the refresher is resolved against
+    the FOUNDATION node, not the interest_node the rec was emitted under.
 
     Mirrors the phase-transitions → partition-function-manipulations →
     statistical-mechanics routing the persona walkthroughs identified as
@@ -606,6 +717,7 @@ def test_refresher_routes_to_foundation_when_subtopic_matches(
     supabase, anthropic = fakes
     interest_node_id = str(uuid4())
     foundation_node_id = str(uuid4())
+    calls = _capture_refresher(monkeypatch)
 
     # Minimal context for the planner's input — set up the interest node
     # responder, but DON'T register a fallback foundation responder yet so
@@ -696,20 +808,14 @@ def test_refresher_routes_to_foundation_when_subtopic_matches(
     assert resp.status_code == 200, resp.text
     assert resp.json()["items_added"] == 1
 
-    inserts = [
-        c for c in supabase.calls
-        if c.table == "queue_items" and c.op == "insert"
-    ]
-    assert len(inserts) == 1
-    payload = inserts[0].payload
-    assert payload["kind"] == "refresher"
+    assert len(calls) == 1
     # The critical assertion: ref_id is the FOUNDATION, not the interest_node.
-    assert payload["ref_id"] == foundation_node_id
-    assert payload["ref_id"] != interest_node_id
+    assert calls[0]["ref_id"] == foundation_node_id
+    assert calls[0]["ref_id"] != interest_node_id
 
 
 def test_refresher_falls_back_to_interest_when_no_foundation_owns_subtopic(
-    client: TestClient, fakes
+    client: TestClient, fakes, monkeypatch
 ) -> None:
     """When no foundation owns the rec's subtopic, the refresher routes
     to the interest_node as before. Preserves existing behaviour for
@@ -718,7 +824,7 @@ def test_refresher_falls_back_to_interest_when_no_foundation_owns_subtopic(
     interest_node_id = str(uuid4())
 
     _prime_minimal_context(supabase, interest_node_id=interest_node_id)
-    supabase.respond("queue_items", "insert", lambda _c: [{"id": str(uuid4())}])
+    calls = _capture_refresher(monkeypatch)
 
     anthropic.queue(
         _plan_response(
@@ -744,13 +850,9 @@ def test_refresher_falls_back_to_interest_when_no_foundation_owns_subtopic(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["items_added"] == 1
-    inserts = [
-        c for c in supabase.calls
-        if c.table == "queue_items" and c.op == "insert"
-    ]
-    assert len(inserts) == 1
+    assert len(calls) == 1
     # Falls back to the interest node.
-    assert inserts[0].payload["ref_id"] == interest_node_id
+    assert calls[0]["ref_id"] == interest_node_id
 
 
 def test_find_foundation_owning_subtopic_ignores_overloaded_tokens(fakes) -> None:
@@ -792,7 +894,7 @@ def test_find_foundation_owning_subtopic_ignores_overloaded_tokens(fakes) -> Non
 
 
 def test_refresher_trusts_foundation_named_interest_node(
-    client: TestClient, fakes
+    client: TestClient, fakes, monkeypatch
 ) -> None:
     """B1: when the curator names a FOUNDATION directly in interest_node (per
     Step 9c-iii), route the refresher there — even if rec.subtopic would
@@ -802,6 +904,7 @@ def test_refresher_trusts_foundation_named_interest_node(
     interest_node_id = str(uuid4())
     waves_id = str(uuid4())
     odes_id = str(uuid4())
+    calls = _capture_refresher(monkeypatch)
 
     supabase.respond("surveys", "select", lambda _c: [{"mode_balance": 0.5}])
     supabase.respond(
@@ -897,11 +1000,7 @@ def test_refresher_trusts_foundation_named_interest_node(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["items_added"] == 1
-    inserts = [
-        c for c in supabase.calls
-        if c.table == "queue_items" and c.op == "insert"
-    ]
-    assert len(inserts) == 1
+    assert len(calls) == 1
     # Routed to the named foundation, NOT the one the subtopic token-matched.
-    assert inserts[0].payload["ref_id"] == waves_id
-    assert inserts[0].payload["ref_id"] != odes_id
+    assert calls[0]["ref_id"] == waves_id
+    assert calls[0]["ref_id"] != odes_id

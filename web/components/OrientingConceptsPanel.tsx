@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import MarkdownLatex from "@/lib/markdown";
-import { optimisticQueueRequest } from "@/lib/optimisticQueueRequest";
+import { optimisticQueueRequest, queueItemPath } from "@/lib/optimisticQueueRequest";
 import type { OrientingConcept } from "@/lib/types";
 
 interface Props {
@@ -39,11 +39,9 @@ export default function OrientingConceptsPanel({ concepts, parentQueueItemId }: 
         kind_hint: "refresher",
         parent_queue_item_id: parentQueueItemId,
       },
-      // A refresher request can resolve to either kind=refresher (→ /problem)
-      // or kind=concept_review (→ /concept-review) — the latter when the user
-      // has no prior notebook activity on the resolved node.
-      targetPath: (id, kind) =>
-        kind === "concept_review" ? `/concept-review/${id}` : `/problem/${id}`,
+      // A refresher request resolves to a concrete kind (problem /
+      // concept_review / paper_engagement); route by it.
+      targetPath: queueItemPath,
       router,
       labels: {
         pending: `Lining up a refresher on ${term}…`,
@@ -88,17 +86,20 @@ export default function OrientingConceptsPanel({ concepts, parentQueueItemId }: 
         const concept = normalized.find((c) => c.term === openTerm);
         if (!concept || !concept.definition_md) return null;
         return (
-          <div className="mt-3 rounded-md border border-border bg-card px-4 py-3 max-w-prose">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <div
+            className="mt-3 max-w-prose rounded-md border border-[var(--forest)]/30 bg-[var(--forest-subtle)] px-4 py-3.5
+              transition-[opacity,transform] duration-[var(--duration-standard)] [transition-timing-function:var(--ease-expressive)]"
+          >
+            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-[var(--forest)]">
               {concept.term}
             </p>
             <div className="font-serif text-sm leading-[1.7] text-foreground
               [&_p]:mb-2 [&_p:last-child]:mb-0
               [&_strong]:font-semibold [&_em]:italic
-              [&_code]:font-mono [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded">
+              [&_code]:font-mono [&_code]:text-xs [&_code]:bg-background [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded">
               <MarkdownLatex source={concept.definition_md} />
             </div>
-            <div className="mt-3">
+            <div className="mt-3.5 border-t border-[var(--forest)]/15 pt-3">
               <Button
                 type="button"
                 size="sm"

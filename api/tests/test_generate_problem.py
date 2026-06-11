@@ -25,11 +25,11 @@ VALID_PROBLEM_JSON = json.dumps(
             "- Plugs in values"
         ),
         "hints": [
-            "L1: Maxwell's equations relate E and B fields.",
-            "L2: The wave equation for E in vacuum.",
-            "L3: Compare to a generic wave equation.",
-            "L4: Read off the wave-speed coefficient.",
-            "L5: Watch SI units on mu_0 and epsilon_0.",
+            {"text": "L1: Maxwell's equations relate E and B fields.", "part_label": "Whole problem"},
+            {"text": "L2: The wave equation for E in vacuum.", "part_label": "Whole problem"},
+            {"text": "L3: Compare to a generic wave equation.", "part_label": "Whole problem"},
+            {"text": "L4: Read off the wave-speed coefficient.", "part_label": "Whole problem"},
+            {"text": "L5: Watch SI units on mu_0 and epsilon_0.", "part_label": "Whole problem"},
         ],
         "context_md": "Maxwell's 1865 paper unified...",
         # tags is now required (Step 2f): topic slug + at least one subtopic
@@ -184,6 +184,8 @@ def test_happy_path_generates_problem_and_hints(client: TestClient, fakes) -> No
     assert len(hint_inserts) == 1
     assert len(hint_inserts[0].payload) == 5
     assert [r["level"] for r in hint_inserts[0].payload] == [1, 2, 3, 4, 5]
+    # d10: the structured hint's part_label is persisted on each row.
+    assert all(r["part_label"] == "Whole problem" for r in hint_inserts[0].payload)
     # context_md round-trips into the problems insert
     problems_insert = next(
         c for c in supabase.calls if c.table == "problems" and c.op == "insert"

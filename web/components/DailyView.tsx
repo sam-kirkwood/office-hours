@@ -28,11 +28,19 @@ const KIND_CTA: Record<string, string> = {
   suggested_interest: "Explore",
 };
 
-function KindBadge({ kind }: { kind: string }) {
+function KindBadge({ kind, viaRefresher }: { kind: string; viaRefresher?: boolean }) {
+  // A refresher is a framing on a concrete item — show the "Refresher" badge
+  // regardless of the underlying kind (forest outline = revisiting known
+  // material, the reading/knowledge side of the palette).
+  if (viaRefresher)
+    return (
+      <Badge variant="outline" className="border-[var(--forest)]/50 text-[var(--forest)]">
+        Refresher
+      </Badge>
+    );
   const label = KIND_LABELS[kind] ?? kind;
   if (kind === "problem") return <Badge variant="default">{label}</Badge>;
   if (kind === "paper_engagement") return <Badge variant="secondary">{label}</Badge>;
-  // refresher = revisiting known material → forest outline (reading/knowledge side)
   if (kind === "refresher")
     return <Badge variant="outline" className="border-[var(--forest)]/50 text-[var(--forest)]">{label}</Badge>;
   if (kind === "suggested_interest")
@@ -73,7 +81,7 @@ export default function DailyView({ initialResult }: Props) {
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-12">
-      <div className="mb-8 flex items-baseline justify-between">
+      <div className="mb-2 flex items-baseline justify-between">
         <h1 className="text-xl font-semibold text-foreground">Up next</h1>
         <button
           type="button"
@@ -84,6 +92,12 @@ export default function DailyView({ initialResult }: Props) {
           {rerolling ? "Finding alternatives…" : "Show me something else"}
         </button>
       </div>
+
+      <p className="mb-8 font-serif text-sm leading-relaxed text-muted-foreground">
+        A small, curated set chosen for you — it refreshes itself as you work, so
+        there&apos;s no backlog to clear. <span className="text-foreground">Concept</span> cards are
+        short reads to get you oriented on a topic before the problems begin.
+      </p>
 
       {rerollError && (
         <p className="mb-6 text-sm text-destructive">{rerollError}</p>
@@ -146,10 +160,28 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
     }
   }
 
+  // Forest-outline styling used for refresher-framed items, matching the
+  // "Refresher" badge family.
+  const refresherBtn =
+    "border-[var(--forest)] text-[var(--forest)] hover:bg-[var(--forest-subtle)]";
+  const cta = item.via_refresher ? "Look at this again" : (KIND_CTA[item.kind] ?? "Open");
+
   return (
     <div className="rounded-md border border-border bg-card px-5 py-5">
-      <div className="mb-3 flex items-center gap-2.5">
-        <KindBadge kind={item.kind} />
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <KindBadge kind={item.kind} viaRefresher={item.via_refresher} />
+        {/* d22: the topic(s) this item is drawn from. Any that just repeat the
+            card title are dropped (e.g. concept reviews, where title == node). */}
+        {(item.topics ?? [])
+          .filter((t) => t !== item.title)
+          .map((t) => (
+            <span
+              key={t}
+              className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+            >
+              {t}
+            </span>
+          ))}
       </div>
 
       {item.title && (
@@ -164,33 +196,33 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
 
       <div className="mt-5">
         {item.kind === "problem" && item.ref_id ? (
-          <Button asChild size="sm">
-            <Link href={`/problem/${item.queue_item_id}`}>
-              {KIND_CTA[item.kind]} →
-            </Link>
+          <Button
+            asChild
+            size="sm"
+            variant={item.via_refresher ? "outline" : "default"}
+            className={item.via_refresher ? refresherBtn : undefined}
+          >
+            <Link href={`/problem/${item.queue_item_id}`}>{cta} →</Link>
           </Button>
         ) : item.kind === "paper_engagement" && item.ref_id ? (
-          <Button asChild size="sm" variant="secondary">
+          <Button
+            asChild
+            size="sm"
+            variant={item.via_refresher ? "outline" : "secondary"}
+            className={item.via_refresher ? refresherBtn : undefined}
+          >
             <Link href={`/paper/${item.queue_item_id}`}>
-              {item.in_progress ? "Continue paper" : KIND_CTA[item.kind]} →
+              {item.in_progress ? "Continue paper" : cta} →
             </Link>
           </Button>
-        ) : item.kind === "refresher" && item.ref_id ? (
+        ) : item.kind === "concept_review" && item.ref_id ? (
           <Button
             asChild
             size="sm"
             variant="outline"
-            className="border-[var(--forest)] text-[var(--forest)] hover:bg-[var(--forest-subtle)]"
+            className={item.via_refresher ? refresherBtn : undefined}
           >
-            <Link href={`/refresher/${item.queue_item_id}`}>
-              {KIND_CTA[item.kind]} →
-            </Link>
-          </Button>
-        ) : item.kind === "concept_review" && item.ref_id ? (
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/concept-review/${item.queue_item_id}`}>
-              {KIND_CTA[item.kind]} →
-            </Link>
+            <Link href={`/concept-review/${item.queue_item_id}`}>{cta} →</Link>
           </Button>
         ) : item.kind === "suggested_interest" ? (
           interestStatus === "added" ? (

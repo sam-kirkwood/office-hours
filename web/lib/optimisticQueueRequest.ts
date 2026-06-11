@@ -12,6 +12,22 @@ import type { useRouter } from "next/navigation";
 
 type Router = ReturnType<typeof useRouter>;
 
+// Map a resolved queue item's `kind` to its reading-surface route. Used by any
+// caller whose request can resolve to more than one kind — notably refreshers,
+// which resolve to a problem, a paper engagement, or a concept read depending
+// on the pool and the user's history. Defaulting to /problem matches the most
+// common case and the legacy behaviour.
+export function queueItemPath(id: string, kind: string | undefined): string {
+  switch (kind) {
+    case "paper_engagement":
+      return `/paper/${id}`;
+    case "concept_review":
+      return `/concept-review/${id}`;
+    default:
+      return `/problem/${id}`;
+  }
+}
+
 interface Body {
   node_id?: string;
   raw_text?: string;

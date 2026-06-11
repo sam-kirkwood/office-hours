@@ -1,5 +1,6 @@
 import Markdown from "react-markdown";
 import remarkMath from "remark-math";
+import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 
 interface Props {
@@ -11,7 +12,7 @@ export default function MarkdownLatex({ source, className }: Props) {
   return (
     <div className={className}>
       <Markdown
-        remarkPlugins={[remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
       >
         {source}

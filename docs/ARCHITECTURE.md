@@ -52,16 +52,21 @@ for deduplication checks, classification, and other cheap routing.
    │      /api/queue/reroll
    │      /api/queue/request
    │      /api/queue/bookmark
+   │      /api/queue/resume (deferred → pending; manual "queue it now")
    │      /api/interest (add new)
-   │      /api/graph/me (the user's slice + adjacent)
+   │      /api/interest/list (the user's interests; notebook tab strip)
+   │      /api/graph/me (the user's slice + adjacent; carries bookmark overlay)
    │      /api/graph/admin (full megagraph; admin only)
+   │      /api/node/[id]/bookmark (toggle node bookmark)
    │      /api/problem/[id]
    │      /api/problem/[id]/submit
+   │      /api/problem/[id]/defer (→ deferred "come back to this")
    │      /api/paper/[id]
    │      /api/paper/[id]/submit-answer
    │      /api/paper/[id]/ask
    │      /api/upload/sign
    │      /api/notebook
+   │      /api/notebook/come-back (bookmarked nodes + deferred items)
    │      /api/admin/*
    └── Calls Python service for AI operations
             │
@@ -82,7 +87,7 @@ for deduplication checks, classification, and other cheap routing.
    ├── POST /check-deferred             (no LLM; conditional re-queue, Phase 10-rev §3c)
    ├── POST /run-daily-planner          (per-user wrapper around /plan-queue + /check-deferred; pg_cron fan-out target, Phase 10-rev §3d)
    ├── POST /concept-review-resolve     (no LLM; pool-hit-or-reading for kind='concept_review' cards, Phase 10-rev §4a; reading miss inlines /generate-concept-brief, §5.5)
-   ├── POST /refresher-resolve          (no LLM; click-time resolver for kind='refresher' cards — pool lookup at intent='refresh' on the node, falls back to concept_review on miss, also handles legacy refresher_schedule shape, Phase 10-rev §8d)
+   ├── POST /create-refresher           (creation-time resolver — pool lookup at intent='refresh' on the node, generate on miss, concept_review on generation failure; also handles legacy refresher_schedule shape. Writes a directly-routable queue item with via_refresher=true. Replaces the click-time /refresher-resolve, Phase 10.5-rev §2)
    ├── POST /generate-concept-brief     (Haiku; ~250-word concept brief + per-subtopic glosses, cached on node_concept_briefs by node_id, Phase 10-rev §5.5)
    ├── POST /generate-edge-description  (Haiku; 3-5 sentence bridge description, cached on edge_descriptions by edge_id, Phase 10-rev §6 revision)
    ├── POST /add-interest/parse         (dedup + mirror-back; read-only)
@@ -187,7 +192,11 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `pool_status` (active / retired / flagged)
   - `time_estimate_minutes_low`, `time_estimate_minutes_high`
   - `context_md` (the connective-tissue context paragraph)
-- `problem_hints` — unchanged
+- `problem_hints` — adds `part_label` (nullable text, migration 20250032):
+  the part(s) a hint addresses ("Part (c)", "Parts (a)–(b)", "Whole problem"),
+  rendered as a chip so the user can tell which part a hint speaks to (Phase
+  10.5-rev Step 3, d10). Generation emits it per hint; the Haiku reformat
+  backfill (`scripts/reformat_problems.py`) populates existing rows.
 - `context_hooks` — unchanged in schema. Reframed as a content source
   for the problem generator. Hook seed data preserved.
 
@@ -198,6 +207,11 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `arxiv_id` (nullable, unique if present),
   - `doi` (nullable, unique if present),
   - `external_url`, `abstract_md`, `created_at`
+  - `topic_node_ids` (uuid[], migration 20250033): the graph node(s) a paper
+    is about, so a paper engagement queue card can show its topic (Phase
+    10.5-rev Step 3, d22). Populated by `/propose-papers` (the model maps each
+    paper to the user's interest titles → node ids); intrinsic to the subject,
+    so stored per-paper and shared/unioned across users.
 - `paper_engagements` **NEW** (per-user)
   - `id`, `user_id`, `paper_id`,
   - `why_this_md`,

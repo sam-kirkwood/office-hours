@@ -21,7 +21,14 @@ import EdgePanel from "@/components/EdgePanel";
 import type { Node as AppNode, Edge as AppEdge, UserNodeState } from "@/lib/types";
 
 interface GraphData {
-  user_nodes: Array<{ node: AppNode; state: UserNodeState | null }>;
+  user_nodes: Array<{
+    node: AppNode;
+    state: UserNodeState | null;
+    bookmarked?: boolean;
+    // True for interests / engaged nodes; false for bookmark-only markers.
+    // Defaults to true when absent (legacy callers without the flag).
+    isUserNode?: boolean;
+  }>;
   adjacent_nodes: AppNode[];
   edges: AppEdge[];
 }
@@ -39,17 +46,19 @@ const ADJ_H = 108;
 // State → style classes (card-like, 1px borders, amber/forest accents)
 // ---------------------------------------------------------------------------
 
+// Engagement state → node style. Reduced to three user-facing colours:
+// neutral (unseen), amber (active — anything in progress), forest
+// (comfortable). "struggling" is an internal signal (graph-design.md §node
+// states) and is deliberately folded into "active" so it never surfaces as a
+// distinct, guilt-inducing red — see the no-guilt principle in SPEC. Bookmarks
+// are rendered as a separate dot overlay, not a state colour.
 function stateClasses(state: UserNodeState | null): string {
   const s = state?.state ?? "unseen";
   const map: Record<string, string> = {
-    unseen:
-      "border border-border bg-card text-foreground",
-    bookmarked:
-      "border border-amber/50 bg-[var(--amber-subtle)] text-foreground",
-    active:
-      "border-2 border-primary bg-[var(--amber-subtle)] text-foreground",
-    struggling:
-      "border border-destructive/30 bg-destructive/[0.07] text-foreground",
+    unseen: "border border-border bg-card text-foreground",
+    bookmarked: "border border-border bg-card text-foreground",
+    active: "border-2 border-primary bg-[var(--amber-subtle)] text-foreground",
+    struggling: "border-2 border-primary bg-[var(--amber-subtle)] text-foreground",
     comfortable:
       "border border-[var(--forest)]/50 bg-[var(--forest-subtle)] text-foreground",
   };
@@ -67,15 +76,22 @@ const EDGE_STROKE_RELATED = "#cec6bc";
 const handleStyle = { opacity: 0, pointerEvents: "none" as const };
 
 function UserNode({ data }: NodeProps) {
-  const { node, state, highlighted } = data as {
+  const { node, state, bookmarked, highlighted } = data as {
     node: AppNode;
     state: UserNodeState | null;
+    bookmarked?: boolean;
     highlighted?: boolean;
   };
   return (
     <div
-      className={`flex h-full w-full items-center justify-center rounded-full px-4 text-center font-serif text-[10px] leading-[1.35] ${stateClasses(state)} ${highlighted ? "ring-2 ring-[var(--forest)] ring-offset-2 ring-offset-[var(--background)] transition-all duration-[var(--duration-standard)]" : ""}`}
+      className={`relative flex h-full w-full items-center justify-center rounded-full px-4 text-center font-serif text-[10px] leading-[1.35] ${stateClasses(state)} ${highlighted ? "ring-2 ring-[var(--forest)] ring-offset-2 ring-offset-[var(--background)] transition-all duration-[var(--duration-standard)]" : ""}`}
     >
+      {bookmarked && (
+        <span
+          title="Bookmarked"
+          className="absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full border border-[var(--background)] bg-amber"
+        />
+      )}
       <Handle type="target" position={Position.Top} style={handleStyle} />
       {node.title}
       <Handle type="source" position={Position.Bottom} style={handleStyle} />
@@ -106,8 +122,6 @@ const LEGEND_STATES = [
   { label: "Unseen", cls: "border border-border bg-card" },
   { label: "Active", cls: "border-2 border-primary bg-[var(--amber-subtle)]" },
   { label: "Comfortable", cls: "border border-[var(--forest)]/50 bg-[var(--forest-subtle)]" },
-  { label: "Bookmarked", cls: "border border-amber/50 bg-[var(--amber-subtle)]" },
-  { label: "Struggling", cls: "border border-destructive/30 bg-destructive/[0.07]" },
 ] as const;
 
 function Legend() {
@@ -126,6 +140,12 @@ function Legend() {
         <div className="flex items-center gap-2">
           <div className="h-4 w-4 rounded-full border border-dashed border-border/50 bg-background" />
           <span className="text-[11px] text-muted-foreground">Nearby</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative h-4 w-4 rounded-full border border-border bg-card">
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--background)] bg-amber" />
+          </div>
+          <span className="text-[11px] text-muted-foreground">Bookmarked</span>
         </div>
       </div>
     </div>
@@ -156,7 +176,7 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
   dagreLayout(g);
 
   const rfNodes: RFNode[] = [
-    ...graphData.user_nodes.map(({ node, state }) => ({
+    ...graphData.user_nodes.map(({ node, state, bookmarked }) => ({
       id: node.id,
       type: "user",
       position: {
@@ -164,7 +184,7 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
         y: (g.node(node.id)?.y ?? 0) - USER_H / 2,
       },
       style: { width: USER_W, height: USER_H },
-      data: { node, state },
+      data: { node, state, bookmarked },
     })),
     ...graphData.adjacent_nodes.map((node) => ({
       id: node.id,
@@ -207,6 +227,8 @@ function buildLayout(graphData: GraphData): { nodes: RFNode[]; edges: RFEdge[] }
 interface SelectedEntry {
   node: AppNode;
   state: UserNodeState | null;
+  bookmarked?: boolean;
+  isUserNode?: boolean;
 }
 
 interface Props {
@@ -225,17 +247,23 @@ interface Props {
   // confirmation use a simplified two-entry legend keyed to that surface's
   // visual contract.
   legend?: React.ReactNode | null;
+  // n2: open this node's panel + fit-view to it once on load (deep-link).
+  initialNodeId?: string;
 }
 
-function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
+function SkillTreeViewInner({ graphData, renderPanel, legend, initialNodeId }: Props) {
   const [rfNodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Initialised from the deep-link prop (n2) so the panel opens on first render
+  // without a set-state-in-effect; the fitView pan/zoom happens in an effect
+  // once the layout exists.
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId ?? null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
 
   const reactFlow = useReactFlow();
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appliedInitialRef = useRef(false);
 
   useEffect(() => {
     if (graphData.user_nodes.length === 0 && graphData.adjacent_nodes.length === 0) return;
@@ -260,6 +288,21 @@ function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
+
+  // n2 deep-link: pan/zoom to the deep-linked node once its layout exists. The
+  // panel is already open via the initial selection state; this only moves the
+  // viewport. Runs a single time.
+  useEffect(() => {
+    if (appliedInitialRef.current || !initialNodeId) return;
+    if (!rfNodes.some((n) => n.id === initialNodeId)) return;
+    appliedInitialRef.current = true;
+    reactFlow.fitView({
+      nodes: [{ id: initialNodeId }],
+      padding: 0.4,
+      maxZoom: 1.2,
+      duration: 350,
+    });
+  }, [initialNodeId, rfNodes, reactFlow]);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
     setSelectedNodeId(node.id);
@@ -311,7 +354,9 @@ function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
     ? graphData.user_nodes.find((un) => un.node.id === selectedNodeId) ??
       (() => {
         const adj = allNodesById.get(selectedNodeId);
-        return adj ? { node: adj, state: null } : null;
+        return adj
+          ? { node: adj, state: null, bookmarked: false, isUserNode: false }
+          : null;
       })()
     : null;
 
@@ -370,7 +415,7 @@ function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
         (renderPanel ? (
           renderPanel({
             entry: selectedEntry,
-            isUserNode: userNodeIdSet.has(selectedEntry.node.id),
+            isUserNode: selectedEntry.isUserNode ?? userNodeIdSet.has(selectedEntry.node.id),
             onClose: () => setSelectedNodeId(null),
             onHighlightNeighbors: handleHighlightNeighbors,
           })
@@ -378,7 +423,8 @@ function SkillTreeViewInner({ graphData, renderPanel, legend }: Props) {
           <NodePanel
             node={selectedEntry.node}
             state={selectedEntry.state}
-            isUserNode={userNodeIdSet.has(selectedEntry.node.id)}
+            bookmarked={selectedEntry.bookmarked ?? false}
+            isUserNode={selectedEntry.isUserNode ?? userNodeIdSet.has(selectedEntry.node.id)}
             onClose={() => setSelectedNodeId(null)}
             onHighlightNeighbors={handleHighlightNeighbors}
             onSelectNode={(id) => setSelectedNodeId(id)}

@@ -36,6 +36,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _associate_topics(supabase: Client, *, paper_id: str, node_ids: list[str]) -> None:
+    """Union `node_ids` into papers.topic_node_ids for this paper.
+
+    The subject association is intrinsic to the paper and shared across users,
+    so we merge rather than overwrite. No-op when node_ids is empty (e.g. the
+    model tagged no interest, or none resolved) — that keeps the common path,
+    and the existing tests, free of an extra round-trip.
+    """
+    if not node_ids:
+        return
+    current = (
+        supabase.table("papers")
+        .select("topic_node_ids")
+        .eq("id", paper_id)
+        .limit(1)
+        .execute()
+    )
+    existing = (current.data[0].get("topic_node_ids") if current.data else None) or []
+    merged = list(dict.fromkeys([*existing, *node_ids]))  # order-preserving union
+    if merged != existing:
+        supabase.table("papers").update({"topic_node_ids": merged}).eq(
+            "id", paper_id
+        ).execute()
+
+
 @router.post(
     "/propose-papers",
     response_model=ProposePapersResponse,
@@ -57,14 +82,24 @@ def propose_papers(
     )
     node_ids = [ui["node_id"] for ui in (interests_resp.data or [])]
     interest_titles: list[str] = []
+    # Map interest title → node id so a paper the model tags with an interest
+    # title can be associated with that node (d22). Keyed case-insensitively
+    # and trimmed for a tolerant echo-back match.
+    title_to_node_id: dict[str, str] = {}
     if node_ids:
         nodes_resp = (
             supabase.table("nodes")
-            .select("title")
+            .select("id, title")
             .in_("id", node_ids)
             .execute()
         )
-        interest_titles = [n["title"] for n in (nodes_resp.data or [])]
+        for n in nodes_resp.data or []:
+            title = n.get("title")
+            if not title:
+                continue
+            interest_titles.append(title)
+            if n.get("id"):
+                title_to_node_id[title.strip().lower()] = n["id"]
 
     # 3. Load last 3 notebook_entries for user
     entries_resp = (
@@ -134,6 +169,15 @@ def propose_papers(
             papers_added += 1
         else:
             papers_reused += 1
+
+        # a'. Associate the paper with the interest node(s) the model mapped it
+        # to, so the queue card can show its topic (d22).
+        resolved_topic_ids = [
+            title_to_node_id[t.strip().lower()]
+            for t in candidate.interest_titles
+            if t.strip().lower() in title_to_node_id
+        ]
+        _associate_topics(supabase, paper_id=paper_id, node_ids=resolved_topic_ids)
 
         # b. Skip if engagement already exists for this user + paper
         existing_resp = (

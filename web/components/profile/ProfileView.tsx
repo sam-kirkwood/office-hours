@@ -50,11 +50,13 @@ const FEEDBACK_PROMPTS: { key: string; label: string }[] = [
   { key: "feedback_harder_problems", label: "I want harder problems" },
 ];
 
+// "struggling" is an internal signal (graph-design.md) and folds into
+// "Refreshing" so it never surfaces to the user (no-guilt principle).
 const STATE_LABELS: Record<ProfileFoundation["state"], string> = {
   unseen: "Unseen",
-  bookmarked: "Bookmarked",
+  bookmarked: "Refreshing",
   active: "Refreshing",
-  struggling: "Working through",
+  struggling: "Refreshing",
   comfortable: "Comfortable",
 };
 
@@ -63,11 +65,9 @@ function stateBadgeClass(state: ProfileFoundation["state"]): string {
     case "comfortable":
       return "border-[var(--forest)]/50 bg-[var(--forest-subtle)] text-foreground";
     case "active":
-      return "border-primary/50 bg-[var(--amber-subtle)] text-foreground";
     case "struggling":
-      return "border-destructive/30 bg-destructive/[0.07] text-foreground";
     case "bookmarked":
-      return "border-primary/40 bg-[var(--amber-subtle)] text-foreground";
+      return "border-primary/50 bg-[var(--amber-subtle)] text-foreground";
     default:
       return "border-border bg-background text-muted-foreground";
   }
@@ -407,7 +407,7 @@ function InterestDetail({ interest }: { interest: ProfileInterest }) {
           {interest.engagement_count === 1 ? "" : "s"}
         </span>
         <Link
-          href={`/skill-tree`}
+          href={`/skill-tree?node=${encodeURIComponent(interest.node_slug)}`}
           className="text-foreground/70 underline-offset-2 hover:text-primary hover:underline"
         >
           See in skill tree →

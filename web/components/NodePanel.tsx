@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import MarkdownLatex from "@/lib/markdown";
-import { optimisticQueueRequest } from "@/lib/optimisticQueueRequest";
+import { optimisticQueueRequest, queueItemPath } from "@/lib/optimisticQueueRequest";
 import type { Node, UserNodeState, NotebookEntry } from "@/lib/types";
 import DialogModal from "@/components/addInterest/DialogModal";
 
@@ -58,6 +58,10 @@ function normalizeSubtopics(raw: unknown[]): SubtopicEntry[] {
 interface Props {
   node: Node;
   state: UserNodeState | null;
+  // Whether the user has bookmarked this node. Source of truth is the
+  // `bookmarks` table, surfaced onto the graph by /api/graph/me and the
+  // skill-tree loader (orthogonal to engagement `state`).
+  bookmarked?: boolean;
   isUserNode: boolean;
   onClose: () => void;
   // When set, NodePanel renders a Connected topics list. Clicking a row
@@ -87,11 +91,14 @@ const DOMAIN_LABELS: Record<string, string> = {
   applied: "Applied",
 };
 
+// "struggling" is an internal signal (graph-design.md) and must not surface to
+// the user (no-guilt principle) — it reads as "Active" like any in-progress
+// node. "bookmarked" is never stored on `state` anymore; it's a separate flag.
 const STATE_LABELS: Record<string, string> = {
   unseen: "Unseen",
-  bookmarked: "Bookmarked",
+  bookmarked: "Active",
   active: "Active",
-  struggling: "Struggling",
+  struggling: "Active",
   comfortable: "Comfortable",
 };
 
@@ -101,9 +108,45 @@ const ENTRY_KIND_LABELS: Record<string, string> = {
   concept_review: "Concept",
 };
 
+// A tiered action: a full-width button with a one-line explainer beneath it.
+// Keeps the panel's action stack self-describing (t5) without a tooltip, which
+// the mobile list view can't surface.
+function ActionButton({
+  label,
+  help,
+  onClick,
+  disabled,
+  variant,
+  size,
+}: {
+  label: string;
+  help: string;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: "outline";
+  size?: "sm";
+}) {
+  return (
+    <div>
+      <Button
+        type="button"
+        variant={variant}
+        size={size}
+        onClick={onClick}
+        disabled={disabled}
+        className="w-full"
+      >
+        {label}
+      </Button>
+      <p className="mt-1.5 text-xs leading-snug text-muted-foreground">{help}</p>
+    </div>
+  );
+}
+
 export default function NodePanel({
   node,
   state,
+  bookmarked: initialBookmarked = false,
   isUserNode,
   onClose,
   onSelectNode,
@@ -113,7 +156,7 @@ export default function NodePanel({
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
-  const [bookmarked, setBookmarked] = useState(false);
+  const [bookmarked, setBookmarked] = useState(initialBookmarked);
   const [markingComfortable, setMarkingComfortable] = useState(false);
   const [comfortable, setComfortable] = useState(state?.state === "comfortable");
   const [requestingPaper, setRequestingPaper] = useState(false);
@@ -133,10 +176,10 @@ export default function NodePanel({
 
   useEffect(() => {
     setComfortable(state?.state === "comfortable");
-    setBookmarked(false);
+    setBookmarked(initialBookmarked);
     setError(null);
     setInfo(null);
-  }, [node.id, state?.state]);
+  }, [node.id, state?.state, initialBookmarked]);
 
   useEffect(() => {
     setHistoryLoading(true);
@@ -192,11 +235,10 @@ export default function NodePanel({
     setInfo(null);
     optimisticQueueRequest({
       body: { raw_text: subtopic.title, kind_hint: "refresher" },
-      // A subtopic-level refresher resolves to a concept_review on the parent
-      // foundation node (Step 5 fallback path), since the user typically has
-      // no notebook history at subtopic granularity.
-      targetPath: (id, kind) =>
-        kind === "concept_review" ? `/concept-review/${id}` : `/problem/${id}`,
+      // A subtopic-level refresher usually resolves to a concept_review on the
+      // parent foundation node (the user rarely has notebook history at subtopic
+      // granularity), but can resolve to a problem; route by the resolved kind.
+      targetPath: queueItemPath,
       router,
       labels: {
         pending: `Lining up a refresher on ${subtopic.title}…`,
@@ -240,6 +282,10 @@ export default function NodePanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setBookmarked(data.bookmarked);
+      // Re-fetch the server graph so the node's bookmark dot updates live
+      // (the skill-tree page is a server component; without this the overlay
+      // only appears on the next navigation).
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -302,9 +348,14 @@ export default function NodePanel({
           <Badge variant="ghost">
             {DIFFICULTY_LABELS[node.difficulty_hint] ?? node.difficulty_hint}
           </Badge>
-          {state && (
+          {state && state.state !== "unseen" && (
             <Badge variant="ghost">
               {STATE_LABELS[state.state] ?? state.state}
+            </Badge>
+          )}
+          {bookmarked && (
+            <Badge variant="ghost" className="border-amber/50 text-[var(--amber)]">
+              Bookmarked
             </Badge>
           )}
         </div>
@@ -453,71 +504,64 @@ export default function NodePanel({
         {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
         {info && <p className="mb-3 text-sm text-muted-foreground">{info}</p>}
 
-        <div className="flex flex-col gap-2">
-          <Button
-            type="button"
-            onClick={handleGetProblem}
-            disabled={loading}
-            className="w-full"
-          >
-            {loading ? "Generating…" : "Get a problem"}
-          </Button>
-
-          {/* S8 — A bookmarked, not-yet-interest node is a deliberate
-              "come back to this" signal. Hoist promotion to a primary CTA
-              right under "Get a problem" so the forward path is unmissable. */}
-          {!isUserNode && (bookmarked || state?.state === "bookmarked") && (
-            <Button
-              type="button"
-              onClick={openAddDialog}
-              className="w-full"
-            >
-              Promote to interest
-            </Button>
+        {/* Actions, tiered (t1/t5):
+            · contextual promotion banner for nearby (non-interest) nodes
+            · primary "engage now" pair (problem / paper)
+            · quieter annotation pair (bookmark / comfortable)
+            Each carries a one-line explainer so the actions are self-describing. */}
+        <div className="flex flex-col gap-5">
+          {!isUserNode && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
+              <Button
+                type="button"
+                onClick={openAddDialog}
+                className="w-full"
+              >
+                {bookmarked ? "Promote to interest" : "Add to my interests"}
+              </Button>
+              <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
+                Track this topic — we&apos;ll weave problems and papers on it into
+                your queue.
+              </p>
+            </div>
           )}
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleRequestPaper}
-            disabled={requestingPaper}
-            className="w-full"
-          >
-            {requestingPaper ? "Finding…" : "Request a paper"}
-          </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleBookmark}
-            disabled={bookmarking}
-            className="w-full"
-          >
-            {bookmarking ? "Saving…" : bookmarked ? "Bookmarked ✓" : "Bookmark"}
-          </Button>
-
-          {!comfortable && (
-            <Button
-              type="button"
+          <div className="flex flex-col gap-3">
+            <ActionButton
+              label={loading ? "Generating…" : "Get a problem"}
+              help="A pen-and-paper problem on this topic, added to your queue."
+              onClick={handleGetProblem}
+              disabled={loading}
+            />
+            <ActionButton
               variant="outline"
-              onClick={handleMarkComfortable}
-              disabled={markingComfortable}
-              className="w-full"
-            >
-              {markingComfortable ? "Saving…" : "Mark as comfortable"}
-            </Button>
-          )}
+              label={requestingPaper ? "Finding…" : "Request a paper"}
+              help="A guided reading of a relevant paper, with questions."
+              onClick={handleRequestPaper}
+              disabled={requestingPaper}
+            />
+          </div>
 
-          {!isUserNode && !(bookmarked || state?.state === "bookmarked") && (
-            <Button
-              type="button"
+          <div className="flex flex-col gap-3 border-t border-border pt-4">
+            <ActionButton
               variant="outline"
-              onClick={openAddDialog}
-              className="w-full"
-            >
-              Add to my interests
-            </Button>
-          )}
+              size="sm"
+              label={bookmarking ? "Saving…" : bookmarked ? "Bookmarked ✓" : "Bookmark"}
+              help="Save this for later — find it under “Come back to this” in your notebook."
+              onClick={handleBookmark}
+              disabled={bookmarking}
+            />
+            {!comfortable && (
+              <ActionButton
+                variant="outline"
+                size="sm"
+                label={markingComfortable ? "Saving…" : "Mark as comfortable"}
+                help="Already solid on this? We’ll deprioritise it in your queue."
+                onClick={handleMarkComfortable}
+                disabled={markingComfortable}
+              />
+            )}
+          </div>
         </div>
       </div>
 

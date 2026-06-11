@@ -16,11 +16,36 @@ interface UploadedFile {
 interface Props {
   queueItemId: string;
   problem: Problem;
+  topicTitle: string | null;
   hints: ProblemHint[];
   existingAttempt: Attempt | null;
 }
 
 type Step = 1 | 2 | 3 | 4;
+
+// Shared reading-surface styling for problem prose. Beyond the basic
+// paragraph/list rules, this styles the structural markdown the generator now
+// emits — `## Setup` / `## The problem` section headings, `---` rules, GFM
+// tables (e.g. a phase diagram), blockquotes — and gives display equations
+// vertical breathing room (d8) plus horizontal scroll so a wide equation or
+// table can't overflow the page on mobile.
+// Note: deliberately sets no font-size — each call site picks `text-base`
+// (statement) or `text-sm` (context, hints, feedback). Two same-specificity
+// size utilities in one class string don't override reliably by order.
+const READING_PROSE =
+  "font-serif leading-[1.7] text-foreground " +
+  "[&_p]:mb-4 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_em]:italic " +
+  "[&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-widest [&_h2]:text-muted-foreground [&_h2:first-child]:mt-0 " +
+  "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-foreground " +
+  "[&_hr]:my-6 [&_hr]:border-border " +
+  "[&_ol]:mb-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol_li]:mb-2 " +
+  "[&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ul_li]:mb-2 " +
+  "[&_code]:font-mono [&_code]:text-[0.85em] [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded " +
+  "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-amber [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground " +
+  "[&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_table]:text-sm " +
+  "[&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold " +
+  "[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 " +
+  "[&_.katex-display]:my-5 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1";
 
 function computeInitialStep(attempt: Attempt | null): Step {
   if (!attempt) return 1;
@@ -29,7 +54,7 @@ function computeInitialStep(attempt: Attempt | null): Step {
   return 1;
 }
 
-export default function ProblemView({ queueItemId, problem, hints, existingAttempt }: Props) {
+export default function ProblemView({ queueItemId, problem, topicTitle, hints, existingAttempt }: Props) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -204,6 +229,7 @@ export default function ProblemView({ queueItemId, problem, hints, existingAttem
       {step === 1 && (
         <Step1View
           problem={problem}
+          topicTitle={topicTitle}
           hints={hints}
           openHints={openHints}
           onHintClick={handleHintClick}
@@ -253,6 +279,7 @@ export default function ProblemView({ queueItemId, problem, hints, existingAttem
 
 function Step1View({
   problem,
+  topicTitle,
   hints,
   openHints,
   onHintClick,
@@ -262,6 +289,7 @@ function Step1View({
   loading,
 }: {
   problem: Problem;
+  topicTitle: string | null;
   hints: ProblemHint[];
   openHints: Set<number>;
   onHintClick: (level: number) => void;
@@ -271,34 +299,40 @@ function Step1View({
   loading: boolean;
 }) {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
+      {/* Header — topic metadata line (d11) + title (d6) */}
+      <header className="space-y-1.5">
+        {topicTitle && (
+          <p className="text-xs font-semibold uppercase tracking-widest text-amber">
+            {topicTitle}
+          </p>
+        )}
+        {problem.title && (
+          <h1 className="font-serif text-2xl font-semibold leading-snug text-foreground">
+            {problem.title}
+          </h1>
+        )}
+      </header>
+
+      {/* Context — first, above the statement (d7), always open. Kept in the
+          problem-mode amber family, presented as supporting reading. */}
+      {problem.context_md && (
+        <div className="rounded-md border border-border bg-muted/40 px-5 py-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Context
+          </p>
+          <div className={`border-l-2 border-amber pl-4 text-sm ${READING_PROSE}`}>
+            <MarkdownLatex source={problem.context_md} />
+          </div>
+        </div>
+      )}
+
       {/* Problem statement */}
-      <div
-        className="font-serif text-base leading-[1.7] text-foreground
-          [&_p]:mb-4 [&_p:last-child]:mb-0
-          [&_strong]:font-semibold [&_em]:italic
-          [&_ol]:mb-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol_li]:mb-2
-          [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ul_li]:mb-2"
-      >
+      <div className={`text-base ${READING_PROSE}`}>
         <MarkdownLatex source={problem.statement_md} />
       </div>
 
-      {/* Context */}
-      {problem.context_md && (
-        <details className="group rounded-md border border-border">
-          <summary className="cursor-pointer list-none px-5 py-3.5 text-sm font-medium text-foreground hover:bg-accent transition-colors duration-[var(--duration-fast)] [&::-webkit-details-marker]:hidden">
-            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Context</span>
-          </summary>
-          <div className="border-t border-border px-5 pb-5 pt-4">
-            <div className="border-l-2 border-amber pl-4 font-serif text-sm leading-[1.7] text-muted-foreground
-              [&_p]:mb-3 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_em]:italic">
-              <MarkdownLatex source={problem.context_md} />
-            </div>
-          </div>
-        </details>
-      )}
-
-      {/* Hints */}
+      {/* Hints — each labelled with the part it addresses (d10) */}
       {hints.length > 0 && (
         <div>
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -310,18 +344,24 @@ function Step1View({
                 <button
                   type="button"
                   onClick={() => onHintClick(hint.level)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm hover:bg-accent transition-colors duration-[var(--duration-fast)]"
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-accent transition-colors duration-[var(--duration-fast)]"
                 >
-                  <span className="font-medium text-foreground">
-                    <span className="text-muted-foreground mr-1.5">Hint {hint.level}.</span>
-                    {openHints.has(hint.level) ? "Hide" : "Show"}
+                  <span className="flex items-center gap-2 min-w-0">
+                    {hint.part_label && (
+                      <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
+                        {hint.part_label}
+                      </span>
+                    )}
+                    <span className="font-medium text-foreground">
+                      <span className="text-muted-foreground mr-1.5">Hint {hint.level}.</span>
+                      {openHints.has(hint.level) ? "Hide" : "Show"}
+                    </span>
                   </span>
-                  <span className="text-xs text-muted-foreground">{openHints.has(hint.level) ? "▲" : "▼"}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{openHints.has(hint.level) ? "▲" : "▼"}</span>
                 </button>
                 {openHints.has(hint.level) && (
                   <div className="border-t border-border px-4 pb-4 pt-3">
-                    <div className={`font-serif text-sm leading-relaxed text-muted-foreground
-                      [&_p]:mb-2 [&_p:last-child]:mb-0 [&_.katex-display]:my-3`}>
+                    <div className={`text-sm text-muted-foreground ${READING_PROSE}`}>
                       <MarkdownLatex source={hint.text} />
                     </div>
                   </div>
@@ -383,7 +423,15 @@ function Step2Upload({
 }) {
   return (
     <div>
-      <h2 className="mb-4 text-base font-semibold text-foreground">Upload your solution</h2>
+      <h2 className="mb-2 text-base font-semibold text-foreground">Upload your solution</h2>
+
+      {/* d13 — how to lay out the page so the parser reads it cleanly */}
+      <div className="mb-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground">For the cleanest read:</span> label each
+        part <span className="font-mono text-xs">(a)</span>, <span className="font-mono text-xs">(b)</span>,
+        … as you go, keep one part per page where you can, and add a page number if you photograph
+        more than one sheet. Neat is plenty — it doesn&apos;t need to be tidy.
+      </div>
 
       <button
         type="button"
@@ -482,13 +530,7 @@ function Step3Review({
           <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Preview
           </p>
-          <div className={`min-h-[200px] rounded-md border border-border bg-card px-4 py-3
-            font-serif text-sm leading-[1.7] text-foreground
-            [&_p]:mb-3 [&_p:last-child]:mb-0
-            [&_strong]:font-semibold [&_em]:italic
-            [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol_li]:mb-1
-            [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ul_li]:mb-1
-            [&_code]:font-mono [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded`}>
+          <div className={`min-h-[200px] rounded-md border border-border bg-card px-4 py-3 text-sm ${READING_PROSE}`}>
             <MarkdownLatex source={editedMd} />
           </div>
         </div>
@@ -515,14 +557,7 @@ function Step4Feedback({ gradeMd, onDone }: { gradeMd: string; onDone: () => voi
   return (
     <div>
       <h2 className="mb-4 text-base font-semibold text-foreground">Feedback</h2>
-      <div className={`mb-8 rounded-md border border-border bg-card px-5 py-5
-        font-serif text-sm leading-[1.7] text-foreground
-        [&_p]:mb-4 [&_p:last-child]:mb-0
-        [&_strong]:font-semibold [&_em]:italic
-        [&_ol]:mb-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol_li]:mb-1.5
-        [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ul_li]:mb-1.5
-        [&_code]:font-mono [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
-        [&_blockquote]:border-l-2 [&_blockquote]:border-amber [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground`}>
+      <div className={`mb-8 rounded-md border border-border bg-card px-5 py-5 text-sm ${READING_PROSE}`}>
         <MarkdownLatex source={gradeMd} />
       </div>
       <Button type="button" onClick={onDone} className="w-full">

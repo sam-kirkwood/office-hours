@@ -115,6 +115,7 @@ interface SurfacedItemRaw {
   added_reason: string | null;
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
+  via_refresher?: boolean;
 }
 
 interface SurfaceDailyArgs {
@@ -124,6 +125,22 @@ interface SurfaceDailyArgs {
 interface SurfaceDailyResponse {
   pick_id: string;
   items: SurfacedItemRaw[];
+  pending_remaining?: number;
+}
+
+// Non-terminal stock below which we fire a background planner refill so the
+// queue stays stocked between daily-cron runs (curriculum-curator-design
+// §11.4 refill-on-drain; cap is 15, refill trigger is 6).
+const REFILL_THRESHOLD = 6;
+
+// Fire-and-forget a planner refill when the user's queue is running low. Safe
+// to call from any surface path — it no-ops above the threshold and never
+// blocks the caller.
+export function maybeRefillQueue(userId: string, pendingRemaining: number): void {
+  if (pendingRemaining >= REFILL_THRESHOLD) return;
+  planQueue({ userId, triggeredBy: "manual" }).catch((err) =>
+    console.error("refill planQueue failed:", err),
+  );
 }
 
 function requireEnv(name: string): string {
@@ -239,7 +256,11 @@ export async function planQueue(
 export async function surfaceDaily(
   args: SurfaceDailyArgs,
 ): Promise<SurfaceDailyResponse> {
-  return pythonPost("/surface-daily", { user_id: args.userId });
+  const res = await pythonPost<SurfaceDailyResponse>("/surface-daily", {
+    user_id: args.userId,
+  });
+  maybeRefillQueue(args.userId, res.pending_remaining ?? 0);
+  return res;
 }
 
 interface SuggestPapersArgs {
@@ -306,22 +327,35 @@ export async function conceptReviewResolve(
   });
 }
 
-interface RefresherResolveArgs {
+interface CreateRefresherArgs {
   userId: string;
-  queueItemId: string;
+  // A refresher_schedule.id (legacy: revisit a prior attempt/paper) or a
+  // nodes.id (curator-style: pool-first refresh-intent problem).
+  refId: string;
+  reason?: string | null;
+  priorityScore?: number | null;
+  parentQueueItemId?: string | null;
 }
 
-export interface RefresherResolveResponse {
+export interface CreateRefresherResponse {
+  // The resolved item's content kind — the caller routes by it.
   kind: "problem" | "paper_engagement" | "concept_review";
   queue_item_id: string;
 }
 
-export async function refresherResolve(
-  args: RefresherResolveArgs,
-): Promise<RefresherResolveResponse> {
-  return pythonPost("/refresher-resolve", {
+// Resolve an on-demand refresher to a concrete, directly-routable queue item
+// (via_refresher=true). Used by the queue request route (a paper orienting
+// concept or a skill-tree node). The curator's in-process callers resolve
+// directly in Python; this is the only HTTP entry point.
+export async function createRefresher(
+  args: CreateRefresherArgs,
+): Promise<CreateRefresherResponse> {
+  return pythonPost("/create-refresher", {
     user_id: args.userId,
-    queue_item_id: args.queueItemId,
+    ref_id: args.refId,
+    reason: args.reason ?? null,
+    priority_score: args.priorityScore ?? null,
+    parent_queue_item_id: args.parentQueueItemId ?? null,
   });
 }
 

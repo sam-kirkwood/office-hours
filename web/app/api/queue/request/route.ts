@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import {
+  createRefresher,
   generateProblem,
   parseAddInterest,
   proposePapers,
@@ -167,73 +168,44 @@ export async function POST(request: Request) {
   // ------------------------------------------------------------------
   // Refresher
   // ------------------------------------------------------------------
+  // A refresher is resolved to concrete content at creation time by the Python
+  // /create-refresher endpoint, which also decides refresher-vs-groundwork: a
+  // node the user has engaged (or marked) resolves to a via_refresher item; a
+  // node they've never met resolves to a plain orientation read. We only decide
+  // *what to point at* here:
+  //   1. a due refresher_schedule (revisit a specific prior attempt/paper),
+  //   2. a targeted node, or
+  //   3. the most recent notebook entry (a generic "any refresher" request).
   if (kind === "refresher") {
-    // Look for an already-due refresher schedule row for this user
+    const now = new Date().toISOString();
+
+    // refId is what we hand to /create-refresher: a refresher_schedule.id or a
+    // nodes.id. scheduleToSurface is set when refId is a schedule we must mark
+    // surfaced on success so it isn't re-enqueued.
+    let refId: string | null = null;
+    let scheduleToSurface: string | null = null;
+
+    // 1. Already-due schedule.
     const { data: schedule } = await adminClient
       .from("refresher_schedule")
-      .select("id, subject_kind, subject_ref_id")
+      .select("id")
       .eq("user_id", user.id)
       .is("surfaced_at", null)
-      .lte("due_at", new Date().toISOString())
+      .lte("due_at", now)
       .limit(1)
       .maybeSingle();
+    if (schedule?.id) {
+      refId = schedule.id;
+      scheduleToSurface = schedule.id;
+    }
 
-    let scheduleId: string | null = schedule?.id ?? null;
-
-    if (!scheduleId) {
-      // On-demand: prefer a notebook entry that matches the requested node (via
-      // topic_node_slugs), fall back to the most recent entry if no match.
-      let entry: { ref_id: string; entry_kind: string } | null = null;
-
+    // 2. Targeted node → resolve on it (Python downgrades to a groundwork read
+    //    if the user has no basis to refresh it). Else 3. fall back to the most
+    //    recent notebook entry (a generic "any refresher" request).
+    if (!refId) {
       if (resolvedNodeId) {
-        const { data: node } = await adminClient
-          .from("nodes")
-          .select("slug")
-          .eq("id", resolvedNodeId)
-          .maybeSingle();
-        if (node?.slug) {
-          const { data: topicEntry } = await adminClient
-            .from("notebook_entries")
-            .select("ref_id, entry_kind")
-            .eq("user_id", user.id)
-            .contains("topic_node_slugs", [node.slug])
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          entry = topicEntry ?? null;
-        }
-      }
-
-      // When the caller targeted a specific topic (raw_text), and that topic
-      // has no prior notebook history for the user, fall back to a
-      // `concept_review` queue item on the resolved node rather than refreshing
-      // an unrelated recent entry. Matches survey-and-difficulty-design.md §2.7
-      // Case 3. When no raw_text was provided (e.g. "any refresher"), keep the
-      // recent-entry fallback.
-      if (!entry && raw_text && resolvedNodeId) {
-        const { data: cr } = await adminClient
-          .from("queue_items")
-          .insert({
-            user_id: user.id,
-            kind: "concept_review",
-            ref_id: resolvedNodeId,
-            state: "pending",
-            priority_score: 0.5,
-            added_reason: "Worth a moment of reading.",
-            time_estimate_minutes_low: 5,
-            time_estimate_minutes_high: 15,
-            parent_queue_item_id: parent_queue_item_id ?? null,
-          })
-          .select("id")
-          .single();
-        return NextResponse.json({
-          queue_item_id: cr?.id ?? null,
-          kind: "concept_review",
-          message: cr?.id ? null : "Added to your queue.",
-        });
-      }
-
-      if (!entry) {
+        refId = resolvedNodeId;
+      } else {
         const { data: recentEntry } = await adminClient
           .from("notebook_entries")
           .select("ref_id, entry_kind")
@@ -241,33 +213,31 @@ export async function POST(request: Request) {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        entry = recentEntry ?? null;
+        if (!recentEntry) {
+          return NextResponse.json({
+            queue_item_id: null,
+            kind: "refresher",
+            message: "No content to refresh yet — keep working!",
+          });
+        }
+        const subjectKind =
+          recentEntry.entry_kind === "problem_attempt" ? "attempt" : "engagement";
+        const { data: newSched } = await adminClient
+          .from("refresher_schedule")
+          .insert({
+            user_id: user.id,
+            subject_kind: subjectKind,
+            subject_ref_id: recentEntry.ref_id,
+            due_at: now,
+          })
+          .select("id")
+          .single();
+        refId = newSched?.id ?? null;
+        scheduleToSurface = newSched?.id ?? null;
       }
-
-      if (!entry) {
-        return NextResponse.json({
-          queue_item_id: null,
-          kind: "refresher",
-          message: "No content to refresh yet — keep working!",
-        });
-      }
-
-      const subjectKind = entry.entry_kind === "problem_attempt" ? "attempt" : "engagement";
-      const { data: newSched } = await adminClient
-        .from("refresher_schedule")
-        .insert({
-          user_id: user.id,
-          subject_kind: subjectKind,
-          subject_ref_id: entry.ref_id,
-          due_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-
-      scheduleId = newSched?.id ?? null;
     }
 
-    if (!scheduleId) {
+    if (!refId) {
       return NextResponse.json({
         queue_item_id: null,
         kind: "refresher",
@@ -275,35 +245,31 @@ export async function POST(request: Request) {
       });
     }
 
-    const { data: qi } = await adminClient
-      .from("queue_items")
-      .insert({
-        user_id: user.id,
+    try {
+      const resolved = await createRefresher({
+        userId: user.id,
+        refId,
+        reason: "Revisit something you've worked on.",
+        priorityScore: 0.9,
+        parentQueueItemId: parent_queue_item_id ?? null,
+      });
+      if (scheduleToSurface) {
+        await adminClient
+          .from("refresher_schedule")
+          .update({ surfaced_at: now })
+          .eq("id", scheduleToSurface);
+      }
+      return NextResponse.json({
+        queue_item_id: resolved.queue_item_id,
+        kind: resolved.kind,
+      });
+    } catch {
+      return NextResponse.json({
+        queue_item_id: null,
         kind: "refresher",
-        ref_id: scheduleId,
-        state: "pending",
-        priority_score: 0.9,
-        added_reason: "Revisit something you've worked on.",
-        time_estimate_minutes_low: 10,
-        time_estimate_minutes_high: 30,
-        parent_queue_item_id: parent_queue_item_id ?? null,
-      })
-      .select("id")
-      .single();
-
-    // Mark due schedules as surfaced so they aren't re-enqueued by future runs.
-    if (schedule) {
-      await adminClient
-        .from("refresher_schedule")
-        .update({ surfaced_at: new Date().toISOString() })
-        .eq("id", scheduleId);
+        message: "Could not create refresher. Try again later.",
+      });
     }
-
-    return NextResponse.json({
-      queue_item_id: qi?.id ?? null,
-      kind: "refresher",
-      message: qi?.id ? null : "Refresher added to your queue.",
-    });
   }
 
   return NextResponse.json({ error: "Unknown kind" }, { status: 400 });

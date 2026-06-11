@@ -19,13 +19,16 @@ For each paper provide:
 - arxiv_id: arXiv ID if you are highly confident it exists (e.g. "1706.03762"), otherwise null
 - doi: DOI string if you are highly confident it is correct, otherwise null
 - rationale: one sentence explaining why this paper matches this user's interests
+- interest_titles: the user interest(s) this paper is most relevant to. Choose
+  1–2 from the provided interest list and echo them EXACTLY as written (verbatim
+  strings). If none of the listed interests genuinely fit, return an empty list.
 
 If you are not confident about an arXiv ID or DOI, output null — do not guess.
 
 Output JSON matching this schema exactly:
 {
   "candidates": [
-    {"title": "...", "authors": ["..."], "year": 2023, "arxiv_id": "...", "doi": null, "rationale": "..."},
+    {"title": "...", "authors": ["..."], "year": 2023, "arxiv_id": "...", "doi": null, "rationale": "...", "interest_titles": ["..."]},
     ...
   ]
 }

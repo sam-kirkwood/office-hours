@@ -437,6 +437,82 @@ def test_resolve_new_node_writes_intent_context_and_tour(client: TestClient, fak
     assert diff_tile["node_slug"] == "calculus-1"
 
 
+def test_concept_tour_round_robins_across_prereqs(client: TestClient, fakes) -> None:
+    """Step 4 (t2) granularity: a single foundation with a long subtopic list
+    must not monopolise the concept tour. With two 8-subtopic foundations and a
+    10-tile cap, the tiles should sample both roughly evenly (round-robin),
+    rather than draining the first node (8) and starving the second (2)."""
+    supabase, anthropic = fakes
+    new_node_id = str(uuid4())
+    mech_id = str(uuid4())
+    em_id = str(uuid4())
+
+    mech_node = {
+        "id": mech_id,
+        "slug": "classical-mechanics",
+        "title": "Classical Mechanics",
+        "kind": "foundation",
+        "subtopics_json": [f"Mech subtopic {i}" for i in range(8)],
+    }
+    em_node = {
+        "id": em_id,
+        "slug": "electromagnetism-1",
+        "title": "Electromagnetism I",
+        "kind": "foundation",
+        "subtopics_json": [f"EM subtopic {i}" for i in range(8)],
+    }
+
+    supabase.respond("nodes", "select", lambda _: [mech_node, em_node])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond(
+        "edges",
+        "select",
+        lambda _: [
+            {"source_node_id": mech_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
+            {"source_node_id": em_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
+        ],
+    )
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Test Topic",
+                "slug": "test-topic",
+                "description_md": "x",
+                "domain": "physics",
+                "difficulty_hint": "core",
+                "subtopics": ["a", "b", "c", "d"],
+                "proposed_prerequisite_slugs": ["classical-mechanics", "electromagnetism-1"],
+                "entry_point_preview_md": "an entrance",
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "test",
+            "final_intent_text": "test",
+            "intent_context": "test",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    tour = resp.json()["concept_tour"]
+    # Capped at CONCEPT_TOUR_MAX (10).
+    assert len(tour) == 10
+    mech_tiles = [t for t in tour if t["node_slug"] == "classical-mechanics"]
+    em_tiles = [t for t in tour if t["node_slug"] == "electromagnetism-1"]
+    # Round-robin → 5 each, not 8 + 2. Neither node is starved.
+    assert len(mech_tiles) == 5
+    assert len(em_tiles) == 5
+
+
 def test_resolve_related_slug_writes_related_edge(client: TestClient, fakes) -> None:
     supabase, anthropic = fakes
     new_node_id = str(uuid4())
