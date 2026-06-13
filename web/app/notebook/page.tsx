@@ -28,6 +28,14 @@ function KindBadge({ kind }: { kind: string }) {
   return <Badge variant="secondary">Paper</Badge>;
 }
 
+// Bookmarks carry a content kind (node / problem / paper). Same badge palette as
+// the queue + notebook (amber = problem, forest = paper/reading, ghost = topic).
+function BookmarkKindBadge({ kind }: { kind: "node" | "problem" | "paper" }) {
+  if (kind === "problem") return <Badge variant="default">Problem</Badge>;
+  if (kind === "paper") return <Badge variant="secondary">Paper</Badge>;
+  return <Badge variant="ghost">Topic</Badge>;
+}
+
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
@@ -43,9 +51,12 @@ interface Interest {
 }
 
 interface ComeBackBookmark {
-  node_id: string;
-  slug: string;
+  bookmark_id: string;
+  kind: "node" | "problem" | "paper";
   title: string;
+  // node bookmarks → skill-tree link; problem/paper → "Queue it now".
+  slug: string | null;
+  queue_item_id: string | null;
   created_at: string;
 }
 
@@ -80,6 +91,7 @@ export default function NotebookPage() {
   }>({ bookmarks: [], deferred: [] });
   const [comeBackLoading, setComeBackLoading] = useState(true);
   const [resuming, setResuming] = useState<string | null>(null);
+  const [requeueing, setRequeueing] = useState<string | null>(null);
 
   const fetchEntries = useCallback(async (search: string) => {
     setLoading(true);
@@ -146,6 +158,28 @@ export default function NotebookPage() {
       /* leave it in place; the user can retry */
     } finally {
       setResuming(null);
+    }
+  }
+
+  // "Queue it now" on a bookmarked problem/paper: flip it back into rotation and
+  // drop it from the bookmark list (mirror of handleResume for deferred items).
+  async function handleRequeue(bookmarkId: string, queueItemId: string) {
+    setRequeueing(bookmarkId);
+    try {
+      const res = await fetch("/api/queue/requeue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queue_item_id: queueItemId }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setComeBack((prev) => ({
+        ...prev,
+        bookmarks: prev.bookmarks.filter((b) => b.bookmark_id !== bookmarkId),
+      }));
+    } catch {
+      /* leave it in place; the user can retry */
+    } finally {
+      setRequeueing(null);
     }
   }
 
@@ -216,6 +250,8 @@ export default function NotebookPage() {
           deferred={comeBack.deferred}
           resuming={resuming}
           onResume={handleResume}
+          requeueing={requeueing}
+          onRequeue={handleRequeue}
         />
       ) : (
         <>
@@ -323,12 +359,16 @@ function ComeBackPanel({
   deferred,
   resuming,
   onResume,
+  requeueing,
+  onRequeue,
 }: {
   loading: boolean;
   bookmarks: ComeBackBookmark[];
   deferred: ComeBackDeferred[];
   resuming: string | null;
   onResume: (id: string) => void;
+  requeueing: string | null;
+  onRequeue: (bookmarkId: string, queueItemId: string) => void;
 }) {
   if (loading) {
     return (
@@ -344,8 +384,8 @@ function ComeBackPanel({
     return (
       <div className="rounded-md border border-dashed border-border px-6 py-12 text-center">
         <p className="text-sm text-muted-foreground">
-          Nothing parked yet. Bookmark a topic in the skill tree, or tap
-          “not ready yet” on a problem, and it&apos;ll wait for you here.
+          Nothing parked yet. Bookmark a problem, paper, or topic to find it here,
+          or tap “not ready yet” on a problem, and it&apos;ll wait for you.
         </p>
       </div>
     );
@@ -378,27 +418,42 @@ function ComeBackPanel({
       {bookmarks.length > 0 && (
         <section>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Bookmarked topics
+            Bookmarked
           </h2>
           <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-            Topics you saved to explore. Open one in the skill tree to pull up a
-            problem or add it to your interests.
+            Things you saved to come back to. Bring a problem or paper back into
+            your queue when you&apos;re ready, or open a topic in the skill tree.
           </p>
           <ul className="space-y-3">
             {bookmarks.map((b) => (
               <li
-                key={b.node_id}
+                key={b.bookmark_id}
                 className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-5 py-4"
               >
-                <p className="min-w-0 truncate font-serif text-base text-foreground">
-                  {b.title}
-                </p>
-                <Link
-                  href={`/skill-tree?node=${encodeURIComponent(b.slug)}`}
-                  className="shrink-0 text-sm text-[var(--forest)] underline-offset-2 hover:underline"
-                >
-                  See in skill tree →
-                </Link>
+                <div className="min-w-0">
+                  <BookmarkKindBadge kind={b.kind} />
+                  <p className="mt-1.5 min-w-0 truncate font-serif text-base text-foreground">
+                    {b.title}
+                  </p>
+                </div>
+                {b.kind === "node" && b.slug ? (
+                  <Link
+                    href={`/skill-tree?node=${encodeURIComponent(b.slug)}`}
+                    className="shrink-0 text-sm text-[var(--forest)] underline-offset-2 hover:underline"
+                  >
+                    See in skill tree →
+                  </Link>
+                ) : b.queue_item_id ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={requeueing === b.bookmark_id}
+                    onClick={() => onRequeue(b.bookmark_id, b.queue_item_id!)}
+                    className="shrink-0"
+                  >
+                    {requeueing === b.bookmark_id ? "Adding…" : "Queue it now"}
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>

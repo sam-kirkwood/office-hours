@@ -1,8 +1,8 @@
 # Phase 12 — The responsive daily loop
 
-> **Status: planned, not started.** Opened from the design-review round
-> (2026-06-08/09) that followed the Phase 10.5-rev operator walkthrough. The
-> design and rationale live in
+> **Status: in progress — Steps 1–2 done (2026-06-12), Steps 3–5 pending.**
+> Opened from the design-review round (2026-06-08/09) that followed the Phase
+> 10.5-rev operator walkthrough. The design and rationale live in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
 > **Part A** — read it first; this plan is the build breakdown, not the argument.
 
@@ -27,7 +27,7 @@ priority order.
 Each step ends at a natural review boundary (a working change + passing tests).
 Commit after each; update the pivot-plan status line.
 
-### Step 1 — The card action set (§A1)
+### Step 1 — The card action set (§A1) ✅ done (2026-06-12)
 Calm card (primary CTA stays the hero) + an unobtrusive "···" overflow carrying the
 from-the-card judgments. **Split the conflated "Skip — I've got this"** into **I
 know this** (+comfort → node toward comfortable) and **Not for me** (−preference →
@@ -37,7 +37,7 @@ signal (see the §A1 table). Fix the **dismiss→`/api/queue/bookmark`** smell o
 suggested-interest "Not for me" handler (resolved decision 6 — it's a bug: "Not for
 me" must write a dismiss/negative-preference, not a bookmark).
 
-### Step 2 — Bookmark as a polymorphic save (§A2)
+### Step 2 — Bookmark as a polymorphic save (§A2) ✅ done (2026-06-12)
 Make `bookmarks.kind` polymorphic (`node | problem | paper`). Bookmark means *save
 this, find it later, **I** manage the return* — references durable content, leaves
 the active rotation, lands in "Come back to this," gets "Queue it now," sends a
@@ -85,9 +85,9 @@ plugs in — build Step 4 so that seam is clean.
 
 ## Done when
 
-- The §A1 action set is live with each action mapped to its distinct signal; no
+- ✅ The §A1 action set is live with each action mapped to its distinct signal; no
   action conflates two intents.
-- Bookmark saves problems/papers/nodes to "Come back to this" and survives queue
+- ✅ Bookmark saves problems/papers/nodes to "Come back to this" and survives queue
   churn.
 - A user can make a surfaced problem easier/harder/assume-less and gets a sibling,
   with the original superseded-not-destroyed.

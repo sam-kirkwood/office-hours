@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import AddPaperForm from "@/components/AddPaperForm";
 import RequestBox from "@/components/RequestBox";
 import type { QueueResult, SurfacedQueueItem } from "@/lib/types";
@@ -126,38 +133,66 @@ export default function DailyView({ initialResult }: Props) {
 // Cards
 // ---------------------------------------------------------------------------
 
-function QueueCard({ item }: { item: SurfacedQueueItem }) {
-  const [interestStatus, setInterestStatus] = useState<
-    "idle" | "loading" | "added" | "dismissed"
-  >("idle");
+// Confirmation copy shown in place of the card once an overflow action resolves.
+const RESOLVED_COPY: Record<string, string> = {
+  added: "Added to your interests.",
+  known: "Good to know — marked as comfortable.",
+  bookmarked: "Saved to Come back to this.",
+  dismissed: "Got it — less of this.",
+};
 
-  async function handleAddToInterests() {
-    if (!item.ref_id) return;
-    setInterestStatus("loading");
+type CardStatus = "idle" | "loading" | "added" | "known" | "bookmarked" | "dismissed";
+
+function QueueCard({ item }: { item: SurfacedQueueItem }) {
+  const [status, setStatus] = useState<CardStatus>("idle");
+
+  async function post(url: string, body?: object) {
+    setStatus("loading");
     try {
-      await fetch("/api/interest", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node_id: item.ref_id, added_via: "cross_pollination" }),
+        body: body ? JSON.stringify(body) : undefined,
       });
-      setInterestStatus("added");
+      if (!res.ok) throw new Error();
+      return true;
     } catch {
-      setInterestStatus("idle");
+      setStatus("idle");
+      return false;
     }
   }
 
+  async function handleAddToInterests() {
+    if (!item.ref_id) return;
+    if (await post("/api/interest", { node_id: item.ref_id, added_via: "cross_pollination" }))
+      setStatus("added");
+  }
+
+  // "I know this" — +comfort, advance. The problem skip route already writes a
+  // marked_refreshed attempt and nudges the node toward comfortable; reuse it.
+  async function handleKnow() {
+    if (await post(`/api/problem/${item.queue_item_id}/skip`)) setStatus("known");
+  }
+
+  // "Bookmark" — save this, I'll manage the return (§A2).
+  async function handleBookmark() {
+    if (await post("/api/queue/bookmark", { queue_item_id: item.queue_item_id }))
+      setStatus("bookmarked");
+  }
+
+  // "Not for me" — negative preference / down-weight (§A1).
   async function handleDismiss() {
-    setInterestStatus("loading");
-    try {
-      await fetch("/api/queue/bookmark", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queue_item_id: item.queue_item_id }),
-      });
-      setInterestStatus("dismissed");
-    } catch {
-      setInterestStatus("idle");
-    }
+    if (await post("/api/queue/dismiss", { queue_item_id: item.queue_item_id }))
+      setStatus("dismissed");
+  }
+
+  // Once an action resolves, collapse the card to a calm confirmation line.
+  if (status === "added" || status === "known" || status === "bookmarked" || status === "dismissed") {
+    return (
+      <div className="rounded-md border border-border bg-card px-5 py-4 text-sm text-muted-foreground">
+        {RESOLVED_COPY[status]}
+      </div>
+    );
   }
 
   // Forest-outline styling used for refresher-framed items, matching the
@@ -165,6 +200,36 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
   const refresherBtn =
     "border-[var(--forest)] text-[var(--forest)] hover:bg-[var(--forest-subtle)]";
   const cta = item.via_refresher ? "Look at this again" : (KIND_CTA[item.kind] ?? "Open");
+
+  // The from-the-card judgments live behind an unobtrusive "···" so the primary
+  // CTA stays the hero (§A1: calm card, not a button dashboard). Gated by kind:
+  // "I know this" is a comfort signal that only makes sense where there's a
+  // problem to mark refreshed; Bookmark/Not-for-me apply to any item.
+  const canBookmark =
+    item.ref_id != null &&
+    ["problem", "paper_engagement", "concept_review", "suggested_interest"].includes(item.kind);
+  const canKnow = item.kind === "problem" && item.ref_id != null;
+  const overflow = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="More actions"
+          disabled={status === "loading"}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {canKnow && <DropdownMenuItem onClick={handleKnow}>I know this</DropdownMenuItem>}
+        {canBookmark && (
+          <DropdownMenuItem onClick={handleBookmark}>Bookmark for later</DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={handleDismiss}>Not for me</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div className="rounded-md border border-border bg-card px-5 py-5">
@@ -194,66 +259,54 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
         {item.added_reason ?? defaultDescription(item.kind)}
       </p>
 
-      <div className="mt-5">
-        {item.kind === "problem" && item.ref_id ? (
-          <Button
-            asChild
-            size="sm"
-            variant={item.via_refresher ? "outline" : "default"}
-            className={item.via_refresher ? refresherBtn : undefined}
-          >
-            <Link href={`/problem/${item.queue_item_id}`}>{cta} →</Link>
-          </Button>
-        ) : item.kind === "paper_engagement" && item.ref_id ? (
-          <Button
-            asChild
-            size="sm"
-            variant={item.via_refresher ? "outline" : "secondary"}
-            className={item.via_refresher ? refresherBtn : undefined}
-          >
-            <Link href={`/paper/${item.queue_item_id}`}>
-              {item.in_progress ? "Continue paper" : cta} →
-            </Link>
-          </Button>
-        ) : item.kind === "concept_review" && item.ref_id ? (
-          <Button
-            asChild
-            size="sm"
-            variant="outline"
-            className={item.via_refresher ? refresherBtn : undefined}
-          >
-            <Link href={`/concept-review/${item.queue_item_id}`}>{cta} →</Link>
-          </Button>
-        ) : item.kind === "suggested_interest" ? (
-          interestStatus === "added" ? (
-            <p className="text-sm text-muted-foreground">Added to your interests.</p>
-          ) : interestStatus === "dismissed" ? (
-            <p className="text-sm text-muted-foreground">Got it — won&apos;t show again soon.</p>
+      {/* Action row: primary CTA is the hero (left); judgments tuck into "···". */}
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <div>
+          {item.kind === "problem" && item.ref_id ? (
+            <Button
+              asChild
+              size="sm"
+              variant={item.via_refresher ? "outline" : "default"}
+              className={item.via_refresher ? refresherBtn : undefined}
+            >
+              <Link href={`/problem/${item.queue_item_id}`}>{cta} →</Link>
+            </Button>
+          ) : item.kind === "paper_engagement" && item.ref_id ? (
+            <Button
+              asChild
+              size="sm"
+              variant={item.via_refresher ? "outline" : "secondary"}
+              className={item.via_refresher ? refresherBtn : undefined}
+            >
+              <Link href={`/paper/${item.queue_item_id}`}>
+                {item.in_progress ? "Continue paper" : cta} →
+              </Link>
+            </Button>
+          ) : item.kind === "concept_review" && item.ref_id ? (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className={item.via_refresher ? refresherBtn : undefined}
+            >
+              <Link href={`/concept-review/${item.queue_item_id}`}>{cta} →</Link>
+            </Button>
+          ) : item.kind === "suggested_interest" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={status === "loading"}
+              onClick={handleAddToInterests}
+            >
+              Add to interests
+            </Button>
           ) : (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={interestStatus === "loading"}
-                onClick={handleAddToInterests}
-              >
-                Add to interests
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={interestStatus === "loading"}
-                onClick={handleDismiss}
-              >
-                Not for me
-              </Button>
-            </div>
-          )
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            {KIND_CTA[item.kind] ?? "Open"} — coming soon
-          </span>
-        )}
+            <span className="text-sm text-muted-foreground">
+              {KIND_CTA[item.kind] ?? "Open"} — coming soon
+            </span>
+          )}
+        </div>
+        {(canKnow || canBookmark || item.kind === "suggested_interest") && overflow}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ complete). A design-review round then reshaped the remaining survey / add-intere
 |---|---|---|
 | 4-rev … 10-rev | graph migration → queue → skill tree → papers → adaptation → curation → polish → survey/curator/UX redesign | ✅ done |
 | 10.5-rev | operator-walkthrough remediation (queue/refresher/problem-page/survey-rendering/skill-tree fixes) | ✅ done |
-| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ▢ planned |
+| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ◐ Steps 1–2 done (card actions + bookmark); Steps 3–5 pending |
 | **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | ▢ planned |
 | 11-deploy | FastAPI deploy + cron + Sentry + README (keeps its number; runs **last**, once happy) | ▢ deferred to end |
 
@@ -40,6 +40,14 @@ wanted):
   copyright caveat on fb3). Unrelated to 12/13 — schedule or push to v2.1.
 - *(s17 — "what we learned about you" — is **not** here; it's absorbed into the
   Phase 13 tutor's graph mirror-back.)*
+- **Curator down-weight for dismissed problem/paper topics** (Phase 12 Session
+  12.1 follow-up). "Not for me" writes `queue_items.state='dismissed'`;
+  cross-pollination already reads that to down-weight a dismissed *suggested-
+  interest*'s domain, but the curator does not yet consume dismissed
+  *problem/paper* rows as a negative preference on their topic node. Left out of
+  12.1 to keep the card-actions session tight (operator-approved). Wire into the
+  planner's signal-loading (`api/curator_inputs.py`) when convenient — natural
+  fit alongside the Step 4 steering/feedback work.
 
 **Pending operator actions** (from Phase 10.5-rev Step 3, not yet run): apply
 migrations `20250032` + `20250033`, restart the web dev server (picks up
@@ -127,6 +135,41 @@ items are pinned+badged, not priority-ordered. The launch-gating framing (🔴/�
 soft launch) is **retired** — the app is finished before release; Phase 11-deploy
 keeps its name but runs last, once the operator is happy (localhost until then).
 Carried-over p1/p2 + the paper-chip backfill fold into Phase 12 Step 5.
+
+**Phase 12 Session 12.1 done — card action set + polymorphic bookmark (Steps 1+2).**
+The §A1 daily card now stays calm — primary CTA the hero, the from-the-card
+judgments tucked behind an unobtrusive "···" overflow ([DailyView.tsx](../web/components/DailyView.tsx)),
+each gated by kind and routed to a *distinct* curator signal: **I know this**
+(problem-only, reuses the existing `/api/problem/[id]/skip` → `marked_refreshed`
++comfort), **Bookmark for later**, **Not for me**. This splits the previously
+conflated comfort/skip button — the problem-page "Skip — I've got this" is
+relabelled **"I already know this"** ([ProblemView.tsx](../web/components/ProblemView.tsx)),
+the comfort half; "Not for me" is now its own negative signal. Fixed the
+resolved-decision-6 smell: the suggested-interest "Not for me" handler wrote a
+dismiss *through a route named `bookmark`*; it now hits a real **`/api/queue/dismiss`**
+(`state='dismissed'` — the honest down-weight; cross-pollination already reads it
+for suggested-interest domains). **Bookmark is now a polymorphic save** (§A2):
+`/api/queue/bookmark` was repurposed from that dismiss-smell into a real save —
+problem→`problem`, paper_engagement→`paper` (engagement→`paper_id` hop),
+concept/suggested→`node` — writing a `bookmarks` row (the table's `kind` was
+already polymorphic) and taking the queue item out of rotation via a **new
+terminal `state='bookmarked'`** (migration 20250034; positive, distinct from
+`dismissed`/`done`). The notebook's "Come back to this" tab ([come-back route](../web/app/api/notebook/come-back/route.ts) +
+[notebook page](../web/app/notebook/page.tsx)) now renders all three bookmark kinds with
+a kind badge; problem/paper bookmarks get **"Queue it now"** (new
+**`/api/queue/requeue`**: flips `bookmarked`→`pending`, retires the bookmark via
+`promoted_at`), nodes keep "See in skill tree". **Decisions:** "I know this"
+scoped to problems this session (the only clean comfort path); "Not for me"
+records `dismissed` but does *not* yet wire curator-side topic down-weight for
+problem/paper — deliberately left tight (see backlog). **Verification:** pytest
+201 green, tsc clean, lint no net-new findings (2 pre-existing in touched files),
+`npm run build` clean with all three new routes registered, plus a service-role
+functional walk on throwaway-and-deleted rows against the migrated live DB —
+bookmark→come-back→requeue→dismiss state machine + the engagement→paper mapping
+all green, the user's real queue untouched. **Operator action: migration
+20250034 is already applied (operator confirmed); commit includes it.** Next:
+Step 3 — the easier/harder/assume-less correction loop + direct foundation-state
+editing.
 
 ---
 

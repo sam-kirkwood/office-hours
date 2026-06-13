@@ -381,7 +381,7 @@ function Step1View({
           disabled={loading}
           className="rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
         >
-          Skip — I&apos;ve got this
+          I already know this
         </button>
         <button
           type="button"
