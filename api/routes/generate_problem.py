@@ -94,13 +94,17 @@ def cache_lookup(
     intent: str,
 ) -> str | None:
     """Return the problem id of an existing row that matches the cache key,
-    or None if no row matches. Intent is now part of the key."""
+    or None if no row matches. Intent is now part of the key.
+
+    Excludes problems tagged 'assume-less' so assume-less siblings never
+    satisfy a regular pool lookup (and vice-versa)."""
     query = (
         supabase.table("problems")
         .select("id")
         .eq("topic_node_id", str(topic_node_id))
         .eq("difficulty", difficulty)
         .eq("intent", intent)
+        .not_.cs("tags", ["assume-less"])
     )
     if context_hook_id is None:
         query = query.is_("context_hook_id", "null")
@@ -213,6 +217,165 @@ def _validate_tags(tags: list[str], topic_slug: str) -> tuple[bool, str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Shared generation helper (also used by /generate-sibling)
+# ---------------------------------------------------------------------------
+
+
+def fetch_or_generate_problem(
+    supabase: Client,
+    anthropic: Anthropic,
+    *,
+    node: dict[str, Any],
+    topic_slug: str,
+    topic_node_id: str,
+    difficulty: int,
+    intent: str,
+    assumed_background_summary: str,
+    is_entry_point: bool,
+    intent_context: str,
+    feedback_biases: dict[str, bool],
+    context_hook_id: str | None,
+    context_hook_summary: str | None,
+    user_id: str,
+    skip_pool_lookup: bool = False,
+    extra_tags: list[str] | None = None,
+) -> str:
+    """Fetch from pool (cache_lookup) or generate via Sonnet, insert the
+    problem row + hints, and return the problem_id string.
+
+    skip_pool_lookup=True is used for assume-less siblings — always generate
+    fresh; the result is tagged 'assume-less' via extra_tags and excluded from
+    regular cache_lookup by the not_.cs filter.
+
+    extra_tags are appended to the model-generated tags before insert.
+    """
+    cached_id: str | None = None
+    if not skip_pool_lookup:
+        cached_id = cache_lookup(
+            supabase,
+            topic_node_id=topic_node_id,
+            difficulty=difficulty,
+            context_hook_id=context_hook_id,
+            intent=intent,
+        )
+
+    if cached_id is not None:
+        return cached_id
+
+    # Sonnet generation
+    subtopics = _subtopics_with_slugs(node.get("subtopics_json"))
+    user_prompt = build_user_prompt(
+        topic_title=node["title"],
+        topic_slug=topic_slug,
+        topic_description=node.get("description_md") or "",
+        subtopics=subtopics,
+        difficulty=difficulty,
+        intent=intent,
+        assumed_background_summary=assumed_background_summary,
+        is_entry_point=is_entry_point,
+        intent_context=intent_context,
+        feedback_biases=feedback_biases,
+        context_hook_summary_md=context_hook_summary,
+    )
+    generated = call_json(
+        client=anthropic,
+        supabase=supabase,
+        model=SONNET_MODEL,
+        system_prompt=build_system_prompt(),
+        user_prompt=user_prompt,
+        schema=GeneratedProblem,
+        route="/generate-problem",
+        user_id=user_id,
+        max_tokens=8192,
+        request_summary={
+            "topic_node_id": topic_node_id,
+            "difficulty": difficulty,
+            "intent": intent,
+            "context_hook_id": context_hook_id,
+            "entry_point": is_entry_point,
+        },
+    )
+
+    # Merge extra_tags before validation (e.g. 'assume-less' for siblings)
+    tags = list(generated.tags)
+    if extra_tags:
+        for t in extra_tags:
+            if t not in tags:
+                tags.append(t)
+
+    # Validate: topic slug present + at least one subtopic.
+    # For assume-less siblings the 'assume-less' marker is internal — only
+    # validate against the topic-slug + subtopic requirement on the rest.
+    non_marker_tags = [t for t in tags if t not in (extra_tags or [])]
+    ok, reason = _validate_tags(non_marker_tags if extra_tags else tags, topic_slug)
+    if not ok:
+        logger.warning(
+            "Sonnet returned invalid tags %r for topic %r — %s",
+            tags,
+            topic_slug,
+            reason,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"generator returned invalid tags: {reason}",
+        )
+
+    # Race-safe insert
+    problem_row = {
+        "topic_node_id": topic_node_id,
+        "difficulty": difficulty,
+        "intent": intent,
+        "context_hook_id": context_hook_id,
+        "title": generated.title,
+        "statement_md": generated.statement_md,
+        "solution_md": generated.solution_md,
+        "rubric_md": generated.rubric_md,
+        "context_md": generated.context_md,
+        "tags": tags,
+    }
+    try:
+        insert_resp = supabase.table("problems").insert(problem_row).execute()
+    except Exception as exc:  # noqa: BLE001
+        if not _is_unique_violation(exc):
+            raise
+        # Race: another worker inserted first. Fall back to a cache lookup
+        # (only safe for non-assume-less paths; for assume-less just re-raise
+        # since the unique constraint fires on a different key).
+        if skip_pool_lookup:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="concurrent insert on assume-less problem",
+            ) from exc
+        fallen_id = cache_lookup(
+            supabase,
+            topic_node_id=topic_node_id,
+            difficulty=difficulty,
+            context_hook_id=context_hook_id,
+            intent=intent,
+        )
+        if fallen_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="unique violation but no cached row found",
+            ) from exc
+        return fallen_id
+
+    problem_id = insert_resp.data[0]["id"]
+    # Hints (5 rows, levels 1..5) — only when we won the race
+    hint_rows = [
+        {
+            "problem_id": problem_id,
+            "level": i + 1,
+            "text": hint.text,
+            "part_label": hint.part_label,
+        }
+        for i, hint in enumerate(generated.hints)
+    ]
+    supabase.table("problem_hints").insert(hint_rows).execute()
+    return problem_id
+
+
+# ---------------------------------------------------------------------------
 # Route
 # ---------------------------------------------------------------------------
 
@@ -304,110 +467,23 @@ def generate_problem(
     context_hook_id = hook["id"] if hook else None
     context_hook_summary = hook["summary_md"] if hook else None
 
-    # 5. Cache lookup (now keyed on intent too)
-    cached_id = cache_lookup(
+    # 5–9. Cache lookup / generation / insert / hints — shared with sibling route.
+    problem_id = fetch_or_generate_problem(
         supabase,
+        anthropic,
+        node=node,
+        topic_slug=topic_slug,
         topic_node_id=topic_node_id,
         difficulty=difficulty,
-        context_hook_id=context_hook_id,
         intent=intent,
+        assumed_background_summary=assumed_background_summary,
+        is_entry_point=entry_point,
+        intent_context=intent_context,
+        feedback_biases=feedback_biases,
+        context_hook_id=context_hook_id,
+        context_hook_summary=context_hook_summary,
+        user_id=user_id,
     )
-
-    if cached_id is not None:
-        problem_id = cached_id
-    else:
-        # 6. Sonnet generation
-        subtopics = _subtopics_with_slugs(node.get("subtopics_json"))
-        user_prompt = build_user_prompt(
-            topic_title=node["title"],
-            topic_slug=topic_slug,
-            topic_description=node.get("description_md") or "",
-            subtopics=subtopics,
-            difficulty=difficulty,
-            intent=intent,
-            assumed_background_summary=assumed_background_summary,
-            is_entry_point=entry_point,
-            intent_context=intent_context,
-            feedback_biases=feedback_biases,
-            context_hook_summary_md=context_hook_summary,
-        )
-        generated = call_json(
-            client=anthropic,
-            supabase=supabase,
-            model=SONNET_MODEL,
-            system_prompt=build_system_prompt(),
-            user_prompt=user_prompt,
-            schema=GeneratedProblem,
-            route="/generate-problem",
-            user_id=user_id,
-            max_tokens=8192,
-            request_summary={
-                "topic_node_id": topic_node_id,
-                "difficulty": difficulty,
-                "intent": intent,
-                "context_hook_id": context_hook_id,
-                "entry_point": entry_point,
-            },
-        )
-
-        # 7. Validate tags (topic slug present + at least one subtopic)
-        ok, reason = _validate_tags(generated.tags, topic_slug)
-        if not ok:
-            logger.warning(
-                "Sonnet returned invalid tags %r for topic %r — %s",
-                generated.tags,
-                topic_slug,
-                reason,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"generator returned invalid tags: {reason}",
-            )
-
-        # 8. Race-safe insert
-        problem_row = {
-            "topic_node_id": topic_node_id,
-            "difficulty": difficulty,
-            "intent": intent,
-            "context_hook_id": context_hook_id,
-            "title": generated.title,
-            "statement_md": generated.statement_md,
-            "solution_md": generated.solution_md,
-            "rubric_md": generated.rubric_md,
-            "context_md": generated.context_md,
-            "tags": generated.tags,
-        }
-        try:
-            insert_resp = supabase.table("problems").insert(problem_row).execute()
-        except Exception as exc:  # noqa: BLE001
-            if not _is_unique_violation(exc):
-                raise
-            cached_id = cache_lookup(
-                supabase,
-                topic_node_id=topic_node_id,
-                difficulty=difficulty,
-                context_hook_id=context_hook_id,
-                intent=intent,
-            )
-            if cached_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="unique violation but no cached row found",
-                ) from exc
-            problem_id = cached_id
-        else:
-            problem_id = insert_resp.data[0]["id"]
-            # 9. Hints (5 rows, levels 1..5) — only when we won the race
-            hint_rows = [
-                {
-                    "problem_id": problem_id,
-                    "level": i + 1,
-                    "text": hint.text,
-                    "part_label": hint.part_label,
-                }
-                for i, hint in enumerate(generated.hints)
-            ]
-            supabase.table("problem_hints").insert(hint_rows).execute()
 
     # 10. Queue item — dedup against existing pending/surfaced rows first.
     # Without this check, the curator's pool-miss → generate-problem

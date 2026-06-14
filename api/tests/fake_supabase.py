@@ -24,6 +24,21 @@ class FakeResult:
     data: list[dict[str, Any]]
 
 
+class _NotWrapper:
+    """Wraps a FakeQuery to record negated filter calls (e.g. not_.cs)."""
+
+    def __init__(self, query: "FakeQuery") -> None:
+        self._query = query
+
+    def cs(self, col: str, values: Any) -> "FakeQuery":
+        self._query._filters.append(("not.cs", col, values))
+        return self._query
+
+    def contains(self, col: str, values: Any) -> "FakeQuery":
+        self._query._filters.append(("not.contains", col, values))
+        return self._query
+
+
 class FakeQuery:
     def __init__(self, table: str, op: str, client: FakeSupabase) -> None:
         self._table = table
@@ -79,6 +94,10 @@ class FakeQuery:
     def or_(self, filter_string: str) -> FakeQuery:
         self._filters.append(("or_", None, filter_string))
         return self
+
+    @property
+    def not_(self) -> "_NotWrapper":
+        return _NotWrapper(self)
 
     def limit(self, _n: int) -> FakeQuery:
         return self

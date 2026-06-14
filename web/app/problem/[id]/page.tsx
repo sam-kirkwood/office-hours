@@ -23,12 +23,13 @@ export default async function ProblemPage({
 
   const { data: queueItem } = await adminClient
     .from("queue_items")
-    .select("id, kind, ref_id, state")
+    .select("id, kind, ref_id, state, parent_queue_item_id")
     .eq("id", queueItemId)
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (!queueItem) redirect("/daily");
+  // 'superseded' is viewable — user may follow the parent-fallback link back.
   if (
     queueItem.state === "done" ||
     queueItem.state === "dismissed" ||
@@ -84,6 +85,7 @@ export default async function ProblemPage({
         topicTitle={topicTitle}
         hints={(hints ?? []) as ProblemHint[]}
         existingAttempt={existingAttempt}
+        parentQueueItemId={(queueItem.parent_queue_item_id as string | null) ?? null}
       />
     </main>
   );

@@ -489,12 +489,19 @@ The entry-point default applies regardless of the user's stated background. A ph
 
 ### 3.5 User controls on the dials
 
+> **Built (Phase 12 Step 3, 2026-06-14).** The easier/harder/assume-less controls
+> and foundation-state editing are live. See `orientation-and-calibration-design.md`
+> §A3 for the implemented lifecycle (sibling pool logic, 'superseded' state, revert
+> action, post-attempt fit-feedback).
+
 | Control | Dial affected | Mechanism | Where |
 |---|---|---|---|
-| Easier / Harder | Difficulty | Generates a sibling problem; original stays in pool | Per-problem, before starting |
-| Explain more / Assume less | Assumed background | Adjusts generator instructions for this problem; persistent feedback adjusts across all problems for this topic | Per-problem, or profile page |
+| Easier / Harder | Difficulty | Fetches sibling from pool or generates at target difficulty; original queue_item superseded; sibling takes the slot | Per-problem, Step 1 ("This version ▾" dropdown), before starting |
+| Explain more / Assume less | Assumed background | Always generates fresh (pool bypassed); result tagged `assume-less` and excluded from regular pool lookups; original superseded | Per-problem, Step 1 dropdown |
 | Not ready yet — come back later | All three | Conditional deferral: re-queues this problem; triggers accelerated prerequisite surfacing; problem returns when prerequisites have been addressed | Per-problem, before starting |
 | Profile page feedback ("my problems are too hard", "problems assume things I haven't seen") | Difficulty / Assumed background | Adjusts generator instructions across the relevant topics | Profile page |
+| Foundation readiness ("Mark solid" / "Still learning") | Assumed background (node-level prior) | Upserts `user_node_states.state` + `struggle_score` (solid → comfortable + 0.0; still learning → active + 0.3); treated as authoritative, refined by engagement | Profile page, Foundations section |
+| "How did this feel?" (Too easy / Too hard / Assumed too much) | Difficulty / Assumed background | Fire-and-forget write to `attempts.requested_*`; assessor reads these; curator follow-up generation is deferred | Per-problem, Step 4 (Feedback) |
 
 The "Not ready yet" action is distinct from:
 - **Skip** — implies the user does not want to see this content (negative preference signal)

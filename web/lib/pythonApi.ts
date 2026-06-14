@@ -472,3 +472,31 @@ export async function rewriteIntentSummaries(
     items: args.items,
   });
 }
+
+// ---------------------------------------------------------------------------
+// /generate-sibling (Phase 12 Step 3 — §A3 correction loop)
+
+export type SiblingKind = "easier" | "harder" | "assume_less";
+
+interface GenerateSiblingArgs {
+  userId: string;
+  queueItemId: string;
+  kind: SiblingKind;
+}
+
+export interface GenerateSiblingResponse {
+  sibling_problem_id: string | null;
+  sibling_queue_item_id: string | null;
+  is_max_difficulty: boolean;
+  is_min_difficulty: boolean;
+}
+
+export async function generateSibling(
+  args: GenerateSiblingArgs,
+): Promise<GenerateSiblingResponse> {
+  return pythonPost("/generate-sibling", {
+    user_id: args.userId,
+    queue_item_id: args.queueItemId,
+    kind: args.kind,
+  });
+}

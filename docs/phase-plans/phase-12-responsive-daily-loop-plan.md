@@ -1,6 +1,6 @@
 # Phase 12 — The responsive daily loop
 
-> **Status: in progress — Steps 1–2 done (2026-06-12), Steps 3–5 pending.**
+> **Status: in progress — Steps 1–3 done (2026-06-13), Steps 4–5 pending.**
 > Opened from the design-review round (2026-06-08/09) that followed the Phase
 > 10.5-rev operator walkthrough. The design and rationale live in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
@@ -44,7 +44,7 @@ the active rotation, lands in "Come back to this," gets "Queue it now," sends a
 soft positive signal. Define against **Not ready** (system-managed return) and **I
 know this** (comfort, opposite knowledge state).
 
-### Step 3 — The correction loop (§A3)
+### Step 3 — The correction loop (§A3) ✅ done (2026-06-13)
 Wire the missing **easier / harder / assume-less** controls (columns + assessor
 already exist; UI + sibling generation do not). Implement the lifecycle:
 supersede-not-destroy, sibling-not-version, fetch-when-pooled / generate-on-miss,
@@ -89,7 +89,7 @@ plugs in — build Step 4 so that seam is clean.
   action conflates two intents.
 - ✅ Bookmark saves problems/papers/nodes to "Come back to this" and survives queue
   churn.
-- A user can make a surfaced problem easier/harder/assume-less and gets a sibling,
+- ✅ A user can make a surfaced problem easier/harder/assume-less and gets a sibling,
   with the original superseded-not-destroyed.
 - The curiosity box routes the realistic input shapes correctly and redirects
   mood/feedback to their own surfaces; requested items are unmistakable and never

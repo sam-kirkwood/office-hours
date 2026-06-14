@@ -9,6 +9,7 @@ from routes.generate_edge_description import router as generate_edge_description
 from routes.compute_cross_pollination import router as compute_cross_pollination_router
 from routes.generate_paper_engagement import router as generate_paper_engagement_router
 from routes.generate_problem import router as generate_problem_router
+from routes.generate_sibling import router as generate_sibling_router
 from routes.grade_paper_answer import router as grade_paper_answer_router
 from routes.grade_solution import router as grade_solution_router
 from routes.ingest_paper import router as ingest_paper_router
@@ -27,6 +28,7 @@ app.include_router(generate_concept_brief_router)
 app.include_router(generate_curation_report_router)
 app.include_router(generate_edge_description_router)
 app.include_router(generate_problem_router)
+app.include_router(generate_sibling_router)
 app.include_router(add_interest_router)
 app.include_router(compute_cross_pollination_router)
 app.include_router(concept_review_router)

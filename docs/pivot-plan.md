@@ -1,6 +1,6 @@
 # Pivot plan — status & phase map
 
-**Where things are (2026-06-10):** the v1→v2 pivot is built through Phase 10-rev
+**Where things are (2026-06-14):** the v1→v2 pivot is built through Phase 10-rev
 (complete) and Phase 10.5-rev (the operator-walkthrough remediation round —
 complete). A design-review round then reshaped the remaining survey / add-interest
 / per-problem-correction work into two forward phases.
@@ -9,7 +9,7 @@ complete). A design-review round then reshaped the remaining survey / add-intere
 |---|---|---|
 | 4-rev … 10-rev | graph migration → queue → skill tree → papers → adaptation → curation → polish → survey/curator/UX redesign | ✅ done |
 | 10.5-rev | operator-walkthrough remediation (queue/refresher/problem-page/survey-rendering/skill-tree fixes) | ✅ done |
-| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ◐ Steps 1–2 done (card actions + bookmark); Steps 3–5 pending |
+| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ◐ Steps 1–3 done + Step 3 follow-ups (2026-06-14); Steps 4–5 pending |
 | **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | ▢ planned |
 | 11-deploy | FastAPI deploy + cron + Sentry + README (keeps its number; runs **last**, once happy) | ▢ deferred to end |
 
@@ -135,6 +135,10 @@ items are pinned+badged, not priority-ordered. The launch-gating framing (🔴/�
 soft launch) is **retired** — the app is finished before release; Phase 11-deploy
 keeps its name but runs last, once the operator is happy (localhost until then).
 Carried-over p1/p2 + the paper-chip backfill fold into Phase 12 Step 5.
+
+**Phase 12 Step 3 follow-ups done (2026-06-14).** Three correctness fixes on top of 12.2: (1) **Sibling revert is now a real action** — new `POST /api/problem/[id]/revert-sibling` flips the too-hard sibling to 'superseded' and restores the original to 'pending' at priority 0.85 before navigating back; the rejected sibling no longer resurfaces. (2) **"Mark solid" writes a coherent node state** — `POST /api/profile/foundation-state` now upserts both `state` and `struggle_score` together (`solid → comfortable + 0.0`; `still learning → active + 0.3`) so the curator never sees a contradictory high-struggle/comfortable pair. (3) **Fit-feedback acknowledged** — `toast.success("Thanks — we'll factor that in.")` fires immediately on click so the button doesn't feel dead. tsc clean; lint baseline unchanged; 208/208 pytest.
+
+**Phase 12 Session 12.2 done — the correction loop (Step 3).** The pre-start per-problem correction controls (easier / harder / explain-more / assume-less) are now live. Architecture: `POST /generate-sibling` (Python) fetches from the shared pool for easier/harder (`(topic_node_id, difficulty, intent)` key) or always generates fresh for assume-less (tagged `assume-less`, excluded from regular `cache_lookup` via `.not_.cs` filter). The original queue_item goes terminal via a new `'superseded'` state (migration 20250035); the sibling queue_item carries `parent_queue_item_id` pointing back. The ProblemView Step-1 "This version ▾" DropdownMenu (shadcn) triggers the swap and navigates to the sibling; if `parent_queue_item_id` is present (user followed a "harder" link), a "← Too hard? Back to the previous version" link is shown. Step-4 (Feedback) adds a compact "How did this feel?" fit-feedback row (Too easy · Too hard · Assumed too much) that fire-and-forgets `POST /fit-feedback` → writes `requested_easier/harder/assume_less` on the attempt for the curator to consume. Direct foundation-state editing: the Foundations section of the Profile is now interactive — "Mark solid" / "Still learning" buttons write `user_node_states.state` via `POST /api/profile/foundation-state`. 7 new pytest tests (208/208); web tsc clean; npm build clean; no new lint issues. Operator action: **apply migration 20250035** (`npx supabase db push`). Reset-walk: open a problem → "This version ▾" → "Harder" → sibling navigates in; original is superseded; "← Too hard?" link reverts; profile Foundations section buttons update state live.
 
 **Phase 12 Session 12.1 done — card action set + polymorphic bookmark (Steps 1+2).**
 The §A1 daily card now stays calm — primary CTA the hero, the from-the-card

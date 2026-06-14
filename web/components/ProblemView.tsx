@@ -4,8 +4,19 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
+import { toast } from "sonner";
 import MarkdownLatex from "@/lib/markdown";
 import type { Problem, ProblemHint, Attempt } from "@/lib/types";
+import type { SiblingKind } from "@/lib/pythonApi";
 
 interface UploadedFile {
   name: string;
@@ -19,6 +30,7 @@ interface Props {
   topicTitle: string | null;
   hints: ProblemHint[];
   existingAttempt: Attempt | null;
+  parentQueueItemId: string | null;
 }
 
 type Step = 1 | 2 | 3 | 4;
@@ -54,7 +66,7 @@ function computeInitialStep(attempt: Attempt | null): Step {
   return 1;
 }
 
-export default function ProblemView({ queueItemId, problem, topicTitle, hints, existingAttempt }: Props) {
+export default function ProblemView({ queueItemId, problem, topicTitle, hints, existingAttempt, parentQueueItemId }: Props) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,6 +82,9 @@ export default function ProblemView({ queueItemId, problem, topicTitle, hints, e
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState<SiblingKind | null>(null);
+  const [siblingMsg, setSiblingMsg] = useState<string | null>(null);
+  const [revertingToParent, setRevertingToParent] = useState(false);
 
   async function handleHintClick(level: number) {
     const isOpen = openHints.has(level);
@@ -114,6 +129,50 @@ export default function ProblemView({ queueItemId, problem, topicTitle, hints, e
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRequestSibling(kind: SiblingKind) {
+    setRequesting(kind);
+    setSiblingMsg(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/problem/${queueItemId}/sibling`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (data.is_max_difficulty) {
+        setSiblingMsg("This is already at the highest difficulty.");
+        return;
+      }
+      if (data.is_min_difficulty) {
+        setSiblingMsg("This is already at the lowest difficulty.");
+        return;
+      }
+      if (data.sibling_queue_item_id) {
+        router.push(`/problem/${data.sibling_queue_item_id}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't get a different version — try again.");
+    } finally {
+      setRequesting(null);
+    }
+  }
+
+  async function handleRevertSibling() {
+    setRevertingToParent(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/problem/${queueItemId}/revert-sibling`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Revert failed");
+      router.push(`/problem/${data.parent_queue_item_id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't revert — try again.");
+      setRevertingToParent(false);
     }
   }
 
@@ -236,6 +295,12 @@ export default function ProblemView({ queueItemId, problem, topicTitle, hints, e
           onStartWorking={handleStartWorking}
           onSkip={handleSkip}
           onDefer={handleDefer}
+          onRequestSibling={handleRequestSibling}
+          onRevertSibling={handleRevertSibling}
+          requesting={requesting}
+          revertingToParent={revertingToParent}
+          siblingMsg={siblingMsg}
+          parentQueueItemId={parentQueueItemId}
           loading={loading}
         />
       )}
@@ -266,6 +331,8 @@ export default function ProblemView({ queueItemId, problem, topicTitle, hints, e
       {step === 4 && (
         <Step4Feedback
           gradeMd={gradeMd ?? ""}
+          queueItemId={queueItemId}
+          attemptId={attemptId}
           onDone={() => router.push("/daily")}
         />
       )}
@@ -286,6 +353,12 @@ function Step1View({
   onStartWorking,
   onSkip,
   onDefer,
+  onRequestSibling,
+  onRevertSibling,
+  requesting,
+  revertingToParent,
+  siblingMsg,
+  parentQueueItemId,
   loading,
 }: {
   problem: Problem;
@@ -296,6 +369,12 @@ function Step1View({
   onStartWorking: () => void;
   onSkip: () => void;
   onDefer: () => void;
+  onRequestSibling: (kind: SiblingKind) => void;
+  onRevertSibling: () => void;
+  requesting: SiblingKind | null;
+  revertingToParent: boolean;
+  siblingMsg: string | null;
+  parentQueueItemId: string | null;
   loading: boolean;
 }) {
   return (
@@ -371,6 +450,57 @@ function Step1View({
           </div>
         </div>
       )}
+
+      {/* Correction controls — "This version" dropdown (§A3) */}
+      <div className="space-y-2">
+        {parentQueueItemId && (
+          <p className="text-sm text-muted-foreground">
+            <button
+              type="button"
+              onClick={onRevertSibling}
+              disabled={revertingToParent || loading}
+              className="hover:text-foreground transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
+            >
+              {revertingToParent ? "Reverting…" : "← Too hard? Back to the previous version"}
+            </button>
+          </p>
+        )}
+        <div className="flex items-center gap-3">
+          {requesting ? (
+            <p className="text-sm text-muted-foreground">
+              {requesting === "harder"
+                ? "Making a tougher one…"
+                : requesting === "easier"
+                  ? "Finding an easier one…"
+                  : "Making one that explains more…"}
+            </p>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={loading}>
+                  This version <ChevronDown className="ml-1 size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <DropdownMenuLabel>Request a different version</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onRequestSibling("easier")}>
+                  Easier
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onRequestSibling("harder")}>
+                  Harder
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onRequestSibling("assume_less")}>
+                  Explain more / Assume less
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {siblingMsg && (
+            <p className="text-sm text-muted-foreground">{siblingMsg}</p>
+          )}
+        </div>
+      </div>
 
       {/* Actions — stack on phone (Start working primary at the bottom),
           row on sm+ where the three buttons fit comfortably. */}
@@ -553,13 +683,77 @@ function Step3Review({
   );
 }
 
-function Step4Feedback({ gradeMd, onDone }: { gradeMd: string; onDone: () => void }) {
+function Step4Feedback({
+  gradeMd,
+  queueItemId,
+  attemptId,
+  onDone,
+}: {
+  gradeMd: string;
+  queueItemId: string;
+  attemptId: string | null;
+  onDone: () => void;
+}) {
+  const [fit, setFit] = useState<"easier" | "harder" | "assume_less" | null>(null);
+
+  async function handleFit(kind: "easier" | "harder" | "assume_less") {
+    if (!attemptId || fit !== null) return;
+    setFit(kind);
+    toast.success("Thanks — we'll factor that in.", { duration: 3000 });
+    fetch(`/api/problem/${queueItemId}/fit-feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attempt_id: attemptId, kind }),
+    }).catch(() => {});
+  }
+
+  const fitLabels: Array<{ kind: "easier" | "harder" | "assume_less"; label: string }> = [
+    { kind: "easier", label: "Too easy" },
+    { kind: "harder", label: "Too hard" },
+    { kind: "assume_less", label: "Assumed too much" },
+  ];
+
   return (
     <div>
       <h2 className="mb-4 text-base font-semibold text-foreground">Feedback</h2>
       <div className={`mb-8 rounded-md border border-border bg-card px-5 py-5 text-sm ${READING_PROSE}`}>
         <MarkdownLatex source={gradeMd} />
       </div>
+
+      {attemptId && (
+        <div className="mb-6">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            How did this feel?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {fitLabels.map(({ kind, label }) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => handleFit(kind)}
+                disabled={fit !== null}
+                className={
+                  "rounded-md border px-3 py-1.5 text-sm transition-colors duration-[var(--duration-fast)] disabled:cursor-default " +
+                  (fit === kind
+                    ? "border-primary bg-[var(--amber-subtle)] text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-60")
+                }
+              >
+                {fit === kind ? "Noted" : label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={onDone}
+              disabled={fit !== null}
+              className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
+            >
+              About right
+            </button>
+          </div>
+        </div>
+      )}
+
       <Button type="button" onClick={onDone} className="w-full">
         Done → Back to daily
       </Button>

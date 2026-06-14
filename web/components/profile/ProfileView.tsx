@@ -455,10 +455,36 @@ function InterestDetail({ interest }: { interest: ProfileInterest }) {
 }
 
 // ---------------------------------------------------------------------------
-// Foundation state list
+// Foundation state list (with direct editing — §A3 decision 5)
 // ---------------------------------------------------------------------------
 
 function FoundationsSection({ foundations }: { foundations: ProfileFoundation[] }) {
+  const [states, setStates] = useState<Record<string, ProfileFoundation["state"]>>(
+    Object.fromEntries(foundations.map((f) => [f.node_id, f.state])),
+  );
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReadiness(node_id: string, readiness: "solid" | "learning") {
+    setSaving(node_id);
+    setError(null);
+    const next: ProfileFoundation["state"] = readiness === "solid" ? "comfortable" : "active";
+    setStates((prev) => ({ ...prev, [node_id]: next }));
+    try {
+      const res = await fetch("/api/profile/foundation-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node_id, readiness }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+    } catch {
+      setStates((prev) => ({ ...prev, [node_id]: states[node_id] }));
+      setError("Couldn't save — try again.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -466,25 +492,52 @@ function FoundationsSection({ foundations }: { foundations: ProfileFoundation[] 
       </CardHeader>
       <CardContent>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          How the system reads your relationship with each foundation. These shift as you engage
-          with content; you can&apos;t edit them directly here.
+          Tell us where you are — we use this as a starting point, refined as you work. Each
+          foundation shifts as you engage with content.
         </p>
-        <ul className="space-y-2">
-          {foundations.map((f) => (
-            <li
-              key={f.node_id}
-              className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-b-0 last:pb-0"
-            >
-              <span className="font-serif text-sm text-foreground">{f.node_title}</span>
-              <Badge
-                variant="outline"
-                className={"border " + stateBadgeClass(f.state)}
+        <ul className="space-y-3">
+          {foundations.map((f) => {
+            const current = states[f.node_id] ?? f.state;
+            const isSolid = current === "comfortable";
+            return (
+              <li
+                key={f.node_id}
+                className="flex flex-col gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
-                {STATE_LABELS[f.state]}
-              </Badge>
-            </li>
-          ))}
+                <span className="font-serif text-sm text-foreground">{f.node_title}</span>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={"border " + stateBadgeClass(current)}
+                  >
+                    {STATE_LABELS[current]}
+                  </Badge>
+                  {!isSolid && (
+                    <button
+                      type="button"
+                      onClick={() => handleReadiness(f.node_id, "solid")}
+                      disabled={saving === f.node_id}
+                      className="rounded-md border border-[var(--forest)]/50 px-2.5 py-1 text-xs font-medium text-[var(--forest)] hover:bg-[var(--forest-subtle)] transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
+                    >
+                      {saving === f.node_id ? "…" : "Mark solid"}
+                    </button>
+                  )}
+                  {isSolid && (
+                    <button
+                      type="button"
+                      onClick={() => handleReadiness(f.node_id, "learning")}
+                      disabled={saving === f.node_id}
+                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors duration-[var(--duration-fast)] disabled:opacity-50"
+                    >
+                      {saving === f.node_id ? "…" : "Still learning"}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
       </CardContent>
     </Card>
   );

@@ -764,3 +764,25 @@ class CurationReportLLMOutput(BaseModel):
 class GenerateCurationReportResponse(BaseModel):
     proposals_created: int
     since: str  # ISO timestamp of the input window start
+
+
+# ---------------------------------------------------------------------------
+# /generate-sibling (Phase 12 Step 3 — §A3 correction loop)
+# ---------------------------------------------------------------------------
+# Pre-start correction loop. The user requests a sibling problem at a
+# different difficulty ('easier'/'harder') or with lower assumed background
+# ('assume_less'). The original queue_item is superseded and the sibling
+# takes its slot in the queue.
+
+
+class GenerateSiblingRequest(BaseModel):
+    user_id: UUID
+    queue_item_id: UUID   # the original problem's queue_item
+    kind: Literal["easier", "harder", "assume_less"]
+
+
+class GenerateSiblingResponse(BaseModel):
+    sibling_problem_id: UUID | None = None      # None when at max/min difficulty
+    sibling_queue_item_id: UUID | None = None
+    is_max_difficulty: bool = False
+    is_min_difficulty: bool = False
