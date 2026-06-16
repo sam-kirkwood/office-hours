@@ -314,3 +314,88 @@ def test_check_deferred_failure_preserves_plan_queue_counts(
     assert len(updates) == 1
     assert updates[0].payload["plan_queue_status"] == "ok"
     assert "check_deferred" in updates[0].payload["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# p1 — paper top-up after planner
+# ---------------------------------------------------------------------------
+
+
+def _prime_plan_context_with_balance(
+    supabase: FakeSupabase, mode_balance: float
+) -> None:
+    """Like _prime_minimal_plan_context but with a configurable mode_balance."""
+    supabase.respond("surveys", "select", lambda _c: [{"mode_balance": mode_balance}])
+    supabase.respond("user_interests", "select", lambda _c: [])
+    supabase.respond("nodes", "select", lambda _c: [])
+    supabase.respond("user_node_states", "select", lambda _c: [])
+    supabase.respond("edges", "select", lambda _c: [])
+    supabase.respond("attempts", "select", lambda _c: [])
+    supabase.respond("paper_engagements", "select", lambda _c: [])
+    supabase.respond("papers", "select", lambda _c: [])
+    supabase.respond("surfaced_picks", "select", lambda _c: [])
+    supabase.respond("user_preferences", "select", lambda _c: [])
+    supabase.respond("queue_items", "select", lambda _c: [])
+    supabase.respond("notebook_entries", "select", lambda _c: [])
+    supabase.respond("llm_calls", "insert", lambda _c: [{"id": str(uuid4())}])
+
+
+def test_paper_topup_fires_when_balance_high(
+    client: TestClient, fakes
+) -> None:
+    """mode_balance=0.7 → paper top-up calls Sonnet after the planner.
+
+    Two Sonnet responses must be queued: one for plan-queue, one for the
+    propose-papers top-up. If topup fires, both are consumed.
+    """
+    supabase, anthropic = fakes
+    job_run_id = str(uuid4())
+
+    _prime_plan_context_with_balance(supabase, 0.7)
+    supabase.respond("curator_job_runs", "insert", lambda _c: [{"id": job_run_id}])
+    supabase.respond("curator_job_runs", "update", lambda _c: [{"id": job_run_id}])
+
+    # Planner response + propose-papers response (empty candidates OK).
+    anthropic.queue(_empty_plan_response())
+    anthropic.queue(json.dumps({"candidates": []}))
+
+    resp = client.post(
+        "/run-daily-planner",
+        json={"user_id": str(uuid4()), "triggered_by": "cron"},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    # Both Sonnet responses consumed → topup did fire.
+    assert len(anthropic.messages.calls) == 2
+    # Planner-no-papers rule: the planner's OWN call should not mention
+    # "paper_engagement" in its output (we returned [] recommendations).
+    plan_call = anthropic.messages.calls[0]
+    assert plan_call is not None  # planner ran
+    # Second call was the propose-papers Sonnet call.
+    propose_call = anthropic.messages.calls[1]
+    assert propose_call is not None
+
+
+def test_paper_topup_skips_when_balance_low(
+    client: TestClient, fakes
+) -> None:
+    """mode_balance=0.2 < 0.3 → paper top-up skipped; only one Sonnet call."""
+    supabase, anthropic = fakes
+    job_run_id = str(uuid4())
+
+    _prime_plan_context_with_balance(supabase, 0.2)
+    supabase.respond("curator_job_runs", "insert", lambda _c: [{"id": job_run_id}])
+    supabase.respond("curator_job_runs", "update", lambda _c: [{"id": job_run_id}])
+
+    # Only one Sonnet response queued — topup should NOT consume a second.
+    anthropic.queue(_empty_plan_response())
+
+    resp = client.post(
+        "/run-daily-planner",
+        json={"user_id": str(uuid4()), "triggered_by": "cron"},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert len(anthropic.messages.calls) == 1  # only planner called Sonnet

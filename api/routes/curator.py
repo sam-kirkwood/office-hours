@@ -57,6 +57,7 @@ from schemas import (
     GenerateProblemRequest,
     PlanQueueRequest,
     PlanQueueResponse,
+    ProposePapersRequest,
     RunDailyPlannerRequest,
     RunDailyPlannerResponse,
 )
@@ -1050,6 +1051,42 @@ def _finish_job_run(
     ).eq("id", job_run_id).execute()
 
 
+def _run_paper_topup(supabase: Client, anthropic: Anthropic, *, user_id: str) -> None:
+    """Top up paper queue items after the planner runs.
+
+    The Sonnet planner MUST NOT emit paper recommendations — that rule is
+    unchanged (see curriculum-curator-design.md §11.2 and the plan-queue prompt).
+    This helper runs propose_papers SEPARATELY, after the planner, so papers
+    replenish on drain just as they do at cold-start (Phase 12 Step 5 p1).
+
+    Gated on mode_balance >= 0.3 so problem-heavy users don't get papers forced
+    on them. Best-effort — the caller wraps this in try/except.
+    """
+    # Import here to avoid circular imports at module parse time (same pattern
+    # as curiosity_box.py importing fetch_or_generate_problem).
+    from routes.propose_papers import propose_papers as _propose_papers  # noqa: PLC0415
+
+    survey_resp = (
+        supabase.table("surveys")
+        .select("mode_balance")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    row = (survey_resp.data or [None])[0] or {}
+    balance: float = row.get("mode_balance") or 0.5
+    if balance < 0.3:
+        logger.debug(
+            "_run_paper_topup: skipping for user=%s (balance=%.2f < 0.3)", user_id, balance
+        )
+        return
+    _propose_papers(
+        ProposePapersRequest(user_id=user_id, mode_balance=balance),
+        supabase=supabase,
+        anthropic=anthropic,
+    )
+
+
 def run_daily_planner(
     *,
     supabase: Client,
@@ -1093,6 +1130,13 @@ def run_daily_planner(
         suffix = f"check_deferred: {exc}"
         error_message = f"{error_message}; {suffix}" if error_message else suffix
         logger.exception("run_daily_planner: check_deferred failed")
+
+    # Paper top-up: replenish papers proportional to mode_balance (p1).
+    # Runs AFTER the planner — the planner itself never emits paper recs.
+    try:
+        _run_paper_topup(supabase, anthropic, user_id=user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("run_daily_planner: paper_topup failed (non-fatal)")
 
     _finish_job_run(
         supabase,

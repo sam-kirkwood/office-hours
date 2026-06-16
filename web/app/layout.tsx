@@ -3,6 +3,7 @@ import { Inter, Source_Serif_4, Lora, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { FeedbackDialog } from "@/components/FeedbackDialog";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import "./globals.css";
@@ -77,36 +78,39 @@ export default async function RootLayout({
         <TooltipProvider>
           <Toaster position="bottom-right" closeButton />
           <nav className="border-b border-border bg-background">
-            <div className="mx-auto flex max-w-2xl items-center gap-4 px-4 py-3 sm:gap-6">
-              <Link
-                href="/daily"
-                className="text-sm font-semibold text-foreground hover:text-primary transition-colors duration-[var(--duration-fast)]"
-              >
-                Daily
-              </Link>
-              <Link
-                href="/notebook"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
-              >
-                Notebook
-                {recentNotebookCount > 0 && (
-                  <span className="ml-1 text-xs text-muted-foreground/70">
-                    ({recentNotebookCount})
-                  </span>
-                )}
-              </Link>
-              <Link
-                href="/skill-tree"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
-              >
-                Skill Tree
-              </Link>
-              <Link
-                href="/profile"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
-              >
-                Profile
-              </Link>
+            <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-4 sm:gap-6">
+                <Link
+                  href="/daily"
+                  className="text-sm font-semibold text-foreground hover:text-primary transition-colors duration-[var(--duration-fast)]"
+                >
+                  Daily
+                </Link>
+                <Link
+                  href="/notebook"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+                >
+                  Notebook
+                  {recentNotebookCount > 0 && (
+                    <span className="ml-1 text-xs text-muted-foreground/70">
+                      ({recentNotebookCount})
+                    </span>
+                  )}
+                </Link>
+                <Link
+                  href="/skill-tree"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+                >
+                  Skill Tree
+                </Link>
+                <Link
+                  href="/profile"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-[var(--duration-fast)]"
+                >
+                  Profile
+                </Link>
+              </div>
+              <FeedbackDialog />
             </div>
           </nav>
           {children}

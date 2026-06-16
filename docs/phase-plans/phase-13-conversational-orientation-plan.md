@@ -1,10 +1,10 @@
 # Phase 13 — Conversational orientation
 
-> **Status: planned, not started. Build after Phase 12.** Design and rationale in
+> **Status: Step 1 done (2026-06-16).** Design and rationale in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
 > **Part B** — read it first. The design doc's decisions are **resolved** (see its
-> "Resolved decisions" section: path persistence on `user_interests`, soft prereq
-> emphasis, the form-mode fallback, the §3.4 edit) — build to them.
+> "Resolved decisions" section: path persistence on `user_interests` as `path_json`
+> JSONB, soft prereq emphasis, the form-mode fallback, the §3.4 edit) — build to them.
 
 ## Theme
 
@@ -31,17 +31,23 @@ flow is the same core in a lighter envelope.
 
 ## Steps
 
-### Step 1 — The §3.4 amendment
-Write the entry-point amendment (entry-point keyed on
-*new-to-the-user*, overridable by a go-deep signal; §B3) into
-`survey-and-difficulty-design.md`, reconciled with §3.1/§3.5, so generation code
-can rely on the altitude signal. Small; unblocks the rest.
+### Step 1 — The §3.4 amendment ✅ done (2026-06-16)
+Three-lane entry-point written into `survey-and-difficulty-design.md` §3.4
+(Lane 1 default / Lane 2 coming-back / Lane 3 go-deep), §3.1 consolidate updated
+(two entry paths: engagement comfort OR go-deep intake signal), §3.5 difficulty
+default updated (go-deep → one step above moderate). Behavior is inert until
+Phase 13 Steps 3/4 collect the altitude signal.
 
 ### Step 2 — Rich paths (§B2)
 Extend the path object (`what_you_learn`, `endpoint`, `math_intensity`/`mode_lean`,
 `leans_on_prereq_slugs`); generate them; wire path → `intent_context` + altitude +
 mode lean. Keep prereqs node-level but **path-aware** (no path-nodes — graph-design
 §2.2). Surfaces in both the tutor and the curiosity box (shared core).
+
+**Schema:** add `path_json JSONB` to `user_interests` (confirmed pre-code decision).
+Shape: `{"label": "...", "endpoint": "...", "math_intensity": "...",
+"mode_lean": "problems|papers|balanced", "leans_on": ["calculus", ...]}`.
+Steps 2 and 3 are sequentially dependent — path sets altitude, so Step 2 must land first.
 
 ### Step 3 — Altitude + node-level calibration (§B1, §B3)
 Per-interest altitude (new / coming-back / go-deep) feeding intent + entry-point +
@@ -50,18 +56,47 @@ readiness pass (solid / rusty / new) over the prereqs the interests lean on,
 including topical prereqs (SR/GR). Subtopic detail keeps accruing from engagement +
 the node panel.
 
-### Step 4 — The orientation tutor (§B4)
-The conversational onboarding: orchestrator with A/B/C/D **signal tracking**,
-**tap-to-answer chips**, a growing **"what I've got so far" map** (also the s17
-mirror-back and s11 progress), an explicit **"build my queue,"** the structured
-**fallback form**, and **resumability**. The **system prompt is a first-class
-deliverable** — budget real iteration.
+### Step 4 — The orientation tutor (§B4) — split into three sub-sessions
+
+**Step 4a — Orchestrator + signal state + resumability (Python + DB)**
+New `POST /orientation-tutor` route. Signal state model (A/B/C/D tracking struct)
+persisted as JSONB on `surveys` or a new `orientation_sessions` table. Resumability:
+persist transcript + extracted-signals-so-far. Form-mode flag: orchestrator accepts
+`mode: "chat" | "form"`; in form mode it returns a structured gaps payload (chips +
+fields) instead of chat turns. The seven-stage survey stays live until 4c ships.
+
+**Step 4b — The system prompt (first-class deliverable, own iteration cycle)**
+Draft → walk against all three persona inputs → tune → walk again. Must: elicit
+four signals, present paths with honest detail, read clear-vs-ambiguous intent and
+branch commit-vs-explore, stay peer-to-peer (never quiz-like), know when it has
+enough. Budget at minimum one full session here, not a sub-bullet of 4a.
+
+**Step 4c — Chat UI + chips + growing map + "Build my queue" + form-mode toggle**
+`/survey` page replaced with the tutor UI. Tap-to-answer chips for paths, altitude
+(new / coming-back / go-deep), solid/rusty/new. Growing "what I've got so far" map
+(interests added, paths chosen, foundations calibrated). "Show me the questions"
+toggle → form mode. Explicit "I'm happy — build my queue" CTA.
+
+**Fallback form (resolved decision 3):** same orchestrator, `mode="form"` — renders
+A/B/C/D gaps as structured fields + chips. NOT the retired seven-stage. The seven-
+stage is deleted when 4c ships.
 
 ### Step 5 — The daily add-interest reshape (§B5)
 Fold the shared core into the curiosity box's commit path: core × 1, no foundation
 sweep (read existing engagement state), no mode question, no wrapper; preserve
-"just this once." Drop the subtopic drill here too. Re-point `RequestBox` /
-`NodePanel` off the old `ConceptTour`. Guardrail: keep daily-add light.
+"just this once." Drop the subtopic drill here too. Guardrail: keep daily-add light.
+
+**Concrete seam (Phase 12 built):** "Add it properly →" in `RequestBox.tsx:387`
+calls `handleTopicNewAddIt` → re-parses via `/api/add-interest/parse` → opens
+`web/components/addInterest/DialogModal`. Step 5 replaces or reshapes `DialogModal`
+with the new shared-core component (path-pick if ambiguous → preview → go; no
+foundation sweep / mode question / wrapper). Re-point `NodePanel` and the survey
+page off the old `ConceptTour` at the same time.
+
+**`topic_new_stub` upgrade:** `_resolve_and_queue_one_off` in
+`api/routes/curiosity_box.py:243` already has the Phase 13 §B5 upgrade note.
+For novel topics, replace the stub nudge with a find-or-create call into the
+existing add-interest parse/resolve path.
 
 ### Step 6 — Doc reconciliation
 Fold the redesign into the canonical specs (`survey-and-difficulty-design.md` §1/

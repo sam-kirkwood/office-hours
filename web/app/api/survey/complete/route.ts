@@ -38,7 +38,7 @@ export async function POST() {
       .maybeSingle();
     const modeBalance = survey?.mode_balance ?? 0.5;
     if (modeBalance >= PAPER_SEED_MIN_BALANCE) {
-      proposePapers({ userId: user.id }).catch((err) =>
+      proposePapers({ userId: user.id, modeBalance }).catch((err) =>
         console.error("proposePapers failed:", err),
       );
     }

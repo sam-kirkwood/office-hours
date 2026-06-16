@@ -992,6 +992,11 @@ def _subtopic_tokens(text: str) -> set[str]:
     return out
 
 
+# Public alias so the curiosity-box node resolver can reuse the same
+# overloaded-prefix guard without reaching into private symbols.
+topic_match_tokens = _subtopic_tokens
+
+
 def find_foundation_owning_subtopic(
     supabase: Client, *, subtopic_slug: str
 ) -> dict | None:

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from routes.add_interest import router as add_interest_router
+from routes.curiosity_box import router as curiosity_box_router
 from routes.concept_review import router as concept_review_router
 from routes.curator import router as curator_router
 from routes.generate_concept_brief import router as generate_concept_brief_router
@@ -30,6 +31,7 @@ app.include_router(generate_edge_description_router)
 app.include_router(generate_problem_router)
 app.include_router(generate_sibling_router)
 app.include_router(add_interest_router)
+app.include_router(curiosity_box_router)
 app.include_router(compute_cross_pollination_router)
 app.include_router(concept_review_router)
 app.include_router(curator_router)

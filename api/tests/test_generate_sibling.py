@@ -360,3 +360,41 @@ def test_missing_queue_item_returns_404(client: TestClient, fakes) -> None:
         headers=AUTH_HEADERS,
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# §A6 — Sibling queue_item is pinned
+# ---------------------------------------------------------------------------
+
+
+def test_sibling_queue_item_is_pinned(client: TestClient, fakes) -> None:
+    """The queue_item inserted for a sibling must have pinned=True so that it
+    survives rerolls and surfaces with the 'Requested' badge (§A6)."""
+    supabase, _ = fakes
+    user_id = str(uuid4())
+    node_id = str(uuid4())
+    problem_id = str(uuid4())
+    sibling_problem_id = str(uuid4())
+    queue_item_id = str(uuid4())
+    new_queue_item_id = str(uuid4())
+
+    _prime_queue_item(supabase, queue_item_id=queue_item_id, problem_id=problem_id)
+    _prime_problem(
+        supabase, problem_id=problem_id, node_id=node_id, difficulty=3,
+        pool_hit_id=sibling_problem_id,
+    )
+    _prime_node(supabase, node_id=node_id)
+    _prime_user_context(supabase)
+    supabase.respond("queue_items", "update", lambda _call: [])
+    supabase.respond("queue_items", "insert", lambda _call: [{"id": new_queue_item_id}])
+
+    resp = client.post(
+        "/generate-sibling",
+        json={"user_id": user_id, "queue_item_id": queue_item_id, "kind": "harder"},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    insert_calls = [c for c in supabase.calls if c.table == "queue_items" and c.op == "insert"]
+    assert len(insert_calls) == 1
+    assert insert_calls[0].payload.get("pinned") is True

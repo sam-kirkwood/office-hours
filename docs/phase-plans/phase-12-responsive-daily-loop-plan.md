@@ -1,6 +1,6 @@
 # Phase 12 — The responsive daily loop
 
-> **Status: in progress — Steps 1–3 done (2026-06-13), Steps 4–5 pending.**
+> **Status: complete — Steps 1–3 done (2026-06-13), fb1 (Step 4a) done (2026-06-14), §A6 pinned/badged + §A5 steering chips done (Step 4b, 2026-06-14), Step 4c-i classifier + routes done incl. token-guard + inline pool-miss generation (2026-06-15); Step 4c-ii topic-new explore/commit done (2026-06-15); Step 4 complete; Step 5 (carry-in housekeeping) done (2026-06-16). Phase 12 complete.**
 > Opened from the design-review round (2026-06-08/09) that followed the Phase
 > 10.5-rev operator walkthrough. The design and rationale live in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
@@ -91,10 +91,15 @@ plugs in — build Step 4 so that seam is clean.
   churn.
 - ✅ A user can make a surfaced problem easier/harder/assume-less and gets a sibling,
   with the original superseded-not-destroyed.
-- The curiosity box routes the realistic input shapes correctly and redirects
-  mood/feedback to their own surfaces; requested items are unmistakable and never
-  require a reroll to find.
-- Tests green; the daily loop walks clean on a fresh reset user.
-- The orientation doc's Part A items are checked off and folded toward the
-  canonical specs (defer the full fold-back to the §-reconciliation step if it
-  reads better after Phase 13).
+- ✅ Requested items (siblings) are pinned + badged "Requested"; they surface
+  immediately, survive rerolls, and override the variety constraint (§A6).
+- ✅ Steering chips (Shorter · More papers · Something different · Less [topic])
+  re-pick from the pending queue under a constraint; pool-thin honesty fires when
+  reshuffling drains the pool; pinned items survive steering too (§A5).
+- ✅ The curiosity box classifies + routes the realistic input shapes (drill /
+  question / mood / feedback / paper / probe / low-confidence-clarify) and
+  redirects mood→steering, feedback→fb1 (Step 4c-i). The topic-new explore/commit
+  path is Step 4c-ii (pending).
+- ✅ Tests green (241/241); the daily loop walks clean on a fresh reset user.
+- The orientation doc's Part A items are checked off; fold-back to canonical
+  specs deferred to Phase 13's §-reconciliation step (per the "Done when" note).

@@ -116,10 +116,15 @@ interface SurfacedItemRaw {
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
   via_refresher?: boolean;
+  pinned?: boolean;
 }
 
 interface SurfaceDailyArgs {
   userId: string;
+  // §A5 steering hint — re-picks from the pending pool under a constraint.
+  steer?: "shorter" | "more_papers" | "different" | "less_topic";
+  steerExcludedRefIds?: string[];  // for "different"
+  steerTopicNodeId?: string;       // for "less_topic"
 }
 
 interface SurfaceDailyResponse {
@@ -258,6 +263,9 @@ export async function surfaceDaily(
 ): Promise<SurfaceDailyResponse> {
   const res = await pythonPost<SurfaceDailyResponse>("/surface-daily", {
     user_id: args.userId,
+    ...(args.steer && { steer: args.steer }),
+    ...(args.steerExcludedRefIds && { steer_excluded_ref_ids: args.steerExcludedRefIds }),
+    ...(args.steerTopicNodeId && { steer_topic_node_id: args.steerTopicNodeId }),
   });
   maybeRefillQueue(args.userId, res.pending_remaining ?? 0);
   return res;
@@ -380,6 +388,7 @@ export async function generateEdgeDescription(
 
 interface ProposePapersArgs {
   userId: string;
+  modeBalance?: number;
 }
 
 interface ProposePapersResponse {
@@ -391,7 +400,10 @@ interface ProposePapersResponse {
 export async function proposePapers(
   args: ProposePapersArgs,
 ): Promise<ProposePapersResponse> {
-  return pythonPost("/propose-papers", { user_id: args.userId });
+  return pythonPost("/propose-papers", {
+    user_id: args.userId,
+    mode_balance: args.modeBalance ?? 0.5,
+  });
 }
 
 interface GenerateCurationReportResponse {
@@ -498,5 +510,44 @@ export async function generateSibling(
     user_id: args.userId,
     queue_item_id: args.queueItemId,
     kind: args.kind,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /curiosity-box (Phase 12 Step 4c — §A4 classifier + routes)
+
+interface CuriosityBoxArgs {
+  userId: string;
+  rawText: string;
+}
+
+export type CuriosityBoxAction =
+  | "redirect_steer"
+  | "redirect_feedback"
+  | "graceful"
+  | "topic_new_stub"
+  | "topic_new_explored"
+  | "answer"
+  | "ingest_paper"
+  | "queued_pinned"
+  | "clarify";
+
+export interface CuriosityBoxResponse {
+  action: CuriosityBoxAction;
+  message_md: string;
+  answer_md?: string | null;
+  followon_topic_hint?: string | null;
+  queue_item_id?: string | null;
+  paper_ref?: string | null;
+  topic_hint?: string | null;
+  clarification_md?: string | null;
+}
+
+export async function handleCuriosityBox(
+  args: CuriosityBoxArgs,
+): Promise<CuriosityBoxResponse> {
+  return pythonPost("/curiosity-box", {
+    user_id: args.userId,
+    raw_text: args.rawText,
   });
 }

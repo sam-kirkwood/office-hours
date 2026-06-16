@@ -1,14 +1,43 @@
+// POST /api/queue/steer — directed reroll with a selection constraint (§A5).
+//
+// Accepts a steering hint and re-picks from the pending queue without
+// generating new content. The same pass-over recording as a plain reroll
+// ensures the curator can read the steering pattern.
+//
+// Body: { hint: "shorter" | "more_papers" | "different" | "less_topic",
+//         topic_node_id?: string }
+//   - topic_node_id: required for "less_topic" — the node whose problems to
+//     deprioritize. Derived by the client from item.topics + item.ref_id.
+//
+// Pinned items (§A6) survive the steer the same way they survive a plain
+// reroll: they are not reset to pending and not recorded as passed-over.
+
 import { createClient } from "@/lib/supabase/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { surfaceDaily, maybeRefillQueue } from "@/lib/pythonApi";
 import { toItem, resolveTitles } from "@/lib/queueHelpers";
 
-export async function POST() {
+type SteerHint = "shorter" | "more_papers" | "different" | "less_topic";
+
+const VALID_HINTS = new Set<SteerHint>([
+  "shorter",
+  "more_papers",
+  "different",
+  "less_topic",
+]);
+
+export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = (await req.json()) as { hint?: string; topic_node_id?: string };
+  const hint = body.hint as SteerHint | undefined;
+  if (!hint || !VALID_HINTS.has(hint)) {
+    return NextResponse.json({ error: "Invalid steer hint" }, { status: 400 });
+  }
 
   try {
     // 1. Find the current open pick.
@@ -19,16 +48,16 @@ export async function POST() {
       .is("replaced_at", null)
       .maybeSingle();
 
+    const nonPinnedShownRefIds: string[] = [];
+
     if (currentPick) {
       const ids = (currentPick.queue_item_ids ?? []) as string[];
 
       if (ids.length > 0) {
-        // Load the items to discover which are pinned. Pinned items (§A6)
-        // survive the reroll — they are NOT reset to pending and are NOT
-        // recorded as passed-over. Only non-pinned items cycle.
+        // Discover pinned vs non-pinned items in the current pick.
         const { data: itemRows } = await supabase
           .from("queue_items")
-          .select("id, pinned")
+          .select("id, ref_id, pinned")
           .in("id", ids);
 
         const pinnedIds = new Set(
@@ -36,8 +65,12 @@ export async function POST() {
         );
         const nonPinnedIds = ids.filter((id) => !pinnedIds.has(id));
 
-        // Reset only non-pinned surfaced items to pending so surface-daily can
-        // pick them up again. Items already done/dismissed/skipped are left.
+        // Collect ref_ids of non-pinned items for the "different" constraint.
+        for (const row of itemRows ?? []) {
+          if (!row.pinned && row.ref_id) nonPinnedShownRefIds.push(row.ref_id as string);
+        }
+
+        // Reset non-pinned surfaced items to pending.
         if (nonPinnedIds.length > 0) {
           await supabase
             .from("queue_items")
@@ -52,9 +85,8 @@ export async function POST() {
           .update({ replaced_at: replacedAt })
           .eq("id", currentPick.id);
 
-        // Reroll signal capture (Phase 10-rev §3e). Write pass-over rows only
-        // for non-pinned items — pinned items aren't being passed over, they're
-        // staying. Per-item rows so the count is by node on the next /plan-queue.
+        // Record pass-over rows for non-pinned items (curator reads steering
+        // pattern the same way it reads plain rerolls).
         if (nonPinnedIds.length > 0) {
           const passOverRows = nonPinnedIds.map((id) => ({
             user_id: user.id,
@@ -68,9 +100,21 @@ export async function POST() {
       }
     }
 
-    // 2. Create a new pick. surface_daily will automatically pre-include any
-    //    pinned surfaced items via _load_pinned_surfaced (§A6).
-    const result = await surfaceDaily({ userId: user.id });
+    // 2. Call surface_daily with the steering constraint. Pinned items are
+    //    automatically re-included by _load_pinned_surfaced in Python.
+    const result = await surfaceDaily({
+      userId: user.id,
+      steer: hint,
+      // "different" passes the ref_ids of what was just shown so they're excluded.
+      ...(hint === "different" && nonPinnedShownRefIds.length > 0
+        ? { steerExcludedRefIds: nonPinnedShownRefIds }
+        : {}),
+      // "less_topic" passes the topic node id to filter.
+      ...(hint === "less_topic" && body.topic_node_id
+        ? { steerTopicNodeId: body.topic_node_id }
+        : {}),
+    });
+
     const items = await resolveTitles(result.items.map(toItem));
     return NextResponse.json({
       pick_id: result.pick_id,
@@ -79,7 +123,6 @@ export async function POST() {
       pending_remaining: result.pending_remaining ?? 0,
     });
   } catch (err) {
-    // 404 from Python means no pending items left after reroll.
     if (err instanceof Error && err.message.includes("404")) {
       maybeRefillQueue(user.id, 0);
       return NextResponse.json({ pick_id: null, items: [], more_coming: true, pending_remaining: 0 });

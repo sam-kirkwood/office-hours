@@ -56,26 +56,57 @@ function KindBadge({ kind, viaRefresher }: { kind: string; viaRefresher?: boolea
 }
 
 // ---------------------------------------------------------------------------
+// Steering chip helpers (§A5)
+// ---------------------------------------------------------------------------
+
+// Derive the first identifiable topic + node_id from the current surfaced items
+// for the "Less [topic]" chip. Returns null when no item has resolved topics.
+function deriveActiveTopic(
+  items: SurfacedQueueItem[],
+): { title: string; nodeId: string | null } | null {
+  // Only use topics from non-pinned items (don't steer away from what the user
+  // explicitly requested).
+  for (const item of items) {
+    if (item.pinned) continue;
+    if (item.topics && item.topics.length > 0) {
+      // The ref_id for concept_review / suggested_interest IS the node id; for
+      // problems the topic is a node id in topics[] which we don't have directly
+      // here. Pass ref_id as a best-effort node id for less_topic.
+      return { title: item.topics[0], nodeId: item.ref_id ?? null };
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
+
+interface SteerResult extends QueueResult {
+  pending_remaining?: number;
+}
 
 interface Props {
   initialResult: QueueResult;
 }
 
 export default function DailyView({ initialResult }: Props) {
-  const [result, setResult] = useState<QueueResult>(initialResult);
+  const [result, setResult] = useState<SteerResult>(initialResult);
   const [rerolling, setRerolling] = useState(false);
+  const [steering, setSteering] = useState<string | null>(null);
   const [rerollError, setRerollError] = useState<string | null>(null);
+  // Track how many times the user has rerolled or steered to detect a thin pool.
+  const [reshuffleCount, setReshuffleCount] = useState(0);
 
   async function handleReroll() {
     setRerolling(true);
     setRerollError(null);
     try {
       const res = await fetch("/api/queue/reroll", { method: "POST" });
-      const data = (await res.json()) as QueueResult & { error?: string };
+      const data = (await res.json()) as SteerResult & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Reroll failed");
       setResult(data);
+      setReshuffleCount((c) => c + 1);
     } catch (err) {
       setRerollError(err instanceof Error ? err.message : "Reroll failed");
     } finally {
@@ -83,8 +114,51 @@ export default function DailyView({ initialResult }: Props) {
     }
   }
 
+  async function handleSteer(hint: string, topicNodeId?: string) {
+    setSteering(hint);
+    setRerollError(null);
+    try {
+      const body: Record<string, string> = { hint };
+      if (topicNodeId) body.topic_node_id = topicNodeId;
+      const res = await fetch("/api/queue/steer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as SteerResult & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Steer failed");
+      setResult(data);
+      setReshuffleCount((c) => c + 1);
+    } catch (err) {
+      setRerollError(err instanceof Error ? err.message : "Steer failed");
+    } finally {
+      setSteering(null);
+    }
+  }
+
   const { items, more_coming } = result;
   const hasItems = items.length > 0;
+  const busy = rerolling || !!steering;
+
+  // Pool-thin honesty: if the user has reshuffled at least once and the pending
+  // pool is now empty, the "more coming" state is actually "thin barrel."
+  const poolThin =
+    reshuffleCount > 0 &&
+    (result.pending_remaining ?? 1) === 0 &&
+    items.length > 0;
+
+  // §A5: Steering chips. Derive the active topic for "Less [topic]".
+  const activeTopic = hasItems ? deriveActiveTopic(items) : null;
+
+  type SteerChip = { label: string; hint: string; topicNodeId?: string };
+  const steerChips: SteerChip[] = [
+    { label: "Shorter", hint: "shorter" },
+    { label: "More papers", hint: "more_papers" },
+    { label: "Something different", hint: "different" },
+    ...(activeTopic
+      ? [{ label: `Less ${activeTopic.title}`, hint: "less_topic", topicNodeId: activeTopic.nodeId ?? undefined }]
+      : []),
+  ];
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-12">
@@ -93,12 +167,29 @@ export default function DailyView({ initialResult }: Props) {
         <button
           type="button"
           onClick={handleReroll}
-          disabled={rerolling}
+          disabled={busy}
           className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline transition-colors duration-[var(--duration-fast)] disabled:opacity-40"
         >
           {rerolling ? "Finding alternatives…" : "Show me something else"}
         </button>
       </div>
+
+      {/* §A5: Steering chips — shown when there are items to steer around */}
+      {hasItems && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {steerChips.map((chip) => (
+            <button
+              key={chip.hint}
+              type="button"
+              onClick={() => handleSteer(chip.hint, chip.topicNodeId)}
+              disabled={busy}
+              className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors duration-[var(--duration-fast)] hover:border-foreground/30 hover:text-foreground disabled:opacity-40"
+            >
+              {steering === chip.hint ? "…" : chip.hint === "different" ? chip.label : chip.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <p className="mb-8 font-serif text-sm leading-relaxed text-muted-foreground">
         A small, curated set chosen for you — it refreshes itself as you work, so
@@ -117,7 +208,12 @@ export default function DailyView({ initialResult }: Props) {
           {items.map((item) => (
             <QueueCard key={item.queue_item_id} item={item} />
           ))}
-          {more_coming && <MoreComingCard />}
+          {/* §A5 pool-thin honesty vs normal "more coming" */}
+          {poolThin ? (
+            <PoolThinCard />
+          ) : more_coming ? (
+            <MoreComingCard />
+          ) : null}
         </div>
       )}
 
@@ -234,6 +330,12 @@ function QueueCard({ item }: { item: SurfacedQueueItem }) {
   return (
     <div className="rounded-md border border-border bg-card px-5 py-5">
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        {/* §A6: "Requested" badge comes first for pinned items. */}
+        {item.pinned && (
+          <Badge variant="outline" className="border-[var(--amber)]/60 text-[var(--amber)]">
+            Requested
+          </Badge>
+        )}
         <KindBadge kind={item.kind} viaRefresher={item.via_refresher} />
         {/* d22: the topic(s) this item is drawn from. Any that just repeat the
             card title are dropped (e.g. concept reviews, where title == node). */}
@@ -316,6 +418,15 @@ function MoreComingCard() {
   return (
     <div className="rounded-md border border-dashed border-border px-5 py-4 text-center text-sm text-muted-foreground">
       More to come — give it a moment.
+    </div>
+  );
+}
+
+function PoolThinCard() {
+  return (
+    <div className="rounded-md border border-dashed border-border px-5 py-4 text-center text-sm text-muted-foreground">
+      That&apos;s about all that&apos;s queued right now. Give it a moment, or ask for
+      something specific below.
     </div>
   );
 }

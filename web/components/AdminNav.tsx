@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/admin/megagraph", label: "Megagraph" },
   { href: "/admin/costs", label: "Costs" },
   { href: "/admin/users", label: "Users" },
+  { href: "/admin/feedback", label: "Feedback" },
 ];
 
 interface Props {

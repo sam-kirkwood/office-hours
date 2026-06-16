@@ -169,6 +169,9 @@ export interface SurfacedQueueItem {
   // concept_review / suggested_interest → the node itself; paper_engagement →
   // papers.topic_node_ids. Empty when none resolve.
   topics?: string[];
+  // True for user-requested items (siblings, curiosity-box requests). Shown
+  // with a "Requested" badge; survives rerolls until engaged or dismissed (§A6).
+  pinned?: boolean;
 }
 
 export interface QueueResult {

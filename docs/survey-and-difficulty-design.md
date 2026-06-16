@@ -388,30 +388,55 @@ For each interest added, a `user_interests` row is created or updated:
 
 ---
 
-### 2.7 The "Curious about something specific?" input box
+### 2.7 The curiosity box — a universal intent router
+
+> **Built (Phase 12 Steps 4c-i + 4c-ii, 2026-06-14/15).** The box classifies and
+> routes. `topic_new` now honours explore-by-default (§A4): the default path queues
+> one pinned item against the nearest existing node with no `user_interests` write
+> (`action="topic_new_explored"`); "Add it properly →" in the card is the opt-in
+> commit (existing DialogModal flow). Novel topics with no node fall through to
+> `topic_new_stub` nudging to commit. Phase 13 §B5 upgrades the one-off resolution
+> to find-or-create. Implementation: `POST /curiosity-box` + `/api/curiosity-box` +
+> `RequestBox.tsx`.
 
 A persistent text input on the daily tab, below the three content cards.
 - Placeholder: *"Curious about something specific?"*
 - Always visible, not prominent
 
-This input handles three cases:
+Realistic input is short, lazy, and rarely a clean interest statement — bare
+nouns, questions, drills, moods, follow-ups, feedback, paper links, and
+week-one probes. The box's job is **classify-and-route, defaulting to the
+lightest sufficient response, escalating to commitment only on explicit signal.**
 
-#### Case 1 — New topic
+A Haiku classifier tags the raw text into one of 9 kinds:
 
-The user requests something not currently in their interests. System surfaces a branch:
+| Kind | Example inputs | Response |
+|---|---|---|
+| **question** | "why is the sky blue?", "what is entropy?" | Brief 2–3 paragraph answer; offer "give me a problem on this" |
+| **drill** | "more integration by parts", "IBP practice" | Pool-lookup a problem on that subtopic → queue it **pinned+badged** (§A6). Generate inline on pool miss (Sonnet; same call as `/generate-problem`; skips hook-match). |
+| **existing_interest** | "more GR", "another thermo problem" | Same pool-lookup → pinned+badged |
+| **follow_up** | "finite well now", "follow that up" | Same pool-lookup → pinned+badged |
+| **mood** | "something shorter", "less maths today" | **Redirect** → steering chips (§A5); not silently executed |
+| **feedback** | "that problem was wrong", "too hard" | **Redirect** → FeedbackDialog (fb1), pre-filled |
+| **paper** | `arxiv.org/abs/…`, `10.1038/…` | Extract ref → route through existing paper-ingestion flow |
+| **probe** | "are you smart?", "write a poem" | Warm in-character reply; no machinery |
+| **topic_new** | "I want to learn topology" | Explore by default (§A4): if a node exists → queue one pinned problem, no `user_interests` write (`topic_new_explored`). Result card offers "Add it properly →" as opt-in commit (opens add-interest dialog). Novel topics (no node) → `topic_new_stub`, nudge to commit. Phase 13 §B5 upgrades one-off to find-or-create. |
 
-> *"[Topic] isn't in your interests yet — want to add it, or just get one item for now?"*
+**Low confidence** (ambiguous between two kinds) → return a clarifying question;
+never guess and silently execute the wrong action.
 
-- **"Add it"** → full add-interest flow (dialog + concept tour), presented as a panel/modal.
-- **"Just this once"** → queues a single entry-point item on the topic without adding a permanent interest. No dialog, no concept tour.
+Governing principles:
+- **Explore by default; don't clutter the graph.** Drill/follow-up requests
+  queue a single pooled problem; no node is created. Only the explicit "Add it"
+  path on topic_new ever commits a new interest.
+- **Redirect, don't absorb.** Mood and feedback have their own legible surfaces
+  (steering chips, FeedbackDialog). The box hands off with a note — the user
+  always sees where it goes.
+- **Pinned+badged for explicit requests.** Anything queued by the curiosity
+  box is pinned (§A6) so it surfaces immediately and survives rerolls.
 
-#### Case 2 — Existing topic, one-off
-
-The user requests something on a topic already in their interests. System queues the item directly. No dialog triggered.
-
-#### Case 3 — Concept or subtopic request
-
-The user asks about something at the sub-node level (e.g. "I've forgotten what power means in physics"). System detects this is a concept-level request, not a new interest. Response: a brief orienting explanation and one focused problem. No new node created. No add-interest flow triggered. Queries the problem pool first (subtopic tag match) before generating new content.
+The paper and refresher **kind-hint chips** in the UI bypass the classifier
+entirely — they go directly to the existing queue-request flow unchanged.
 
 ---
 
@@ -425,7 +450,7 @@ Every problem has three independent properties. They are not facets of one thing
 
 How hard the actual reasoning is, once the user has the concepts the problem relies on. Ranges from accessible to demanding.
 
-**Default:** moderate — real intellectual engagement, but tractable for someone who has been given the relevant concepts.
+**Default:** moderate — real intellectual engagement, but tractable for someone who has been given the relevant concepts. When go-deep intent is signalled at intake (altitude B — §3.4), the initial target difficulty is one step above moderate; it is refined by engagement as usual.
 
 **User control:** per-problem easier/harder request. Generates a sibling problem at a different difficulty level. The original problem stays in the pool.
 
@@ -451,7 +476,7 @@ What the problem is trying to do. Three valid values:
 
 **Refresh** — the user half-remembers this. The problem recalls the idea and re-establishes intuition. Does not demand a cold-start derivation. Assumes the user has some residual context.
 
-**Consolidate** — the user has marked this topic as comfortable. The problem confirms it is still solid. Assumes the topic's concepts. Surfaces infrequently (spaced practice). This is the only intent mode where the problem can assume the full topic apparatus — it is appropriate because the user has explicitly stated comfort, not because the system decided to test them.
+**Consolidate** — the user has marked this topic as comfortable, or has explicitly signalled go-deep intent at intake (altitude B — see §3.4). The problem confirms mastery is solid. Assumes the topic's concepts. Surfaces infrequently (spaced practice). This is the only intent mode where the problem can assume the full topic apparatus — it is appropriate because the user has explicitly stated comfort or go-deep intent, not because the system decided to test them.
 
 **What intent is almost never right:** pure test mode — demanding mastery the user never claimed to have, referencing apparatus that has not been built up, making the user feel inadequate.
 
@@ -479,11 +504,19 @@ What the problem is trying to do. Three valid values:
 
 ### 3.4 Entry-point default
 
-Every new interest enters at its conceptual entrance. The first problem on a new interest answers something like *"what is this thing and why does it behave this way?"* before asking the user to calculate or derive.
+> **Amended (2026-06-16, Phase 13 Step 1).** The prior version keyed the entry-point on *new node* and applied it "regardless of background." The amendment keys it on *new-to-the-user*, with the go-deep altitude signal (B) as an explicit override. Rationale in `docs/orientation-and-calibration-design.md` §B3. **The behavior described below lands when altitude signal B is collected (Phase 13 Steps 3/4)**; until then, no altitude signal is present and Lane 1 applies to all new interests.
 
-The entry-point default applies regardless of the user's stated background. A physicist with a PhD who adds "superconductors" as a new interest still gets a conceptual entry-point problem first — the background affects how fast to progress past it, not whether to start there.
+Entry-point is keyed on **new-to-the-user**, with the altitude signal (B) from onboarding or daily-add as the explicit override. Three lanes:
 
-**What the entry-point problem is not:** it is not a beginner's explainer or a simplified toy version. It is the conceptual entrance to the topic — the question that establishes what the thing is and why it matters, before the apparatus is built.
+**Lane 1 — New to me (default).** Teach intent, conceptual entrance, assume little. Covers: any new interest with no altitude signal; explicit "new to me" at intake; and all cold-start cases. The first problem on a new interest answers something like *"what is this thing and why does it behave this way?"* before asking the user to calculate or derive.
+
+**Lane 2 — Coming back.** Refresh intent, light recall entrance, assume residual. Signal: altitude B = "coming back." Still starts at a conceptual entrance, but framed as recall and re-establishment of intuition rather than first-time introduction. Does not demand a cold-start derivation.
+
+**Lane 3 — Go deep (explicit override).** Consolidate intent; skip the entrance; assume the full topic apparatus; difficulty pitched above moderate. Signal: altitude B = "I know this — go deep." A physicist adding superconductors as a topic they already understand well enters here. The first problem assumes the apparatus; it is the kind of problem that only makes sense to someone who already has it.
+
+The default is **Lane 1**. Only an explicit go-deep altitude signal overrides it. The no-signal case stays Lane 1 — a new node with no altitude signal is treated as new-to-the-user, not as a known topic.
+
+**What Lane 1 is not:** it is not a beginner's explainer or a simplified toy version. It is the conceptual entrance to the topic — the question that establishes what the thing is and why it matters, before the apparatus is built. Background affects how fast to progress past it, not whether to start there.
 
 ---
 

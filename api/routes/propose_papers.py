@@ -73,6 +73,52 @@ def propose_papers(
 ) -> ProposePapersResponse:
     user_id = str(body.user_id)
 
+    # 1b. Compute target_count: how many new paper queue items we need.
+    # total target = round(mode_balance × QUEUE_CAP); we top up the difference.
+    # Clamped to [1, 5] so a single call never overwhelms Sonnet or the queue.
+    # NOTE: QUEUE_CAP mirrors curator.py MAX_ON_DECK (both 15). If you change
+    # one, change the other; they define the same contract.
+    QUEUE_CAP = 15
+    pending_papers_resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("kind", "paper_engagement")
+        .in_("state", ["pending", "surfaced", "in_progress"])
+        .execute()
+    )
+    pending_paper_count = len(pending_papers_resp.data or [])
+    paper_target = round(body.mode_balance * QUEUE_CAP)
+    if pending_paper_count >= paper_target:
+        logger.info(
+            "/propose-papers: queue already has %d pending papers (target %d); skipping",
+            pending_paper_count,
+            paper_target,
+        )
+        return ProposePapersResponse(papers_added=0, papers_reused=0, queue_items_added=0)
+
+    # Cap-room check: count ALL non-terminal items (same set the planner uses)
+    # so that a papers-heavy topup after a full planner run can't push the total
+    # above the cap (curriculum-curator-design §11.1).
+    on_deck_resp = (
+        supabase.table("queue_items")
+        .select("id")
+        .eq("user_id", user_id)
+        .in_("state", ["pending", "surfaced", "deferred"])
+        .execute()
+    )
+    total_on_deck = len(on_deck_resp.data or [])
+    cap_room = QUEUE_CAP - total_on_deck
+    if cap_room <= 0:
+        logger.info(
+            "/propose-papers: queue is at cap (%d/%d non-terminal); deferring paper top-up",
+            total_on_deck,
+            QUEUE_CAP,
+        )
+        return ProposePapersResponse(papers_added=0, papers_reused=0, queue_items_added=0)
+
+    target_count = max(1, min(5, paper_target - pending_paper_count, cap_room))
+
     # 2. Load user interests → node titles
     interests_resp = (
         supabase.table("user_interests")
@@ -121,6 +167,7 @@ def propose_papers(
         user_prompt=build_user_prompt(
             interest_titles=interest_titles,
             recent_entry_titles=recent_entry_titles,
+            target_count=target_count,
         ),
         schema=ProposePapersLLMOutput,
         route="/propose-papers",
@@ -129,15 +176,17 @@ def propose_papers(
         request_summary={
             "interest_count": len(interest_titles),
             "recent_entry_count": len(recent_entry_titles),
+            "target_count": target_count,
         },
     )
 
-    # 5. Validate candidate count (3–5); log warning but don't raise 500
+    # 5. Validate candidate count; log warning but don't raise 500
     candidate_count = len(llm_output.candidates)
-    if candidate_count < 3 or candidate_count > 5:
+    if candidate_count < 1 or candidate_count > target_count + 2:
         logger.warning(
-            "/propose-papers returned %d candidates (expected 3–5); continuing with what was returned",
+            "/propose-papers returned %d candidates (target %d); continuing with what was returned",
             candidate_count,
+            target_count,
         )
 
     papers_added = 0

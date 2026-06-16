@@ -226,6 +226,16 @@ class RewriteIntentSummariesResponse(BaseModel):
 
 class SurfaceDailyRequest(BaseModel):
     user_id: UUID
+    # §A5 steering (optional). Applied before _pick_varied as a best-effort
+    # filter; each hint falls back to the full pool if filtering leaves fewer
+    # than 1 item so the user is never left with nothing.
+    #   shorter      — prefer items with time_estimate_minutes_high ≤ 20
+    #   more_papers  — bring paper_engagement items to the front
+    #   different    — exclude ref_ids listed in steer_excluded_ref_ids
+    #   less_topic   — exclude problems from the given topic node
+    steer: Literal["shorter", "more_papers", "different", "less_topic"] | None = None
+    steer_excluded_ref_ids: list[UUID] | None = None  # for "different"
+    steer_topic_node_id: UUID | None = None           # for "less_topic"
 
 
 class SurfacedItem(BaseModel):
@@ -239,6 +249,9 @@ class SurfacedItem(BaseModel):
     # row's own `kind` drives routing/title; this flag drives the "Refresher"
     # badge + revisit copy in the daily queue. See refresher.py.
     via_refresher: bool = False
+    # True for user-requested items (siblings, curiosity-box requests). These
+    # survive rerolls and are shown with a "Requested" badge (§A6).
+    pinned: bool = False
 
 
 class SurfaceDailyResponse(BaseModel):
@@ -248,6 +261,69 @@ class SurfaceDailyResponse(BaseModel):
     # to fire a background refill when stock runs low (curriculum-curator-design
     # §11.4 refill-on-drain).
     pending_remaining: int = 0
+
+
+# ---------------------------------------------------------------------------
+# /curiosity-box (orientation-and-calibration-design.md §A4)
+# ---------------------------------------------------------------------------
+# Single-endpoint classify-and-route. Haiku classifies the raw_text into one
+# of 9 kinds, then the route dispatches to the lightest sufficient response.
+# Low-confidence inputs return a clarifying question instead of guessing.
+
+
+class CuriosityClassification(BaseModel):
+    """Haiku's internal classification output — not exposed to the client."""
+
+    kind: Literal[
+        "question",
+        "drill",
+        "existing_interest",
+        "mood",
+        "follow_up",
+        "paper",
+        "feedback",
+        "probe",
+        "topic_new",
+    ]
+    confidence: Literal["high", "low"]
+    normalized_topic: str | None = None  # for drill/existing_interest/follow_up/topic_new
+    paper_ref: str | None = None         # for paper kind — verbatim from input
+    added_reason: str                    # first-person: "You asked for a problem on X."
+    clarification_md: str                # shown when confidence="low"
+
+
+class BriefAnswer(BaseModel):
+    """Haiku's brief answer for question-kind inputs."""
+
+    answer_md: str          # 2–3 paragraphs of plain markdown prose
+    followon_topic_hint: str  # plain English topic name for the follow-on offer
+
+
+class CuriosityBoxRequest(BaseModel):
+    user_id: UUID
+    raw_text: str
+
+
+class CuriosityBoxResponse(BaseModel):
+    action: Literal[
+        "redirect_steer",
+        "redirect_feedback",
+        "graceful",
+        "topic_new_stub",
+        "topic_new_explored",
+        "answer",
+        "ingest_paper",
+        "queued_pinned",
+        "clarify",
+    ]
+    message_md: str
+    # action-specific optional fields:
+    answer_md: str | None = None              # "answer"
+    followon_topic_hint: str | None = None    # "answer"
+    queue_item_id: UUID | None = None         # "queued_pinned" / "topic_new_explored"
+    paper_ref: str | None = None              # "ingest_paper"
+    topic_hint: str | None = None             # "topic_new_stub" / "topic_new_explored"
+    clarification_md: str | None = None       # "clarify"
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +620,9 @@ class IngestPaperUserResponse(BaseModel):
 
 class ProposePapersRequest(BaseModel):
     user_id: UUID
+    # 0.0 = all problems, 1.0 = all papers. Used to compute the paper target
+    # count proportional to the queue cap (15). Defaults to 0.5 (50/50 mix).
+    mode_balance: float = 0.5
 
 
 class ProposedPaperCandidate(BaseModel):
@@ -568,6 +647,11 @@ class ProposePapersResponse(BaseModel):
     papers_added: int        # count of new papers inserted
     papers_reused: int       # count of proposals that matched existing rows
     queue_items_added: int   # may be < papers_added if engagement already exists
+
+
+class PaperInterestClassification(BaseModel):
+    """Haiku response: which of the user's interest titles does a paper map to."""
+    interest_titles: list[str] = []
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ def build_user_prompt(
     *,
     interest_titles: list[str],
     recent_entry_titles: list[str],
+    target_count: int = 3,
 ) -> str:
     interests_str = (
         ", ".join(interest_titles) if interest_titles else "(no interests recorded)"
@@ -54,6 +55,7 @@ def build_user_prompt(
         else "(no recent engagements)"
     )
     return (
+        f"Propose approximately {target_count} papers.\n\n"
         f"User's current interests: {interests_str}\n\n"
         f"Recent papers and problems they've engaged with: {recent_str}"
     )

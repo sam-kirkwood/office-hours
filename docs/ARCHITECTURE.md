@@ -50,8 +50,10 @@ for deduplication checks, classification, and other cheap routing.
    │      /api/survey
    │      /api/queue (read surfaced items)
    │      /api/queue/reroll
+   │      /api/queue/steer (directed reroll: shorter / more_papers / different / less_topic)
    │      /api/queue/request
    │      /api/queue/bookmark
+   │      /api/queue/dismiss
    │      /api/queue/resume (deferred → pending; manual "queue it now")
    │      /api/interest (add new)
    │      /api/interest/list (the user's interests; notebook tab strip)
@@ -79,13 +81,13 @@ for deduplication checks, classification, and other cheap routing.
    ├── POST /grade-paper-answer
    ├── POST /paper-question
    ├── POST /suggest-papers
-   ├── POST /propose-papers             (Sonnet; expands paper pool on demand, used as fallback by /api/queue/request)
-   ├── POST /ingest-paper-user          (user-supplied arXiv/DOI/title → paper + engagement + queue_item)
+   ├── POST /propose-papers             (Sonnet; expands paper pool; accepts mode_balance to compute target_count proportional to queue cap; guards cap_room so total non-terminal stays ≤ 15; used at cold-start, refill, and as fallback by /api/queue/request)
+   ├── POST /ingest-paper-user          (user-supplied arXiv/DOI/title → paper + engagement + queue_item; Haiku classify step sets papers.topic_node_ids against user's interests)
    ├── POST /surface-daily              (no LLM; deterministic)
    ├── POST /assess-engagement          (Haiku; post-engagement, Phase 10-rev §3a)
    ├── POST /plan-queue                 (Sonnet; daily per active user, Phase 10-rev §3b)
    ├── POST /check-deferred             (no LLM; conditional re-queue, Phase 10-rev §3c)
-   ├── POST /run-daily-planner          (per-user wrapper around /plan-queue + /check-deferred; pg_cron fan-out target, Phase 10-rev §3d)
+   ├── POST /run-daily-planner          (per-user wrapper around /plan-queue + /check-deferred + paper top-up; pg_cron fan-out target, Phase 10-rev §3d; the planner never emits paper recs — paper replenishment runs as a separate best-effort step after the planner)
    ├── POST /concept-review-resolve     (no LLM; pool-hit-or-reading for kind='concept_review' cards, Phase 10-rev §4a; reading miss inlines /generate-concept-brief, §5.5)
    ├── POST /create-refresher           (creation-time resolver — pool lookup at intent='refresh' on the node, generate on miss, concept_review on generation failure; also handles legacy refresher_schedule shape. Writes a directly-routable queue item with via_refresher=true. Replaces the click-time /refresher-resolve, Phase 10.5-rev §2)
    ├── POST /generate-concept-brief     (Haiku; ~250-word concept brief + per-subtopic glosses, cached on node_concept_briefs by node_id, Phase 10-rev §5.5)
@@ -171,10 +173,12 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `id`, `user_id`
   - `kind` (problem / paper_engagement / refresher / concept_review / suggested_interest)
   - `ref_id` (FK to underlying object; type-polymorphic by kind)
-  - `state` (pending / surfaced / in_progress / done / skipped / dismissed / deferred)
+  - `state` (pending / surfaced / in_progress / done / skipped / dismissed / deferred / superseded / bookmarked)
   - `priority_score` (float)
   - `time_estimate_minutes_low`, `time_estimate_minutes_high`
-  - `added_reason` (short text shown as "why this")
+  - `added_reason` (short text shown as "why this"; first-person for requested items)
+  - `pinned` (boolean, default false) — true for user-requested items (siblings, curiosity-box requests). Surfaces before priority ordering; survives rerolls and steering until engaged or dismissed. Phase 12 §A6.
+  - `via_refresher` (boolean, default false) — resolved at creation time; drives "Refresher" badge without changing routing. Phase 10.5-rev §2.
   - `parent_queue_item_id` (nullable; FK to `queue_items.id` ON DELETE SET NULL) — lineage marker set when a `concept_review` or `refresher` is created from inside another surface (e.g. clicking an orienting-concept term while reading a paper). Drives the reading view's back-link. Phase 10-rev §5.5.
   - `added_at`, `updated_at`, `deferred_at`
 - `surfaced_picks` **NEW**
@@ -210,8 +214,9 @@ changes; **DEPRECATED** tables remain present briefly during migration.
   - `topic_node_ids` (uuid[], migration 20250033): the graph node(s) a paper
     is about, so a paper engagement queue card can show its topic (Phase
     10.5-rev Step 3, d22). Populated by `/propose-papers` (the model maps each
-    paper to the user's interest titles → node ids); intrinsic to the subject,
-    so stored per-paper and shared/unioned across users.
+    paper to the user's interest titles → node ids) and by `/ingest-paper-user`
+    (a Haiku classify step at ingest time, Phase 12 Step 5). Intrinsic to the
+    subject, so stored per-paper and unioned across calls/users.
 - `paper_engagements` **NEW** (per-user)
   - `id`, `user_id`, `paper_id`,
   - `why_this_md`,

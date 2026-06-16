@@ -15,7 +15,7 @@ INTERNAL_TOKEN = "test-internal-token"
 AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
 
 
-def _item(kind: str = "problem", priority: float = 1.0) -> dict:
+def _item(kind: str = "problem", priority: float = 1.0, **kwargs) -> dict:
     return {
         "id": str(uuid4()),
         "kind": kind,
@@ -25,6 +25,25 @@ def _item(kind: str = "problem", priority: float = 1.0) -> dict:
         "time_estimate_minutes_low": 10,
         "time_estimate_minutes_high": 20,
         "added_reason": f"You expressed interest in {kind}.",
+        "pinned": False,
+        "via_refresher": False,
+        **kwargs,
+    }
+
+
+def _pinned_surfaced_item(kind: str = "problem") -> dict:
+    """A pinned item that is already state='surfaced' (survived a reroll)."""
+    return {
+        "id": str(uuid4()),
+        "kind": kind,
+        "ref_id": str(uuid4()),
+        "state": "surfaced",
+        "priority_score": 0.85,
+        "time_estimate_minutes_low": 15,
+        "time_estimate_minutes_high": 30,
+        "added_reason": "You asked for a more challenging version of this problem.",
+        "pinned": True,
+        "via_refresher": False,
     }
 
 
@@ -392,6 +411,270 @@ def test_surface_daily_dedups_on_ref_id(client: TestClient, fakes) -> None:
     assert third_ref in ref_ids
 
 
+# ---------------------------------------------------------------------------
+# §A6 — Pinned items survive reroll and claim their slot first
+# ---------------------------------------------------------------------------
+
+
+def _is_pinned_select(call) -> bool:
+    """True if the select is the _load_pinned_surfaced query."""
+    return any(f == ("eq", "state", "surfaced") for f in call.filters) and any(
+        f == ("eq", "pinned", True) for f in call.filters
+    )
+
+
+def _is_pending_select(call) -> bool:
+    """True if the select is the _load_pending query."""
+    return any(f == ("eq", "state", "pending") for f in call.filters)
+
+
+def test_pinned_surfaced_item_included_in_pick(client: TestClient, fakes) -> None:
+    """A pinned item that survived a reroll (state='surfaced', pinned=True)
+    is included in the pick without consuming a pending slot.
+
+    Setup: 1 pinned surfaced item + 3 pending items → the pick should contain
+    all 4 collapsed to MAX_SURFACED=3: the pinned item + 2 new picks.
+    """
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    pinned = _pinned_surfaced_item("problem")
+    p1 = _item("problem", priority=2.0)
+    p2 = _item("paper_engagement", priority=1.5)
+    p3 = _item("concept_review", priority=1.0)
+
+    def queue_items_select(call):
+        if _is_pinned_select(call):
+            return [pinned]
+        if _is_pending_select(call):
+            return [p1, p2, p3]
+        return []
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    ids = [it["queue_item_id"] for it in body["items"]]
+    # Pinned item must be in the result.
+    assert pinned["id"] in ids
+    # Total picks capped at MAX_SURFACED=3.
+    assert len(body["items"]) == 3
+    # pending_remaining = 3 pending - 2 new picks = 1.
+    assert body["pending_remaining"] == 1
+
+
+def test_pinned_item_does_not_occupy_update_call(client: TestClient, fakes) -> None:
+    """Pinned surfaced items must NOT be marked state='surfaced' again (they
+    already are). Only the newly-picked pending items should be updated."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    pinned = _pinned_surfaced_item("problem")
+    p1 = _item("paper_engagement", priority=1.0)
+
+    def queue_items_select(call):
+        if _is_pinned_select(call):
+            return [pinned]
+        if _is_pending_select(call):
+            return [p1]
+        return []
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+
+    update_calls = [c for c in supabase.calls if c.table == "queue_items" and c.op == "update"]
+    updated_ids = [c.filters for c in update_calls]
+    # The pinned item's id must not appear in any update call.
+    for filters in updated_ids:
+        assert not any(f == ("eq", "id", pinned["id"]) for f in filters)
+    # The pending item IS updated to surfaced.
+    assert any(
+        any(f == ("eq", "id", p1["id"]) for f in c.filters)
+        for c in update_calls
+    )
+
+
+def test_pinned_item_carries_pinned_flag_in_response(client: TestClient, fakes) -> None:
+    """The SurfacedItem for a pinned item has pinned=True in the response."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    pinned = _pinned_surfaced_item("problem")
+
+    def queue_items_select(call):
+        if _is_pinned_select(call):
+            return [pinned]
+        return []  # no pending items
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["pinned"] is True
+    assert items[0]["queue_item_id"] == pinned["id"]
+
+
+# ---------------------------------------------------------------------------
+# §A5 — Steering hint filters
+# ---------------------------------------------------------------------------
+
+
+def _setup_steer(supabase, fakes_pick_id, pending_items, *, pinned_items=None):
+    """Wire a queue_items select responder for steer tests."""
+    pinned_items = pinned_items or []
+
+    def queue_items_select(call):
+        if _is_pinned_select(call):
+            return pinned_items
+        if _is_pending_select(call):
+            return pending_items
+        return []
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": fakes_pick_id}])
+
+
+def test_steer_shorter_prefers_short_items(client: TestClient, fakes) -> None:
+    """steer='shorter' should surface short items (time_high ≤ 20)
+    and not the long item (time_high=60) when short alternatives exist."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    short = _item("problem", priority=0.5, time_estimate_minutes_high=15)
+    long_ = _item("problem", priority=2.0, time_estimate_minutes_high=60)
+    _setup_steer(supabase, pick_id, [long_, short])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4()), "steer": "shorter"},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    ids = [it["queue_item_id"] for it in response.json()["items"]]
+    assert short["id"] in ids
+    assert long_["id"] not in ids
+
+
+def test_steer_more_papers_brings_papers_first(client: TestClient, fakes) -> None:
+    """steer='more_papers' puts paper_engagement items ahead of problems."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    paper = _item("paper_engagement", priority=0.5)
+    p1 = _item("problem", priority=3.0)
+    p2 = _item("problem", priority=2.0)
+    _setup_steer(supabase, pick_id, [p1, p2, paper])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4()), "steer": "more_papers"},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    ids = [it["queue_item_id"] for it in response.json()["items"]]
+    assert paper["id"] in ids
+
+
+def test_steer_different_excludes_seen_refs(client: TestClient, fakes) -> None:
+    """steer='different' with steer_excluded_ref_ids skips those ref_ids."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    seen = _item("problem", priority=3.0)
+    fresh = _item("problem", priority=1.0)
+    _setup_steer(supabase, pick_id, [seen, fresh])
+
+    response = client.post(
+        "/surface-daily",
+        json={
+            "user_id": str(uuid4()),
+            "steer": "different",
+            "steer_excluded_ref_ids": [seen["ref_id"]],
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    ids = [it["queue_item_id"] for it in response.json()["items"]]
+    assert seen["id"] not in ids
+    assert fresh["id"] in ids
+
+
+def test_steer_less_topic_excludes_topic_problems(client: TestClient, fakes) -> None:
+    """steer='less_topic' with steer_topic_node_id excludes problems from that topic.
+
+    The route does a secondary problems/select to find the topic's problem ref_ids,
+    then filters them out of the pending pick.
+    """
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    topic_node_id = str(uuid4())
+    topic_problem_ref = str(uuid4())
+
+    topic_problem = _item("problem", priority=3.0)
+    topic_problem["ref_id"] = topic_problem_ref
+    other_problem = _item("problem", priority=1.0)
+
+    _setup_steer(supabase, pick_id, [topic_problem, other_problem])
+    # problems/select → return the topic's problem id for the exclusion query.
+    supabase.respond(
+        "problems",
+        "select",
+        lambda _call: [{"id": topic_problem_ref}],
+    )
+
+    response = client.post(
+        "/surface-daily",
+        json={
+            "user_id": str(uuid4()),
+            "steer": "less_topic",
+            "steer_topic_node_id": topic_node_id,
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    ids = [it["queue_item_id"] for it in response.json()["items"]]
+    assert topic_problem["id"] not in ids
+    assert other_problem["id"] in ids
+
+
+def test_steer_falls_back_to_full_pool_when_filter_empties_it(
+    client: TestClient, fakes
+) -> None:
+    """When a steer filter would empty the pool, fall back to the full pool
+    rather than stranding the user with 0 items."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    only_item = _item("problem", priority=1.0, time_estimate_minutes_high=60)
+    _setup_steer(supabase, pick_id, [only_item])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4()), "steer": "shorter"},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    ids = [it["queue_item_id"] for it in response.json()["items"]]
+    # Falls back — the long item surfaces rather than nothing.
+    assert only_item["id"] in ids
+
+
 def test_surface_daily_all_dups_falls_through_gracefully(
     client: TestClient, fakes
 ) -> None:
@@ -421,3 +704,47 @@ def test_surface_daily_all_dups_falls_through_gracefully(
     # Only one item — the others all duplicated its ref_id.
     assert len(body["items"]) == 1
     assert body["items"][0]["ref_id"] == shared_ref
+
+
+# ---------------------------------------------------------------------------
+# §A6 clamp — more pinned items than MAX_SURFACED must not produce a
+# negative slots_remaining (which would then cause _pick_varied to be called
+# with max_count < 0 and silently return nothing).
+# ---------------------------------------------------------------------------
+
+
+def test_slots_remaining_clamped_when_pinned_fills_all_slots(
+    client: TestClient, fakes
+) -> None:
+    """When MAX_SURFACED+1 items are already pinned+surfaced the route must
+    not crash or produce a negative slot count; it should surface only the
+    pinned items and not attempt to add more from pending."""
+    supabase, _ = fakes
+    pick_id = str(uuid4())
+    # One more pinned item than MAX_SURFACED=3.
+    pinned_items = [_pinned_surfaced_item("problem") for _ in range(4)]
+    p1 = _item("problem", priority=1.0)
+
+    def queue_items_select(call):
+        if _is_pinned_select(call):
+            return pinned_items
+        if _is_pending_select(call):
+            return [p1]
+        return []
+
+    supabase.respond("queue_items", "select", queue_items_select)
+    supabase.respond("queue_items", "update", lambda _: [])
+    supabase.respond("surfaced_picks", "insert", lambda _: [{"id": pick_id}])
+
+    response = client.post(
+        "/surface-daily",
+        json={"user_id": str(uuid4())},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # All 4 pinned items are returned; no crash from negative slot count.
+    assert len(body["items"]) == 4
+    # The pending item was not picked (slots_remaining was clamped to 0).
+    ids = [it["queue_item_id"] for it in body["items"]]
+    assert p1["id"] not in ids

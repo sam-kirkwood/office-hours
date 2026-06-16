@@ -28,11 +28,12 @@ from anthropic import Anthropic
 from fastapi import APIRouter, Depends
 from supabase import Client
 
-from anthropic_client import get_anthropic_client
+from anthropic_client import call_json, get_anthropic_client
 from auth import require_internal_token
+from config import HAIKU_MODEL
 from paper_ingest_shared import ingest_paper
 from routes.generate_paper_engagement import generate_engagement_for_paper
-from schemas import IngestPaperUserRequest, IngestPaperUserResponse
+from schemas import IngestPaperUserRequest, IngestPaperUserResponse, PaperInterestClassification
 from supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -184,6 +185,109 @@ def _resolve(
     return {"title": raw_input, "authors_json": [], "year": 0, "abstract_md": ""}, None
 
 
+def _associate_topics(supabase: Client, *, paper_id: str, node_ids: list[str]) -> None:
+    """Union node_ids into papers.topic_node_ids (mirrors the helper in propose_papers.py)."""
+    if not node_ids:
+        return
+    current = (
+        supabase.table("papers")
+        .select("topic_node_ids")
+        .eq("id", paper_id)
+        .limit(1)
+        .execute()
+    )
+    existing = (current.data[0].get("topic_node_ids") if current.data else None) or []
+    merged = list(dict.fromkeys([*existing, *node_ids]))
+    if merged != existing:
+        supabase.table("papers").update({"topic_node_ids": merged}).eq("id", paper_id).execute()
+
+
+_CLASSIFY_SYSTEM = """\
+You are classifying a paper against a set of interest areas.
+
+Given a paper title and abstract, return which interests from the provided list
+this paper is most relevant to. Choose 1–2 interests at most. If none genuinely
+fit, return an empty list.
+
+Echo the interest titles EXACTLY as listed (verbatim strings).
+
+Return ONLY a JSON object — no prose, no fences:
+{"interest_titles": ["...", "..."]}"""
+
+
+def _classify_paper_interests(
+    supabase: Client,
+    anthropic: Anthropic,
+    *,
+    paper_id: str,
+    paper_title: str,
+    abstract_md: str,
+    user_id: str,
+) -> None:
+    """Classify a user-ingested paper against their interests and set topic_node_ids.
+
+    Best-effort — any failure is caught and logged; it never blocks the response.
+    """
+    try:
+        # Load user's interest nodes (title → node_id map).
+        interests_resp = (
+            supabase.table("user_interests")
+            .select("node_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        node_ids_raw = [ui["node_id"] for ui in (interests_resp.data or [])]
+        if not node_ids_raw:
+            return
+
+        nodes_resp = (
+            supabase.table("nodes")
+            .select("id, title")
+            .in_("id", node_ids_raw)
+            .execute()
+        )
+        title_to_node_id: dict[str, str] = {}
+        for n in nodes_resp.data or []:
+            if n.get("title") and n.get("id"):
+                title_to_node_id[n["title"].strip().lower()] = n["id"]
+
+        if not title_to_node_id:
+            return
+
+        interest_list = ", ".join(title_to_node_id.keys())
+        user_prompt = (
+            f"Interests: {interest_list}\n\n"
+            f"Paper title: {paper_title}\n\n"
+            f"Abstract: {abstract_md[:500] or '(no abstract)'}"
+        )
+
+        classification: PaperInterestClassification = call_json(
+            client=anthropic,
+            supabase=supabase,
+            model=HAIKU_MODEL,
+            system_prompt=_CLASSIFY_SYSTEM,
+            user_prompt=user_prompt,
+            schema=PaperInterestClassification,
+            route="ingest-paper-user/classify",
+            user_id=user_id,
+            request_summary={"paper_title": paper_title[:60]},
+            temperature=0,
+        )
+
+        resolved_ids = [
+            title_to_node_id[t.strip().lower()]
+            for t in classification.interest_titles
+            if t.strip().lower() in title_to_node_id
+        ]
+        _associate_topics(supabase, paper_id=paper_id, node_ids=resolved_ids)
+    except Exception:
+        logger.warning(
+            "ingest_paper_user: interest classification failed for paper=%s (non-fatal)",
+            paper_id,
+            exc_info=True,
+        )
+
+
 @router.post(
     "/ingest-paper-user",
     response_model=IngestPaperUserResponse,
@@ -213,6 +317,18 @@ def ingest_paper_user(
             arxiv_id=meta.get("arxiv_id"),
             doi=meta.get("doi"),
         )
+
+    # Classify the paper against the user's interests to set topic_node_ids (paper-chip
+    # backfill — Phase 12 Step 5). Best-effort; does not block the response.
+    paper_title = meta.get("title") or raw_input
+    _classify_paper_interests(
+        supabase,
+        anthropic,
+        paper_id=paper_id,
+        paper_title=paper_title,
+        abstract_md=meta.get("abstract_md", "") if not found_paper_id else "",
+        user_id=user_id,
+    )
 
     # #22: check for existing engagement before generating (re-submission dedup)
     existing_eng_resp = (

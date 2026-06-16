@@ -2,8 +2,13 @@
 
 ## About this document
 
-> **Status: Part A (§A1–§A3) built (2026-06-14); §A4–§A6 and all of Part B
-> not yet built.** Produced in a design-review session (2026-06-08/09) that
+> **Status: Part A §A1–§A3 built (2026-06-13/14); §A5 steering chips + §A6
+> pinned/badged requests built (2026-06-14); §A4 curiosity-box classifier +
+> routes built (2026-06-14/15) — including inline generation on pool miss,
+> overloaded-token node-resolution guard (Phase 10.5 fix applied here too),
+> topic-new explore-by-default (one-off pinned queue item, no user_interests
+> written) + commit opt-in ("Add it properly →") (2026-06-15);
+> all of Part B not yet built.** Produced in a design-review session (2026-06-08/09) that
 > stepped back from the operator-walkthrough remediation (Phase 10.5-rev) and
 > asked how onboarding and the daily loop *should* work for the median friend —
 > someone who studied physics/maths years ago, remembers some of it, wants to
@@ -21,7 +26,12 @@
 > requeue) — Session 12.1. §A3 correction loop (easier/harder/assume-less
 > DropdownMenu on Step 1; `POST /generate-sibling`; 'superseded' state; sibling
 > revert; post-attempt fit-feedback; direct foundation-state editing on profile)
-> — Sessions 12.2 + follow-ups.
+> — Sessions 12.2 + follow-ups. §A6 pinned/requested items (`pinned` column on
+> `queue_items`; siblings auto-pinned; surface_daily pre-includes pinned-surfaced
+> items; reroll + steer exempts pinned items; "Requested" amber badge in DailyView)
+> + §A5 steering chips (Shorter · More papers · Something different · Less [topic];
+> `POST /api/queue/steer`; `steer` params on `/surface-daily`; pool-thin honesty
+> when `pending_remaining=0` after reshuffling) — Session 12.4b.
 
 This document **amends** the existing source-of-truth specs; when the work lands,
 fold the changes back into them (see "Docs to update when this lands") and demote

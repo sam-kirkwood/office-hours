@@ -229,7 +229,8 @@ def generate_sibling(
         {"state": "superseded", "updated_at": now}
     ).eq("id", str(body.queue_item_id)).execute()
 
-    # 9. Insert the sibling queue_item
+    # 9. Insert the sibling queue_item.
+    # pinned=True so the sibling surfaces immediately and survives rerolls (§A6).
     sibling_row = {
         "user_id": user_id,
         "kind": "problem",
@@ -240,6 +241,7 @@ def generate_sibling(
         "added_reason": _SIBLING_REASON[kind],
         "time_estimate_minutes_low": 15,
         "time_estimate_minutes_high": 30,
+        "pinned": True,
     }
     qi_resp2 = supabase.table("queue_items").insert(sibling_row).execute()
     sibling_queue_item_id = qi_resp2.data[0]["id"]

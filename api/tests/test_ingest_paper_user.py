@@ -453,3 +453,88 @@ def test_duplicate_arxiv_returns_existing_with_queue_item(
     # One queue item insert
     qi_inserts = [c for c in supabase.calls if c.table == "queue_items" and c.op == "insert"]
     assert len(qi_inserts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Paper-chip backfill — topic_node_ids set at ingest time (Phase 12 Step 5)
+# ---------------------------------------------------------------------------
+
+
+@patch("routes.ingest_paper_user.httpx.get")
+def test_ingest_classifies_paper_against_interests_and_sets_topic_node_ids(
+    mock_get: MagicMock, client: TestClient, fakes: tuple
+) -> None:
+    """When the user has interests, ingest-paper-user runs a Haiku classify step
+    and unions the resolved node_ids into papers.topic_node_ids so the queue
+    card can show a topic chip."""
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+    node_id = str(uuid4())
+    mock_get.return_value = _make_http_mock(ARXIV_ATOM_XML)
+
+    # papers.select cycles:
+    #   call 1 — arXiv dedup check → miss
+    #   call 2 — _associate_topics current-read → existing (empty) topic_node_ids
+    #   call 3 — generate_engagement_for_paper paper load → paper data
+    call_count = {"n": 0}
+
+    def papers_select(call):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return []  # arXiv dedup: miss
+        if call_count["n"] == 2:
+            return [{"topic_node_ids": []}]  # _associate_topics current read
+        return [
+            {
+                "id": PAPER_ID,
+                "title": "Observation of Gravitational Waves",
+                "abstract_md": "We report...",
+                "authors_json": ["Abbott, B. P."],
+                "year": 2016,
+            }
+        ]
+
+    supabase.respond("papers", "select", papers_select)
+    supabase.respond("papers", "insert", lambda _: [{"id": PAPER_ID}])
+    supabase.respond("papers", "update", lambda _: [{"id": PAPER_ID}])
+
+    # User has one interest node — returned for both the classify and the
+    # generate_engagement user_interests queries.
+    supabase.respond(
+        "user_interests",
+        "select",
+        lambda _: [{"node_id": node_id, "intent_context": ""}],
+    )
+    supabase.respond(
+        "nodes",
+        "select",
+        lambda _: [{"id": node_id, "title": "General Relativity"}],
+    )
+
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    supabase.respond("paper_engagements", "insert", lambda _: [{"id": ENGAGEMENT_ID}])
+    supabase.respond("queue_items", "insert", lambda _: [{"id": QUEUE_ITEM_ID}])
+
+    # Queue 1: Haiku classify response → maps paper to "general relativity"
+    # Queue 2: Sonnet engagement generation response
+    anthropic.queue(json.dumps({"interest_titles": ["General Relativity"]}))
+    anthropic.queue(VALID_ENGAGEMENT_JSON)
+
+    resp = client.post(
+        "/ingest-paper-user",
+        json={"user_id": user_id, "raw_input": "2301.07041"},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["paper_id"] == PAPER_ID
+    assert data["created"] is True
+
+    # Verify papers.update was called with the resolved node_id.
+    paper_updates = [c for c in supabase.calls if c.table == "papers" and c.op == "update"]
+    assert len(paper_updates) == 1
+    assert paper_updates[0].payload["topic_node_ids"] == [node_id]
+
+    # Both Anthropic calls fired: Haiku (classify) + Sonnet (engagement).
+    assert len(anthropic.messages.calls) == 2

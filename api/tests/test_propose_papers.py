@@ -393,3 +393,172 @@ def test_duplicate_paper_reused(client: TestClient, fakes) -> None:
 
     # No papers.insert should have been called
     assert not any(c.table == "papers" and c.op == "insert" for c in supabase.calls)
+
+
+# ---------------------------------------------------------------------------
+# p2 — proportional target_count
+# ---------------------------------------------------------------------------
+
+
+def test_target_count_embedded_in_user_prompt(client: TestClient, fakes) -> None:
+    """mode_balance=0.7 → paper_target=11; with 0 pending → target_count=5 (capped);
+    the Sonnet user prompt should mention '5'."""
+    supabase, anthropic = fakes
+
+    supabase.respond("user_interests", "select", lambda _: [])
+    supabase.respond("notebook_entries", "select", lambda _: [])
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    # No pending papers — default [] from FakeSupabase.
+
+    anthropic.queue(json.dumps({"candidates": []}))
+
+    resp = client.post(
+        "/propose-papers",
+        json={"user_id": str(uuid4()), "mode_balance": 0.7},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    # Verify Sonnet was called and its user prompt contains the target count.
+    assert len(anthropic.messages.calls) == 1
+    call_kwargs = anthropic.messages.calls[0]
+    user_msg = call_kwargs["messages"][0]["content"]
+    assert "5" in user_msg  # target_count=min(5, 11-0)=5
+
+
+def test_skips_sonnet_when_queue_already_at_target(client: TestClient, fakes) -> None:
+    """When pending papers already meet the mode_balance target, skip the Sonnet call."""
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+
+    # mode_balance=0.3 → paper_target=round(0.3*15)=5; stub 5 pending papers.
+    # First queue_items.select (paper count) triggers the early-exit so the
+    # second (total on-deck) is never reached — single responder is fine.
+    supabase.respond(
+        "queue_items",
+        "select",
+        lambda _: [{"id": str(uuid4())} for _ in range(5)],
+    )
+
+    resp = client.post(
+        "/propose-papers",
+        json={"user_id": user_id, "mode_balance": 0.3},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["papers_added"] == 0
+    assert data["papers_reused"] == 0
+    assert data["queue_items_added"] == 0
+    # No Sonnet call should have been made.
+    assert len(anthropic.messages.calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# Cap-room clamp (§11.1 — total non-terminal never exceeds 15)
+# ---------------------------------------------------------------------------
+
+
+def test_near_full_queue_clamps_target_count_to_cap_room(
+    client: TestClient, fakes
+) -> None:
+    """14 non-terminal items + 2 pending papers (under paper target) → propose at
+    most 1 paper (cap_room=1). The total stays ≤ 15 regardless of target_count."""
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+    paper_id = str(uuid4())
+    engagement_id = str(uuid4())
+
+    # Two queue_items.select calls per request:
+    #   call 1 — paper count (kind=paper_engagement filter) → 2 papers pending
+    #   call 2 — total on-deck (all kinds, states pending/surfaced/deferred) → 14
+    supabase.respond(
+        "queue_items",
+        "select",
+        _cycler(
+            [{"id": str(uuid4())}, {"id": str(uuid4())}],  # paper count = 2
+            [{"id": str(uuid4())} for _ in range(14)],     # total on-deck = 14
+        ),
+    )
+
+    # mode_balance=0.5 → paper_target=8; cap_room=15−14=1
+    # target_count = max(1, min(5, 8−2, 1)) = 1
+    supabase.respond("user_interests", "select", lambda _: [])
+    supabase.respond("notebook_entries", "select", lambda _: [])
+    supabase.respond("llm_calls", "insert", lambda _: [{"id": str(uuid4())}])
+    # papers.select: (1) dedup check → miss, (2) engagement generation load → paper row
+    supabase.respond(
+        "papers",
+        "select",
+        _cycler(
+            [],
+            [{"id": paper_id, "title": "A Paper", "authors_json": ["Dirac, P."],
+              "year": 1930, "abstract_md": ""}],
+        ),
+    )
+    supabase.respond("papers", "insert", lambda _: [{"id": paper_id}])
+    supabase.respond("paper_engagements", "select", lambda _: [])
+    supabase.respond("paper_engagements", "insert", lambda _: [{"id": engagement_id}])
+    supabase.respond("queue_items", "insert", lambda _: [{"id": str(uuid4())}])
+
+    # Sonnet: 1 propose (1 candidate) + 1 engagement generation
+    anthropic.queue(
+        json.dumps({
+            "candidates": [{
+                "title": "A Paper",
+                "authors": ["Dirac, P."],
+                "year": 1930,
+                "arxiv_id": None,
+                "doi": None,
+                "rationale": "Relevant.",
+            }]
+        })
+    )
+    anthropic.queue(_make_engagement_json())
+
+    resp = client.post(
+        "/propose-papers",
+        json={"user_id": user_id, "mode_balance": 0.5},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Only 1 paper proposed despite paper_target=8 − 2 = 6 difference,
+    # because cap_room limited target_count to 1.
+    assert data["queue_items_added"] == 1
+    # Sonnet was called (propose + engagement); user prompt contains "1".
+    propose_call = anthropic.messages.calls[0]
+    assert "1" in propose_call["messages"][0]["content"]  # target_count=1 in prompt
+
+
+def test_full_queue_skips_paper_topup(client: TestClient, fakes) -> None:
+    """15 non-terminal items → cap_room=0 → skip Sonnet entirely."""
+    supabase, anthropic = fakes
+    user_id = str(uuid4())
+
+    # Two queue_items.select calls:
+    #   call 1 — paper count → 2 (under paper_target=8)
+    #   call 2 — total on-deck → 15 (at cap)
+    supabase.respond(
+        "queue_items",
+        "select",
+        _cycler(
+            [{"id": str(uuid4())}, {"id": str(uuid4())}],  # paper count = 2
+            [{"id": str(uuid4())} for _ in range(15)],     # total on-deck = 15
+        ),
+    )
+
+    resp = client.post(
+        "/propose-papers",
+        json={"user_id": user_id, "mode_balance": 0.5},
+        headers=AUTH_HEADERS,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["papers_added"] == 0
+    assert data["papers_reused"] == 0
+    assert data["queue_items_added"] == 0
+    assert len(anthropic.messages.calls) == 0

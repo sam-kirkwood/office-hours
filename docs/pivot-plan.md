@@ -1,16 +1,14 @@
 # Pivot plan — status & phase map
 
-**Where things are (2026-06-14):** the v1→v2 pivot is built through Phase 10-rev
-(complete) and Phase 10.5-rev (the operator-walkthrough remediation round —
-complete). A design-review round then reshaped the remaining survey / add-interest
-/ per-problem-correction work into two forward phases.
+**Where things are (2026-06-16):** Phase 12 (the responsive daily loop) is complete.
+Phase 13 (conversational orientation) is underway — Step 1 (§3.4 amendment) done.
 
 | Phase | What | Status |
 |---|---|---|
 | 4-rev … 10-rev | graph migration → queue → skill tree → papers → adaptation → curation → polish → survey/curator/UX redesign | ✅ done |
 | 10.5-rev | operator-walkthrough remediation (queue/refresher/problem-page/survey-rendering/skill-tree fixes) | ✅ done |
-| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ◐ Steps 1–3 done + Step 3 follow-ups (2026-06-14); Steps 4–5 pending |
-| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | ▢ planned |
+| **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ✅ done (2026-06-16) |
+| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | 🔄 Step 1 done |
 | 11-deploy | FastAPI deploy + cron + Sentry + README (keeps its number; runs **last**, once happy) | ▢ deferred to end |
 
 Design source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-design.md,
@@ -27,10 +25,7 @@ balance + the **paper-chip backfill** are scheduled — Phase 12 Step 5.)
 
 **Deferred features** (from the closed Phase 10.5-rev features bucket; build when
 wanted):
-- **fb1 — report-a-problem / feedback catch-all.** *Promoted to a Phase 12
-  dependency:* the curiosity-box router (Phase 12 Step 4) redirects feedback to it,
-  so the channel must exist for that redirect to land. Build with / just before
-  Step 4.
+- ~~**fb1 — report-a-problem / feedback catch-all.**~~ ✅ Built (Phase 12 Step 4a, 2026-06-14): `feedback_reports` table, `POST /api/feedback`, `FeedbackDialog` in the nav, `/admin/feedback` operator list with mark-resolved.
 - **d14 — Q&A on the feedback page.** Synergistic with the Phase 13 tutor (reuses
   the conversational machinery); natural Phase 13 follow-on.
 - **t6 — curriculum-path overlay on the skill tree.** Enabled by Phase 13's rich
@@ -135,6 +130,18 @@ items are pinned+badged, not priority-ordered. The launch-gating framing (🔴/�
 soft launch) is **retired** — the app is finished before release; Phase 11-deploy
 keeps its name but runs last, once the operator is happy (localhost until then).
 Carried-over p1/p2 + the paper-chip backfill fold into Phase 12 Step 5.
+
+**Phase 12 Step 5 follow-up — paper top-up cap clamp (2026-06-16).** `propose_papers` now also counts total non-terminal stock and returns early if `cap_room <= 0`; `target_count` is additionally clamped by `cap_room` so a papers-heavy topup after a full planner run can't push total non-terminal above 15 (§11.1). 243/243 pytest; tsc/build clean.
+
+**Phase 12 Step 5 done — carry-in housekeeping; Phase 12 complete (2026-06-16).** Three carry-ins from earlier sessions, plus one preamble fix. (0) **Preamble fix**: `_resolve_and_queue_one_off` now returns `(None, node_title)` when a node is found but generation fails, so the topic_new handler gives an honest "try again" rather than "isn't in my library yet" — distinct from the truly-not-found case. Added a try/except around the inline generate step so a generation failure stays graceful rather than 500. (p2) **Proportional propose-papers count**: `ProposePapersRequest` gains `mode_balance`; the route computes `target_count = max(1, min(5, round(balance × 15) − pending_papers))` and early-exits if the queue is already at the paper target; the user prompt is parameterised on `target_count`; `pythonApi.ts` and `survey/complete` pass `modeBalance` through. (p1) **Paper balance on refill**: `_run_paper_topup` in `curator.py` runs propose_papers (SEPARATELY from the planner — the planner-no-papers rule is intact) after `plan_queue` + `check_deferred` inside `run_daily_planner`. Gated on `mode_balance >= 0.3`; best-effort (non-fatal try/except). Papers now replenish on drain, not just at cold-start. (paper-chip backfill) **Ingest topic classify**: `ingest_paper_user` runs a best-effort Haiku classify step after ingesting, matching the paper against the user's interest titles to set `papers.topic_node_ids`; user-added papers now show a topic chip on the queue card. 241/241 pytest; tsc/lint at baseline. **Phase 12 complete — Phase 13 is next.**
+
+**Phase 12 Session 12.4b done — §A6 pinned/badged requests + §A5 steering chips (2026-06-14).** Two related pieces over the surfacing/reroll core.
+
+**§A6 — Requested items pinned + badged.** New `pinned boolean NOT NULL DEFAULT false` on `queue_items` (migration 20250037, applied). `/generate-sibling` now writes `pinned=True` on every sibling row — the only source of pinned items for now; the curiosity-box router (Step 4c) will reuse the same column. `surface_daily` was split into two passes: `_load_pinned_surfaced` fetches `state='surfaced' AND pinned=True` items that survived the previous reroll (they stay surfaced rather than being reset to pending), then `_pick_varied` fills the remaining slots from the pending pool (with their ref_ids pre-committed to avoid duplicates). The reroll route loads `pinned` flags before acting: only non-pinned surfaced items are reset to pending; only non-pinned items get pass-over rows (pinned items aren't being passed over). `getOrSurfacePick`'s stale-pick reset also respects pinned. DailyView renders an amber-outlined "Requested" badge before the kind badge for pinned cards; the existing `added_reason` carries the first-person copy ("You asked for a more challenging version…").
+
+**§A5 — Steering chips.** Optional `steer` / `steer_excluded_ref_ids` / `steer_topic_node_id` fields added to `SurfaceDailyRequest`. Python `_apply_steer()` runs before `_pick_varied` with four hints: `shorter` (time_high ≤ 20 min), `more_papers` (paper_engagement items stable-sorted to front), `different` (exclude passed-in ref_ids), `less_topic` (secondary `problems` query to find the topic's ref_ids, then filter). All hints fall back to the full pool rather than stranding the user. New `POST /api/queue/steer` Next.js route mirrors the reroll preamble (skip pinned, record pass-overs as curator signal) then calls `surfaceDaily` with the hint; `less_topic` passes `topic_node_id` from the client's resolved topics. DailyView shows a row of small chip buttons below the header: Shorter · More papers · Something different · Less [topic] (last one is dynamic — populated from the first non-pinned item that has resolved topics). `reshuffleCount` (incremented on every reroll or steer) combined with `pending_remaining === 0` triggers pool-thin honesty: the MoreComingCard is replaced with "That's about all that's queued right now — give it a moment, or ask for something specific below." Pinned items survive steering the same way they survive rerolls.
+
+217 pytest passing (was 208; +9 new: 3 for pinned-surfaced logic, 1 for sibling-insert `pinned=True`, 5 for steer filters + fallback). tsc clean; lint net −1 warning (removed unused variable introduced in this session). **Operator action: migration 20250037 applied.**
 
 **Phase 12 Step 3 follow-ups done (2026-06-14).** Three correctness fixes on top of 12.2: (1) **Sibling revert is now a real action** — new `POST /api/problem/[id]/revert-sibling` flips the too-hard sibling to 'superseded' and restores the original to 'pending' at priority 0.85 before navigating back; the rejected sibling no longer resurfaces. (2) **"Mark solid" writes a coherent node state** — `POST /api/profile/foundation-state` now upserts both `state` and `struggle_score` together (`solid → comfortable + 0.0`; `still learning → active + 0.3`) so the curator never sees a contradictory high-struggle/comfortable pair. (3) **Fit-feedback acknowledged** — `toast.success("Thanks — we'll factor that in.")` fires immediately on click so the button doesn't feel dead. tsc clean; lint baseline unchanged; 208/208 pytest.
 

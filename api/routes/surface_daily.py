@@ -3,12 +3,18 @@
 Picks up to 3 varied items from the user's pending queue and writes a
 surfaced_picks row. Selection rules (from phase-4-rev-plan.md §Step 8):
 
-  1. Fetch all queue_items for user with state='pending', order by priority_score desc.
-  2. F17 fallback: if queue is empty, insert one concept_review pointing to the
-     foundation node closest to the user's interests (or calculus-i). Re-query.
-  3. Pick at most 3, trying to vary kind.
-  4. Fewer than 3 available → surface what exists (length ≤ 3 accepted per F8).
-  5. Mark selected items state='surfaced'. Write surfaced_picks.
+  1. Pre-include any pinned items that survived a reroll (state='surfaced'
+     AND pinned=true). They hold their slots across rerolls (§A6).
+  2. Fetch all queue_items for user with state='pending', order by priority_score
+     desc. Apply any steering constraint (§A5) to re-rank/filter.
+  3. F17 fallback: if no pending AND no pinned, insert one concept_review
+     pointing to the foundation node closest to the user's interests (or
+     calculus-i). Re-query pending.
+  4. Pick remaining slots (MAX_SURFACED − pinned_count) with kind variety,
+     skipping ref_ids already claimed by pinned items.
+  5. Mark only the newly-picked pending items state='surfaced' (pinned items
+     are already surfaced).
+  6. Write surfaced_picks row for all items (pinned + new picks).
 
 Refreshers are not a content kind here: they are concrete problem /
 concept_review / paper_engagement items carrying via_refresher=true (resolved
@@ -33,6 +39,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_SURFACED = 3
+
+# §A5 "shorter" threshold: items with time_estimate_minutes_high at or below
+# this value are considered "short." Adjust here if the target shifts.
+_SHORT_MINUTES = 20
 
 
 def _user_has_no_queue_items(supabase: Client, user_id: str) -> bool:
@@ -61,7 +71,7 @@ def _load_pending(supabase: Client, user_id: str) -> list[dict]:
         .select(
             "id, kind, ref_id, state, priority_score, "
             "time_estimate_minutes_low, time_estimate_minutes_high, added_reason, "
-            "via_refresher"
+            "via_refresher, pinned"
         )
         .eq("user_id", user_id)
         .eq("state", "pending")
@@ -69,6 +79,34 @@ def _load_pending(supabase: Client, user_id: str) -> list[dict]:
         .execute()
     )
     return resp.data or []
+
+
+def _load_pinned_surfaced(supabase: Client, user_id: str) -> list[dict]:
+    """Return pinned items that are already surfaced.
+
+    These survive rerolls: the reroll route does NOT reset them to pending.
+    surface_daily pre-includes them so they always appear in the pick,
+    overriding the variety constraint (§A6).
+
+    The post-execute guard (item.get("pinned")) is belt+suspenders: the DB
+    filters correctly, but the test fake doesn't enforce filter predicates, so
+    we guard explicitly so old tests that return pending items don't pollute
+    the pinned set.
+    """
+    resp = (
+        supabase.table("queue_items")
+        .select(
+            "id, kind, ref_id, state, priority_score, "
+            "time_estimate_minutes_low, time_estimate_minutes_high, added_reason, "
+            "via_refresher, pinned"
+        )
+        .eq("user_id", user_id)
+        .eq("state", "surfaced")
+        .eq("pinned", True)
+        .order("priority_score", desc=True)
+        .execute()
+    )
+    return [item for item in (resp.data or []) if item.get("pinned")]
 
 
 def _closest_foundation(supabase: Client, user_id: str) -> dict | None:
@@ -127,9 +165,58 @@ def _closest_foundation(supabase: Client, user_id: str) -> dict | None:
     return any_node.data[0] if any_node.data else None
 
 
-def _pick_varied(items: list[dict]) -> list[dict]:
-    """Choose up to MAX_SURFACED items, preferring kind variety and never
+def _apply_steer(
+    items: list[dict],
+    *,
+    steer: str | None,
+    steer_excluded_ref_ids: set[str] | None,
+    steer_topic_problem_ids: set[str] | None,
+) -> list[dict]:
+    """Apply a §A5 steering hint to the pending pool.
+
+    All filters are best-effort: if filtering leaves fewer than 1 item we
+    fall back to the full pool so the user is never left with nothing.
+    """
+    if not steer or not items:
+        return items
+
+    if steer == "shorter":
+        short = [
+            i for i in items
+            if i.get("time_estimate_minutes_high") is not None
+            and i["time_estimate_minutes_high"] <= _SHORT_MINUTES
+        ]
+        return short if short else items
+
+    if steer == "more_papers":
+        # Stable-sort: paper_engagement items first, then original priority order.
+        papers = [i for i in items if i["kind"] == "paper_engagement"]
+        others = [i for i in items if i["kind"] != "paper_engagement"]
+        return papers + others
+
+    if steer == "different":
+        excluded = steer_excluded_ref_ids or set()
+        filtered = [i for i in items if i.get("ref_id") not in excluded]
+        return filtered if filtered else items
+
+    if steer == "less_topic":
+        excluded = steer_topic_problem_ids or set()
+        filtered = [i for i in items if i.get("ref_id") not in excluded]
+        return filtered if filtered else items
+
+    return items
+
+
+def _pick_varied(
+    items: list[dict],
+    already_picked_ref_ids: set[str] | None = None,
+    max_count: int = MAX_SURFACED,
+) -> list[dict]:
+    """Choose up to max_count items, preferring kind variety and never
     picking two items with the same ref_id.
+
+    already_picked_ref_ids seeds the dedup set so callers can pre-commit
+    ref_ids from pinned items (§A6) without those items being picked again.
 
     Strategy: greedily take the highest-priority item from each kind in
     round-robin order, skipping any item whose ref_id is already in the
@@ -137,7 +224,7 @@ def _pick_varied(items: list[dict]) -> list[dict]:
     that slipped through the dedup at /plan-queue time) only contribute
     one slot to the daily three (Phase 10-rev §9a).
     """
-    if not items:
+    if not items or max_count <= 0:
         return []
 
     by_kind: dict[str, list[dict]] = {}
@@ -145,13 +232,13 @@ def _pick_varied(items: list[dict]) -> list[dict]:
         by_kind.setdefault(item["kind"], []).append(item)
 
     picked: list[dict] = []
-    picked_ref_ids: set[str] = set()
+    picked_ref_ids: set[str] = set(already_picked_ref_ids or [])
     kinds = list(by_kind.keys())
     kind_idx = 0
     # Guard against infinite loop if every remaining item duplicates an
     # already-picked ref_id: track whether the last full round made progress.
     rounds_without_progress = 0
-    while len(picked) < MAX_SURFACED and any(by_kind.values()):
+    while len(picked) < max_count and any(by_kind.values()):
         kind = kinds[kind_idx % len(kinds)]
         bucket = by_kind.get(kind, [])
         progressed = False
@@ -187,13 +274,22 @@ def surface_daily(
 ) -> SurfaceDailyResponse:
     user_id = str(body.user_id)
 
+    # 0. Pre-include pinned items that survived the last reroll (§A6).
+    #    They stay state='surfaced' through rerolls and claim their slots first,
+    #    overriding the variety constraint.
+    pinned_items = _load_pinned_surfaced(supabase, user_id)
+    pinned_ref_ids: set[str] = {
+        p["ref_id"] for p in pinned_items if p.get("ref_id")
+    }
+    slots_remaining = max(0, MAX_SURFACED - len(pinned_items))
+
     # 1. Fetch all pending queue items ordered by priority.
     pending = _load_pending(supabase, user_id)
 
     # 2. F17 fallback: seed ONE starter concept — only for a genuinely empty
     #    account. See _user_has_no_queue_items for why this guard matters
     #    (it's the fix for the d16 duplicate-concept spam).
-    if not pending and _user_has_no_queue_items(supabase, user_id):
+    if not pending and not pinned_items and _user_has_no_queue_items(supabase, user_id):
         foundation = _closest_foundation(supabase, user_id)
         if foundation and foundation.get("id"):
             logger.info(
@@ -219,24 +315,56 @@ def surface_daily(
             ).execute()
             pending = _load_pending(supabase, user_id)
 
-    if not pending:
+    if not pending and not pinned_items:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no pending queue items for user",
         )
 
-    # 3. Pick up to 3 with kind variety.
-    picked = _pick_varied(pending)
+    # 3. Apply steering filter if requested (§A5). Best-effort; falls back to
+    #    the full pool if filtering drains it.
+    steer_topic_problem_ids: set[str] | None = None
+    if body.steer == "less_topic" and body.steer_topic_node_id:
+        prob_resp = (
+            supabase.table("problems")
+            .select("id")
+            .eq("topic_node_id", str(body.steer_topic_node_id))
+            .execute()
+        )
+        steer_topic_problem_ids = {p["id"] for p in (prob_resp.data or [])}
 
-    # 4. Mark picked items as 'surfaced'.
-    picked_ids = [item["id"] for item in picked]
-    for item_id in picked_ids:
+    steer_excluded_ref_ids: set[str] | None = (
+        {str(r) for r in body.steer_excluded_ref_ids}
+        if body.steer_excluded_ref_ids
+        else None
+    )
+
+    steered_pending = _apply_steer(
+        pending,
+        steer=body.steer,
+        steer_excluded_ref_ids=steer_excluded_ref_ids,
+        steer_topic_problem_ids=steer_topic_problem_ids,
+    )
+
+    # 4. Pick remaining slots from the (possibly steered) pending pool.
+    new_picks = _pick_varied(
+        steered_pending,
+        already_picked_ref_ids=pinned_ref_ids,
+        max_count=slots_remaining,
+    )
+
+    # 5. Mark only newly-picked items as 'surfaced' (pinned items are already
+    #    surfaced and must not be touched — they belong to the previous pick row).
+    new_pick_ids = [item["id"] for item in new_picks]
+    for item_id in new_pick_ids:
         supabase.table("queue_items").update({"state": "surfaced"}).eq("id", item_id).execute()
 
-    # 5. Write surfaced_picks row.
+    # 6. Write surfaced_picks row for all items (pinned first for clarity).
+    all_picked = pinned_items + new_picks
+    all_picked_ids = [item["id"] for item in all_picked]
     pick_resp = (
         supabase.table("surfaced_picks")
-        .insert({"user_id": user_id, "queue_item_ids": picked_ids})
+        .insert({"user_id": user_id, "queue_item_ids": all_picked_ids})
         .execute()
     )
     pick_id = pick_resp.data[0]["id"]
@@ -250,13 +378,15 @@ def surface_daily(
             time_estimate_minutes_low=item.get("time_estimate_minutes_low"),
             time_estimate_minutes_high=item.get("time_estimate_minutes_high"),
             via_refresher=bool(item.get("via_refresher")),
+            pinned=bool(item.get("pinned")),
         )
-        for item in picked
+        for item in all_picked
     ]
 
-    # Pending items left after this pick (everything in `pending` minus the ones
-    # we just flipped to 'surfaced'). Drives refill-on-drain in the web layer.
-    pending_remaining = max(0, len(pending) - len(picked))
+    # Pending items left after this pick (everything in `pending` minus the new
+    # picks we just flipped to 'surfaced'). Drives refill-on-drain in the web
+    # layer. Pinned items are already surfaced so they don't count against pending.
+    pending_remaining = max(0, len(pending) - len(new_picks))
 
     return SurfaceDailyResponse(
         pick_id=UUID(pick_id), items=items, pending_remaining=pending_remaining

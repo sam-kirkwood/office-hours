@@ -21,6 +21,7 @@ export function toItem(raw: {
   time_estimate_minutes_low: number | null;
   time_estimate_minutes_high: number | null;
   via_refresher?: boolean;
+  pinned?: boolean;
 }): SurfacedQueueItem {
   return {
     queue_item_id: (raw.id ?? raw.queue_item_id)!,
@@ -30,6 +31,7 @@ export function toItem(raw: {
     time_estimate_minutes_low: raw.time_estimate_minutes_low,
     time_estimate_minutes_high: raw.time_estimate_minutes_high,
     via_refresher: raw.via_refresher ?? false,
+    pinned: raw.pinned ?? false,
   };
 }
 
@@ -183,7 +185,7 @@ export async function getOrSurfacePick(
       const { data: rows } = await supabase
         .from("queue_items")
         .select(
-          "id, kind, ref_id, added_reason, time_estimate_minutes_low, time_estimate_minutes_high, state, via_refresher",
+          "id, kind, ref_id, added_reason, time_estimate_minutes_low, time_estimate_minutes_high, state, via_refresher, pinned",
         )
         .in("id", ids);
 
@@ -207,14 +209,17 @@ export async function getOrSurfacePick(
       .update({ replaced_at: new Date().toISOString() })
       .eq("id", openPick.id as string);
 
-    // Reset any items from this pick that are still 'surfaced' back to 'pending'
-    // so surface-daily can re-pick them. Items already done/dismissed/skipped stay as-is.
+    // Reset non-pinned surfaced items back to 'pending' so surface-daily can
+    // re-pick them. Pinned items (user-requested) stay surfaced — they survive
+    // stale-pick cleanup the same way they survive rerolls (§A6).
+    // Items already done/dismissed/skipped stay as-is.
     if (ids.length > 0) {
       await supabase
         .from("queue_items")
         .update({ state: "pending" })
         .in("id", ids)
-        .eq("state", "surfaced");
+        .eq("state", "surfaced")
+        .eq("pinned", false);
     }
   }
 
