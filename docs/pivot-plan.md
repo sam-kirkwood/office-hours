@@ -1,14 +1,15 @@
 # Pivot plan — status & phase map
 
 **Where things are (2026-06-16):** Phase 12 (the responsive daily loop) is complete.
-Phase 13 (conversational orientation) is underway — Step 1 (§3.4 amendment) done.
+Phase 13 (conversational orientation) is underway — Steps 1–2 done (§3.4 amendment +
+rich paths + path_json migration).
 
 | Phase | What | Status |
 |---|---|---|
 | 4-rev … 10-rev | graph migration → queue → skill tree → papers → adaptation → curation → polish → survey/curator/UX redesign | ✅ done |
 | 10.5-rev | operator-walkthrough remediation (queue/refresher/problem-page/survey-rendering/skill-tree fixes) | ✅ done |
 | **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ✅ done (2026-06-16) |
-| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | 🔄 Step 1 done |
+| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | 🔄 Steps 1–2 done |
 | 11-deploy | FastAPI deploy + cron + Sentry + README (keeps its number; runs **last**, once happy) | ▢ deferred to end |
 
 Design source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-design.md,
@@ -181,6 +182,24 @@ all green, the user's real queue untouched. **Operator action: migration
 20250034 is already applied (operator confirmed); commit includes it.** Next:
 Step 3 — the easier/harder/assume-less correction loop + direct foundation-state
 editing.
+
+**Phase 13 Steps 1–2 done (2026-06-16) — §3.4 amendment + rich paths.** Step 1: the
+entry-point amendment written into `survey-and-difficulty-design.md` §3.4 — three
+lanes keyed on *new-to-the-user* (Lane 1 teach/default · Lane 2 coming-back/refresh ·
+Lane 3 go-deep/consolidate), with §3.1 consolidate (two entry paths) + §3.5
+difficulty (go-deep → above moderate) updated; behavior inert until altitude (B) is
+collected in Steps 3/4. Step 4 (the tutor) sub-split into 4a orchestrator+signal+
+resumability / 4b system prompt (own iteration cycle) / 4c chat UI. Step 2: rich
+paths — `PathOption` enriched (`what_you_learn`/`endpoint`/`math_intensity`/
+`mode_lean`/`leans_on_prereq_slugs`); the add-interest parse generates them;
+`path_json` JSONB persisted on `user_interests` (migration 20250038); `leans_on`
+validated against all node slugs at parse + resolve; source-of-truth split
+(path_json = structured facts, intent_context = prose, no field overlap — verified
+in `composeResolveBody`); Dialog ambiguous-branch chips upgraded to rich stacked
+cards — **single-select** now (a §2.3 divergence, operator-confirmed, to reconcile
+in Step 6). The s13 fix thus lands in the current curiosity-box add-interest surface
+ahead of the tutor. 17/17 tests green. Next: Step 3 — altitude + node-level
+calibration (activates the §3.4 lanes).
 
 ---
 

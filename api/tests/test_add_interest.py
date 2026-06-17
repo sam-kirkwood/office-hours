@@ -177,11 +177,21 @@ def test_parse_ambiguous_segment_returns_path_options(client: TestClient, fakes)
                                 "key": "transistors-and-circuits",
                                 "label_md": "How transistors and circuits actually work",
                                 "draft_intent_context": "devices-and-circuits angle, teach intent",
+                                "what_you_learn": "How p-n junctions and transistors behave.",
+                                "endpoint": "I can analyse a transistor amplifier.",
+                                "math_intensity": "algebra",
+                                "mode_lean": "problems",
+                                "leans_on_prereq_slugs": [],
                             },
                             {
                                 "key": "deeper-physics",
                                 "label_md": "The deeper physics of why semiconductors behave this way",
                                 "draft_intent_context": "solid-state-physics angle, teach intent",
+                                "what_you_learn": "Band theory and Fermi levels.",
+                                "endpoint": "I can explain doping in QM terms.",
+                                "math_intensity": "linear_algebra",
+                                "mode_lean": "balanced",
+                                "leans_on_prereq_slugs": [],
                             },
                         ],
                         "dedup": {"verdict": "new", "matched_node_slug": None},
@@ -653,3 +663,246 @@ def test_resolve_rejects_both_existing_and_related(client: TestClient, fakes) ->
         headers=AUTH_HEADERS,
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 Step 2 — rich paths + path_json
+# ---------------------------------------------------------------------------
+
+_RICH_PATH_OPTION = {
+    "key": "transistors-and-circuits",
+    "label_md": "How transistors and circuits actually work",
+    "draft_intent_context": "Curious about how transistors and circuits work, device-physics angle.",
+    "what_you_learn": "How p-n junctions, diodes, and bipolar/FET transistors behave; how to read a datasheet.",
+    "endpoint": "I can analyse a simple transistor amplifier and design a basic circuit.",
+    "math_intensity": "algebra",
+    "mode_lean": "problems",
+    "leans_on_prereq_slugs": ["calculus-1"],
+}
+
+_RICH_PATH_OPTION_2 = {
+    "key": "deeper-physics",
+    "label_md": "The deeper physics of why semiconductors behave this way",
+    "draft_intent_context": "Wants to understand band structure and QM of semiconductors.",
+    "what_you_learn": "Band theory, Fermi levels, effective mass, direct vs indirect band gaps.",
+    "endpoint": "I can explain why silicon conducts under doping in terms of quantum mechanics.",
+    "math_intensity": "linear_algebra",
+    "mode_lean": "balanced",
+    "leans_on_prereq_slugs": ["calculus-1", "linear-algebra"],
+}
+
+
+def test_parse_ambiguous_segment_rich_fields(client: TestClient, fakes) -> None:
+    """Rich path fields are present on ambiguous segment path_options."""
+    supabase, anthropic = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE, LINALG_NODE])
+    _prime_llm_calls(supabase)
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "raw_text_segment": "I want to learn semiconductors",
+                        "specificity": "ambiguous",
+                        "implicit_intent": "teach",
+                        "mirror_back_md": "That covers a few angles — which sounds closest?",
+                        "optional_followup_md": None,
+                        "path_options": [_RICH_PATH_OPTION, _RICH_PATH_OPTION_2],
+                        "dedup": {"verdict": "new", "matched_node_slug": None},
+                        "draft_intent_context": "semiconductors, teach intent",
+                    }
+                ]
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/parse",
+        json={
+            "user_id": str(uuid4()),
+            "raw_text": "I want to learn semiconductors",
+            "added_via": "survey",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    opts = resp.json()["segments"][0]["path_options"]
+    assert len(opts) == 2
+    opt = opts[0]
+    assert opt["key"] == "transistors-and-circuits"
+    assert "what_you_learn" in opt
+    assert "datasheet" in opt["what_you_learn"]
+    assert "endpoint" in opt
+    assert opt["endpoint"].startswith("I can")
+    assert opt["math_intensity"] == "algebra"
+    assert opt["mode_lean"] == "problems"
+    assert opt["leans_on_prereq_slugs"] == ["calculus-1"]
+
+    opt2 = opts[1]
+    assert opt2["math_intensity"] == "linear_algebra"
+    assert set(opt2["leans_on_prereq_slugs"]) == {"calculus-1", "linear-algebra"}
+
+
+def test_parse_drops_hallucinated_leans_on_slugs(client: TestClient, fakes) -> None:
+    """Unknown slugs in leans_on_prereq_slugs are silently dropped."""
+    supabase, anthropic = fakes
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    _prime_llm_calls(supabase)
+
+    bad_path = {
+        **_RICH_PATH_OPTION,
+        "leans_on_prereq_slugs": ["calculus-1", "does-not-exist"],
+    }
+    anthropic.queue(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "raw_text_segment": "I want to learn semiconductors",
+                        "specificity": "ambiguous",
+                        "implicit_intent": "teach",
+                        "mirror_back_md": "Which angle?",
+                        "optional_followup_md": None,
+                        "path_options": [bad_path],
+                        "dedup": {"verdict": "new", "matched_node_slug": None},
+                        "draft_intent_context": "semiconductors, teach intent",
+                    }
+                ]
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/parse",
+        json={
+            "user_id": str(uuid4()),
+            "raw_text": "I want to learn semiconductors",
+            "added_via": "survey",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    slugs = resp.json()["segments"][0]["path_options"][0]["leans_on_prereq_slugs"]
+    assert slugs == ["calculus-1"]
+    assert "does-not-exist" not in slugs
+
+
+def test_resolve_persists_path_json(client: TestClient, fakes) -> None:
+    """path_json passed to resolve is written to the user_interests row."""
+    supabase, anthropic = fakes
+    ui_id = str(uuid4())
+    new_node_id = str(uuid4())
+
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond("edges", "select", lambda _: [])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Semiconductors — Devices",
+                "slug": "semiconductors-devices",
+                "description_md": "How transistors work.",
+                "domain": "physics",
+                "difficulty_hint": "core",
+                "subtopics": ["p-n junction", "transistors"],
+                "proposed_prerequisite_slugs": [],
+                "entry_point_preview_md": "a conceptual entrance to semiconductor devices",
+            }
+        )
+    )
+
+    path_json_sent = {
+        "key": "transistors-and-circuits",
+        "label_md": "How transistors and circuits actually work",
+        "what_you_learn": "How p-n junctions and transistors behave.",
+        "endpoint": "I can analyse a transistor amplifier.",
+        "math_intensity": "algebra",
+        "mode_lean": "problems",
+        "leans_on_prereq_slugs": ["calculus-1"],
+    }
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "explicit_request",
+            "raw_text": "semiconductors",
+            "final_intent_text": "Semiconductors — transistors and circuits",
+            "intent_context": "Device-physics angle, how transistors work.",
+            "path_json": path_json_sent,
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
+    assert len(ui_inserts) == 1
+    written_path = ui_inserts[0].payload["path_json"]
+    assert written_path is not None
+    assert written_path["key"] == "transistors-and-circuits"
+    assert written_path["mode_lean"] == "problems"
+    assert written_path["leans_on_prereq_slugs"] == ["calculus-1"]
+
+
+def test_resolve_path_json_leans_on_validated(client: TestClient, fakes) -> None:
+    """Unknown leans_on slugs in path_json are dropped before the DB write."""
+    supabase, anthropic = fakes
+    ui_id = str(uuid4())
+    new_node_id = str(uuid4())
+
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond("edges", "select", lambda _: [])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Semiconductors — Devices",
+                "slug": "semiconductors-devices-v2",
+                "description_md": "How transistors work.",
+                "domain": "physics",
+                "difficulty_hint": "core",
+                "subtopics": ["p-n junction", "transistors"],
+                "proposed_prerequisite_slugs": [],
+                "entry_point_preview_md": "a conceptual entrance to semiconductor devices",
+            }
+        )
+    )
+
+    path_json_with_bad_slug = {
+        "key": "transistors-and-circuits",
+        "label_md": "How transistors work",
+        "what_you_learn": "How p-n junctions work.",
+        "endpoint": "I can analyse a circuit.",
+        "math_intensity": "algebra",
+        "mode_lean": "problems",
+        "leans_on_prereq_slugs": ["calculus-1", "hallucinated-slug"],
+    }
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "explicit_request",
+            "raw_text": "semiconductors",
+            "final_intent_text": "Semiconductors — transistors",
+            "intent_context": "Device-physics angle.",
+            "path_json": path_json_with_bad_slug,
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
+    assert len(ui_inserts) == 1
+    written_slugs = ui_inserts[0].payload["path_json"]["leans_on_prereq_slugs"]
+    assert written_slugs == ["calculus-1"]
+    assert "hallucinated-slug" not in written_slugs

@@ -89,7 +89,14 @@ class PathOption(BaseModel):
 
     key: str               # stable identifier, e.g. 'transistors-and-circuits'
     label_md: str          # short display label (≤ 80 chars)
-    draft_intent_context: str  # intent_context if the user picks this path
+    draft_intent_context: str  # intent_context prose if the user picks this path
+    # Rich fields (Phase 13 Step 2) — presented in the path-pick UI so the user
+    # has enough detail to choose; stored as path_json on user_interests.
+    what_you_learn: str    # 1-2 sentences: concrete deliverables of this path
+    endpoint: str          # first-person capability statement ("I can …")
+    math_intensity: str    # 'algebra'|'calculus'|'linear_algebra'|'heavy_math'|'qualitative'
+    mode_lean: str         # 'problems'|'papers'|'balanced'
+    leans_on_prereq_slugs: list[str]  # validated against real node slugs before storage
 
 
 class ParsedInterestSegment(BaseModel):
@@ -131,7 +138,7 @@ class ResolveAddInterestRequest(BaseModel):
     added_via: str  # 'survey' | 'explicit_request' | 'cross_pollination'
     raw_text: str                       # original text the user typed (for audit)
     final_intent_text: str              # synthesized: original + chosen path + extra context
-    intent_context: str                 # the soft text stored on user_interests
+    intent_context: str                 # the prose narrative stored on user_interests
 
     # Echoed back from /parse. Server validates each slug exists in the
     # megagraph before acting on it. Mutually exclusive — at most one is set.
@@ -143,6 +150,19 @@ class ResolveAddInterestRequest(BaseModel):
     #   returned 'new'.
     existing_node_slug: str | None = None
     related_node_slug: str | None = None
+
+    # Structured path facts (Phase 13 Step 2). Present when the user chose a
+    # path from an ambiguous interest; null when the interest was specific or
+    # the user skipped. Stored as path_json on user_interests. The curator
+    # reads mode_lean and leans_on as field reads from this column; they are
+    # NOT duplicated in intent_context prose.
+    path_json: dict | None = None
+
+    # Per-interest altitude signal (Phase 13 Step 3). Drives intent and the
+    # §3.4 entry-lane at generation time. Read as a structured field — never
+    # re-parsed from intent_context prose. Values: 'new' | 'coming_back' |
+    # 'go_deep'. Null when the user did not set one (falls back to prose).
+    altitude: str | None = None
 
 
 class GeneratedInterestNode(BaseModel):
@@ -166,6 +186,9 @@ class ConceptTourTile(BaseModel):
     survey-and-difficulty-design.md §1.6.2). subtopic_key is derived from
     the subtopic name (lowercase kebab-case) and is stable across calls so
     the client can post tile-level state back.
+
+    Retained for backward-compat with existing survey code; replaced in the
+    resolve response by NodeReadinessTile (Phase 13 Step 3).
     """
 
     node_id: UUID         # foundation node owning the subtopic
@@ -175,6 +198,34 @@ class ConceptTourTile(BaseModel):
     gloss: str | None = None
 
 
+class NodeReadinessTile(BaseModel):
+    """One node-level tile for the coarse readiness pass (Phase 13 Step 3).
+
+    Replaces the subtopic ConceptTour. Lives at the PREREQUISITE NODE level —
+    solid / rusty / new over the whole node, not per subtopic. The user marks
+    each node's overall readiness; detail accrues from engagement + the node
+    panel per §B1.
+    """
+
+    node_id: UUID
+    node_slug: str
+    node_title: str
+    node_description_preview: str | None = None  # first ~120 chars of description_md
+
+
+class NodeReadinessStateItem(BaseModel):
+    """One user readiness mark for a prereq node."""
+    node_id: UUID
+    state: str  # 'solid' | 'rusty' | 'new' — mapped to comfortable/active/unseen
+
+
+class NodeReadinessSubmitRequest(BaseModel):
+    """POST /add-interest/node-readiness — write node-level user_node_states."""
+    user_id: UUID
+    user_interest_id: UUID
+    node_states: list[NodeReadinessStateItem]
+
+
 class ResolveAddInterestResponse(BaseModel):
     user_interest_id: UUID
     node_id: UUID
@@ -182,7 +233,7 @@ class ResolveAddInterestResponse(BaseModel):
     verdict: str  # 'same' | 'related' | 'new'
     intent_context: str
     starter_preview_md: str
-    concept_tour: list[ConceptTourTile]
+    node_readiness: list[NodeReadinessTile]  # replaces concept_tour (Phase 13 Step 3)
 
 
 # --- /add-interest/rewrite-summaries -----------------------------------------

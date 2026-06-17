@@ -51,6 +51,19 @@ interface GradeSolutionResponse {
 
 type AddedVia = "survey" | "explicit_request" | "cross_pollination";
 
+// Structured path facts persisted as path_json on user_interests.
+// draft_intent_context is excluded — it is narrative prose used only
+// to build intent_context and is not stored in path_json.
+export interface RichPath {
+  key: string;
+  label_md: string;
+  what_you_learn: string;
+  endpoint: string;
+  math_intensity: "algebra" | "calculus" | "linear_algebra" | "heavy_math" | "qualitative";
+  mode_lean: "problems" | "papers" | "balanced";
+  leans_on_prereq_slugs: string[];
+}
+
 export interface ParsedInterestSegmentDTO {
   raw_text_segment: string;
   kind: "interest" | "concept";
@@ -58,11 +71,7 @@ export interface ParsedInterestSegmentDTO {
   implicit_intent: "teach" | "refresh" | "consolidate";
   mirror_back_md: string;
   optional_followup_md: string | null;
-  path_options: Array<{
-    key: string;
-    label_md: string;
-    draft_intent_context: string;
-  }>;
+  path_options: Array<RichPath & { draft_intent_context: string }>;
   dedup: {
     verdict: "same" | "related" | "new";
     matched_node_slug: string | null;
@@ -88,6 +97,7 @@ interface ResolveAddInterestArgs {
   intentContext: string;
   existingNodeSlug?: string | null;
   relatedNodeSlug?: string | null;
+  pathJson?: RichPath | null;
 }
 
 export interface ConceptTourTileDTO {
@@ -225,6 +235,7 @@ export async function resolveAddInterest(
     intent_context: args.intentContext,
     existing_node_slug: args.existingNodeSlug ?? null,
     related_node_slug: args.relatedNodeSlug ?? null,
+    path_json: args.pathJson ?? null,
   });
 }
 

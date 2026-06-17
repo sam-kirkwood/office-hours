@@ -40,7 +40,16 @@ def build_parse_system_prompt() -> str:
         '    "mirror_back_md": "string",\n'
         '    "optional_followup_md": "string" | null,\n'
         '    "path_options": [\n'
-        '      {"key": "kebab-slug", "label_md": "string", "draft_intent_context": "string"}\n'
+        "      {\n"
+        '        "key": "kebab-slug",\n'
+        '        "label_md": "string (≤80 chars)",\n'
+        '        "draft_intent_context": "string",\n'
+        '        "what_you_learn": "string",\n'
+        '        "endpoint": "string",\n'
+        '        "math_intensity": "algebra" | "calculus" | "linear_algebra" | "heavy_math" | "qualitative",\n'
+        '        "mode_lean": "problems" | "papers" | "balanced",\n'
+        '        "leans_on_prereq_slugs": ["slug", ...]\n'
+        "      }\n"
         "    ],\n"
         '    "dedup": {"verdict": "same" | "related" | "new", "matched_node_slug": "string" | null},\n'
         '    "draft_intent_context": "string"\n'
@@ -82,12 +91,37 @@ def build_parse_system_prompt() -> str:
         "  skippable invitation (e.g. 'Want to tell me more about what draws "
         "  you to this?'). Leave path_options as [].\n"
         "- For ambiguous segments: leave optional_followup_md null and provide "
-        "  3 to 5 path_options, each with a short kebab-case key, a label of "
-        "  at most 80 characters in natural language, and a draft_intent_context "
-        "  that captures what the resolved intent would be if the user picks "
-        "  that path (same shape as the segment-level draft_intent_context — see "
-        "  below). Always end with an implicit 'or something else' — do not "
-        "  add an explicit other option, the UI will provide one.\n"
+        "  3 to 5 path_options. Each path option needs ALL of the following:\n"
+        "  • key: short kebab-case identifier.\n"
+        "  • label_md: at most 80 characters, natural language — the path name "
+        "    as the user would read it.\n"
+        "  • draft_intent_context: what the resolved intent prose would be if "
+        "    the user picks this path (same shape as segment-level "
+        "    draft_intent_context — see below).\n"
+        "  • what_you_learn: 1–2 sentences of CONCRETE deliverables for this "
+        "    path. Name specific techniques, equations, or results the user "
+        "    will be able to work with. Do NOT write 'you will explore…' or "
+        "    'you will gain an understanding of…' — be specific.\n"
+        "  • endpoint: a first-person 'I can …' completion statement naming "
+        "    what the user can DO at the end of this path. Example: 'I can "
+        "    analyse a transistor amplifier and design a basic circuit.' Keep "
+        "    it to one sentence.\n"
+        "  • math_intensity: pick the level that matches the heaviest "
+        "    mathematical requirement of this path: 'algebra' (no calculus), "
+        "    'calculus' (single/multi-variable), 'linear_algebra' (vectors, "
+        "    matrices, eigenstructure — may combine with calculus), "
+        "    'heavy_math' (graduate-level, e.g. tensor calculus, abstract "
+        "    algebra, measure theory), 'qualitative' (conceptual / minimal "
+        "    symbolic math).\n"
+        "  • mode_lean: 'papers' when the path is research-facing or "
+        "    following a live field; 'problems' when it is skill-building "
+        "    through worked exercises; 'balanced' when genuinely mixed.\n"
+        "  • leans_on_prereq_slugs: a list of node slugs from the candidate "
+        "    list that this path specifically leans on as prerequisites. "
+        "    Empty list is fine. ONLY use slugs that appear in the candidate "
+        "    list — do not invent slugs.\n"
+        "  Always end with an implicit 'or something else' — do not add an "
+        "  explicit other option; the UI provides one.\n"
         "- dedup.verdict = 'same' when the segment clearly maps to one of the "
         "  candidate nodes. 'related' when the topic is adjacent but distinct "
         "  (different level, different sub-area). 'new' when no candidate is "

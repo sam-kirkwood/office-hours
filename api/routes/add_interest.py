@@ -40,9 +40,11 @@ from auth import require_internal_token
 from config import HAIKU_MODEL, SONNET_MODEL
 from prompts import add_interest as prompts
 from schemas import (
-    ConceptTourTile,
+    ConceptTourTile,  # retained for backward-compat; not used in resolve response
     DedupVerdict,
     GeneratedInterestNode,
+    NodeReadinessTile,
+    NodeReadinessSubmitRequest,
     ParseAddInterestRequest,
     ParseAddInterestResponse,
     ParsedInterestPayload,
@@ -137,6 +139,38 @@ def _validate_dedup_slugs(
     return cleaned
 
 
+def _validate_path_leans_on(
+    segments: list[ParsedInterestSegment], all_slug_set: set[str]
+) -> list[ParsedInterestSegment]:
+    """Drop hallucinated leans_on_prereq_slugs from each path option.
+
+    Validated against ALL nodes (not just the shortlist candidates) because
+    foundation prerequisite slugs — e.g. 'calculus', 'linear-algebra' — may
+    not appear in the 20-node shortlist selected for the typed topic."""
+    cleaned: list[ParsedInterestSegment] = []
+    for seg in segments:
+        cleaned_opts = []
+        for opt in seg.path_options:
+            bad = [s for s in opt.leans_on_prereq_slugs if s not in all_slug_set]
+            if bad:
+                logger.warning(
+                    "Haiku path %r for segment %r has unknown leans_on slugs %r — dropping them",
+                    opt.key,
+                    seg.raw_text_segment[:60],
+                    bad,
+                )
+                opt = opt.model_copy(
+                    update={
+                        "leans_on_prereq_slugs": [
+                            s for s in opt.leans_on_prereq_slugs if s in all_slug_set
+                        ]
+                    }
+                )
+            cleaned_opts.append(opt)
+        cleaned.append(seg.model_copy(update={"path_options": cleaned_opts}))
+    return cleaned
+
+
 def _fetch_node_by_slug(supabase: Client, slug: str) -> dict | None:
     resp = (
         supabase.table("nodes")
@@ -156,14 +190,19 @@ def _upsert_user_interest(
     node_id: str,
     added_via: str,
     intent_context: str,
+    path_json: dict | None = None,
+    altitude: str | None = None,
 ) -> UUID:
-    """Insert a user_interests row with intent_context. On unique violation
-    (duplicate add), update the existing row's intent_context and return its id."""
-    row = {
+    """Insert a user_interests row with intent_context, path_json (Phase 13
+    Step 2), and altitude (Phase 13 Step 3). On unique violation (duplicate
+    add), refresh all three columns and return the existing row's id."""
+    row: dict = {
         "user_id": user_id,
         "node_id": node_id,
         "added_via": added_via,
         "intent_context": intent_context,
+        "path_json": path_json,
+        "altitude": altitude,
     }
     try:
         result = supabase.table("user_interests").insert(row).execute()
@@ -185,11 +224,11 @@ def _upsert_user_interest(
                 detail="user_interest unique violation but no row found",
             ) from exc
         ui_id = existing.data[0]["id"]
-        # Refresh intent_context on the existing row — the user just resolved
-        # this interest again and may have a more specific context now.
-        supabase.table("user_interests").update({"intent_context": intent_context}).eq(
-            "id", ui_id
-        ).execute()
+        # Refresh intent_context, path_json, and altitude — the user just
+        # resolved this interest again and may have updated any of these.
+        supabase.table("user_interests").update(
+            {"intent_context": intent_context, "path_json": path_json, "altitude": altitude}
+        ).eq("id", ui_id).execute()
         return UUID(ui_id)
 
 
@@ -233,7 +272,9 @@ def parse_add_interest(
         temperature=0,
     )
 
+    all_slug_set = {n["slug"] for n in all_nodes}
     segments = _validate_dedup_slugs(payload.segments, candidate_slugs)
+    segments = _validate_path_leans_on(segments, all_slug_set)
 
     # Belt-and-braces: clamp specificity-shaped fields. Haiku occasionally puts
     # path_options on a 'specific' segment or leaves them empty on 'ambiguous'.
@@ -284,6 +325,22 @@ def resolve_add_interest(
     all_nodes: list[dict] = nodes_resp.data or []
     slug_to_node = {n["slug"]: n for n in all_nodes}
     title_to_node = {n["title"].strip().lower(): n for n in all_nodes}
+    all_slug_set = {n["slug"] for n in all_nodes}
+
+    # Validate and clean path_json.leans_on_prereq_slugs against the real
+    # megagraph. The client validated at parse time, but the resolve call is
+    # the authority — a stale client or a crafted request could send bad slugs.
+    path_json = body.path_json
+    if path_json is not None:
+        raw_leans_on = path_json.get("leans_on_prereq_slugs") or []
+        cleaned_leans_on = [s for s in raw_leans_on if s in all_slug_set]
+        bad = [s for s in raw_leans_on if s not in all_slug_set]
+        if bad:
+            logger.warning(
+                "resolve: path_json.leans_on_prereq_slugs contains unknown slugs %r — dropping",
+                bad,
+            )
+        path_json = {**path_json, "leans_on_prereq_slugs": cleaned_leans_on}
 
     # --- Case 1: link to an existing node (verdict='same' from /parse) ------
     if body.existing_node_slug:
@@ -299,9 +356,13 @@ def resolve_add_interest(
             node_id=existing["id"],
             added_via=body.added_via,
             intent_context=body.intent_context,
+            path_json=path_json,
+            altitude=body.altitude,
         )
         starter = _starter_preview_for_existing(existing)
-        tour = _concept_tour(supabase, node_id=existing["id"], all_nodes=all_nodes)
+        readiness = _node_readiness_tiles(
+            supabase, node_id=existing["id"], path_json=path_json, all_nodes=all_nodes
+        )
         return ResolveAddInterestResponse(
             user_interest_id=ui_id,
             node_id=UUID(existing["id"]),
@@ -309,7 +370,7 @@ def resolve_add_interest(
             verdict="same",
             intent_context=body.intent_context,
             starter_preview_md=starter,
-            concept_tour=tour,
+            node_readiness=readiness,
         )
 
     # --- Case 2 + 3: generate a new node ------------------------------------
@@ -375,8 +436,12 @@ def resolve_add_interest(
             node_id=title_matched["id"],
             added_via=body.added_via,
             intent_context=body.intent_context,
+            path_json=path_json,
+            altitude=body.altitude,
         )
-        tour = _concept_tour(supabase, node_id=title_matched["id"], all_nodes=all_nodes)
+        readiness = _node_readiness_tiles(
+            supabase, node_id=title_matched["id"], path_json=path_json, all_nodes=all_nodes
+        )
         return ResolveAddInterestResponse(
             user_interest_id=ui_id,
             node_id=UUID(title_matched["id"]),
@@ -384,7 +449,7 @@ def resolve_add_interest(
             verdict="same",  # we collapsed into the existing node
             intent_context=body.intent_context,
             starter_preview_md=_starter_preview_for_existing(title_matched),
-            concept_tour=tour,
+            node_readiness=readiness,
         )
 
     # Insert the new node, handling slug collision races.
@@ -473,13 +538,17 @@ def resolve_add_interest(
         node_id=node_id,
         added_via=body.added_via,
         intent_context=body.intent_context,
+        path_json=path_json,
+        altitude=body.altitude,
     )
 
     verdict = "related" if related_slug else "new"
     starter = (
         f"Your first item will be: {generated.entry_point_preview_md}".rstrip(".") + "."
     )
-    tour = _concept_tour(supabase, node_id=node_id, all_nodes=all_nodes)
+    readiness = _node_readiness_tiles(
+        supabase, node_id=node_id, path_json=path_json, all_nodes=all_nodes
+    )
     return ResolveAddInterestResponse(
         user_interest_id=ui_id,
         node_id=UUID(node_id),
@@ -487,13 +556,16 @@ def resolve_add_interest(
         verdict=verdict,
         intent_context=body.intent_context,
         starter_preview_md=starter,
-        concept_tour=tour,
+        node_readiness=readiness,
     )
 
 
 # ---------------------------------------------------------------------------
-# Concept tour + starter preview helpers
+# Node-readiness + starter preview helpers (Phase 13 Step 3)
 # ---------------------------------------------------------------------------
+
+NODE_READINESS_MAX = 8  # max prereq nodes shown in the readiness pass
+NODE_DESCRIPTION_PREVIEW_LEN = 120  # chars to show as the node preview
 
 
 def _starter_preview_for_existing(node: dict) -> str:
@@ -505,19 +577,71 @@ def _starter_preview_for_existing(node: dict) -> str:
     return f"Your first item will be: a conceptual entrance to {title}."
 
 
+def _node_readiness_tiles(
+    supabase: Client,
+    *,
+    node_id: str,
+    path_json: dict | None,
+    all_nodes: list[dict],
+) -> list[NodeReadinessTile]:
+    """Build up to NODE_READINESS_MAX node-level tiles for the coarse
+    readiness pass (Phase 13 Step 3 §B1/§B3).
+
+    Replaces the subtopic-level ConceptTour. Two paths for prereq scope:
+
+    1. path_json.leans_on_prereq_slugs is set (user picked a path in Step 2):
+       use those slugs — they include both foundation and interest-kind nodes
+       (e.g. SR/GR for an astrophysics path). This is the explicit fix for
+       the foundations-only blind spot in the old _concept_tour: interest-kind
+       prereqs like Special Relativity MUST appear here.
+
+    2. Fallback (leans_on absent/empty): walk the node's prerequisite edges and
+       include ALL prereq kinds (foundation + interest). The old _concept_tour
+       only used foundations as primary; this pass includes everything.
+    """
+    nodes_by_id = {n["id"]: n for n in all_nodes}
+    slug_to_node = {n["slug"]: n for n in all_nodes}
+
+    # --- Scope prereqs via path_json.leans_on_prereq_slugs if available -----
+    leans_on: list[str] = (path_json or {}).get("leans_on_prereq_slugs") or []
+    if leans_on:
+        prereqs = [slug_to_node[s] for s in leans_on if s in slug_to_node]
+    else:
+        # Fallback: walk the node's actual prereq edges — ALL kinds
+        edges_resp = (
+            supabase.table("edges")
+            .select("source_node_id")
+            .eq("target_node_id", node_id)
+            .eq("edge_kind", "prerequisite")
+            .execute()
+        )
+        prereq_ids = [e["source_node_id"] for e in (edges_resp.data or [])]
+        prereqs = [nodes_by_id[i] for i in prereq_ids if i in nodes_by_id]
+
+    tiles: list[NodeReadinessTile] = []
+    for prereq in prereqs[:NODE_READINESS_MAX]:
+        desc = prereq.get("description_md") or ""
+        preview = desc[:NODE_DESCRIPTION_PREVIEW_LEN] if desc else None
+        tiles.append(
+            NodeReadinessTile(
+                node_id=UUID(prereq["id"]),
+                node_slug=prereq["slug"],
+                node_title=prereq["title"],
+                node_description_preview=preview,
+            )
+        )
+    return tiles
+
+
+# Retained for backward-compat with older survey code that may still call
+# the round-robin subtopic helper directly in tests. Not used in the resolve
+# response after Phase 13 Step 3.
 def _round_robin_tiles(
     nodes: list[dict],
     *,
     limit: int,
     seen: set[tuple[str, str]],
 ) -> list[ConceptTourTile]:
-    """Take subtopic tiles from `nodes` one-at-a-time in round-robin order
-    (node 0's first subtopic, node 1's first, …, then everyone's second, …).
-
-    Round-robin instead of draining each node in turn so a single foundation
-    with a long subtopic list (e.g. Classical Mechanics' intro topics) can't
-    monopolise the tour — the tiles sample breadth across the prerequisites
-    rather than dumping one node's whole list. Stops at `limit` tiles."""
     tiles: list[ConceptTourTile] = []
     if limit <= 0:
         return tiles
@@ -547,44 +671,59 @@ def _round_robin_tiles(
     return tiles
 
 
-def _concept_tour(
-    supabase: Client, *, node_id: str, all_nodes: list[dict]
-) -> list[ConceptTourTile]:
-    """Build up to CONCEPT_TOUR_MAX subtopic-level tiles drawn from the node's
-    prerequisite foundation nodes (survey-and-difficulty-design.md §1.6.2).
+# ---------------------------------------------------------------------------
+# /add-interest/node-readiness  (Phase 13 Step 3)
+# ---------------------------------------------------------------------------
 
-    Tiles live at the foundation-subtopic level, so foundation prerequisites
-    supply the tour; interest-kind prerequisites contribute only as a fallback
-    when foundations don't yield enough to be worth showing. Within each group
-    the tiles are taken round-robin (see `_round_robin_tiles`) so one node's
-    long intro list doesn't crowd out the others."""
-    edges_resp = (
-        supabase.table("edges")
-        .select("source_node_id, edge_kind, target_node_id")
-        .eq("target_node_id", node_id)
-        .eq("edge_kind", "prerequisite")
-        .execute()
-    )
-    prereq_ids: list[str] = [
-        e["source_node_id"] for e in (edges_resp.data or [])
-    ]
+_NODE_READINESS_STATE_MAP = {
+    "solid": "comfortable",
+    "rusty": "active",
+    "new": "unseen",
+}
 
-    nodes_by_id = {n["id"]: n for n in all_nodes}
-    prereqs = [nodes_by_id[i] for i in prereq_ids if i in nodes_by_id]
 
-    foundations = [p for p in prereqs if p.get("kind") == "foundation"]
-    others = [p for p in prereqs if p.get("kind") != "foundation"]
+@router.post(
+    "/add-interest/node-readiness",
+    status_code=204,
+    dependencies=[Depends(require_internal_token)],
+)
+def submit_node_readiness(
+    body: NodeReadinessSubmitRequest,
+    supabase: Client = Depends(get_supabase_client),
+) -> None:
+    """Write node-level user_node_states from the coarse readiness pass.
 
-    seen_keys: set[tuple[str, str]] = set()
-    tiles = _round_robin_tiles(foundations, limit=CONCEPT_TOUR_MAX, seen=seen_keys)
-    # Only fall back to interest-kind prerequisites if the foundations alone
-    # didn't produce a worthwhile tour (e.g. a node whose only prereqs are
-    # themselves interest nodes).
-    if len(tiles) < CONCEPT_TOUR_MIN:
-        tiles += _round_robin_tiles(
-            others, limit=CONCEPT_TOUR_MAX - len(tiles), seen=seen_keys
-        )
-    return tiles
+    Maps user-facing labels (solid/rusty/new) to DB states
+    (comfortable/active/unseen) and upserts one row per answered node.
+    The upsert key is (user_id, node_id) — existing rows from Stage 2
+    foundation tiles or engagement are updated in place rather than
+    duplicated.
+    """
+    user_id = str(body.user_id)
+    for item in body.node_states:
+        db_state = _NODE_READINESS_STATE_MAP.get(item.state)
+        if db_state is None:
+            logger.warning(
+                "node-readiness: unknown state %r for node %s — skipping",
+                item.state,
+                item.node_id,
+            )
+            continue
+        try:
+            supabase.table("user_node_states").upsert(
+                {
+                    "user_id": user_id,
+                    "node_id": str(item.node_id),
+                    "state": db_state,
+                },
+                on_conflict="user_id,node_id",
+            ).execute()
+        except Exception as exc:
+            logger.warning(
+                "node-readiness: upsert failed for node %s: %s",
+                item.node_id,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------

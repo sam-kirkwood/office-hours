@@ -38,7 +38,7 @@ Three-lane entry-point written into `survey-and-difficulty-design.md` §3.4
 default updated (go-deep → one step above moderate). Behavior is inert until
 Phase 13 Steps 3/4 collect the altitude signal.
 
-### Step 2 — Rich paths (§B2)
+### Step 2 — Rich paths (§B2) ✅ done (2026-06-16)
 Extend the path object (`what_you_learn`, `endpoint`, `math_intensity`/`mode_lean`,
 `leans_on_prereq_slugs`); generate them; wire path → `intent_context` + altitude +
 mode lean. Keep prereqs node-level but **path-aware** (no path-nodes — graph-design
@@ -104,6 +104,12 @@ Fold the redesign into the canonical specs (`survey-and-difficulty-design.md` §
 curator priors in `curriculum-curator-design.md`, remove the superseded banner, and
 demote the orientation doc to an archived design exploration. Then **deploy + write
 the reader-facing README** (the end-of-project artifacts).
+
+**§2.3 reconciliation note (from Step 2):** Step 2 changed the path pick from
+multi-select to **single-select** (one path = one coherent `mode_lean`/`leans_on`
+set; the free-text escape still covers "a bit of both"). §2.3 still says "multi-
+select is allowed" — reconcile it to single-select here. Operator-confirmed as
+intentional.
 
 ## Out of scope
 

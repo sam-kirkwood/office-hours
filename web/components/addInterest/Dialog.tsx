@@ -11,7 +11,7 @@
 //
 // "gathering" presents different UI based on input:
 //   - source="segment", specificity="specific"     → optional followup textarea
-//   - source="segment", specificity="ambiguous"    → path-option chips + free text
+//   - source="segment", specificity="ambiguous"    → rich path cards (single-select) + free text
 //   - source="preNode"                             → followup textarea (no parse)
 //
 // On resolve we hand the caller everything it needs to run the concept tour.
@@ -25,6 +25,7 @@ import type {
   DialogResolved,
   AddedVia,
 } from "./types";
+import type { RichPath } from "@/lib/pythonApi";
 
 interface Props {
   rawText: string;
@@ -49,7 +50,7 @@ export default function Dialog({
   const [followupText, setFollowupText] = useState<string>(
     input.source === "preNode" ? input.preNode.defaultIntentContext ?? "" : "",
   );
-  const [pickedPathKeys, setPickedPathKeys] = useState<Set<string>>(new Set());
+  const [pickedPathKey, setPickedPathKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isSegment = input.source === "segment";
@@ -69,21 +70,17 @@ export default function Dialog({
   const showPaths = isSegment && segment!.specificity === "ambiguous";
   const showFollowup = !showPaths; // specific OR preNode → followup textarea
 
-  function togglePath(key: string) {
-    setPickedPathKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  function selectPath(key: string) {
+    setPickedPathKey((prev) => (prev === key ? null : key));
   }
 
-  // Compose the final intent text + intent_context the resolve call needs.
+  // Compose the final intent text + intent_context + pathJson the resolve call needs.
   function composeResolveBody(): {
     finalIntentText: string;
     intentContext: string;
     existingNodeSlug: string | null;
     relatedNodeSlug: string | null;
+    pathJson: RichPath | null;
   } {
     const trimmed = followupText.trim();
 
@@ -99,27 +96,31 @@ export default function Dialog({
         intentContext,
         existingNodeSlug: preNode.slug,
         relatedNodeSlug: null,
+        pathJson: null,
       };
     }
 
     // Segment path:
     const seg = segment!;
-    const pickedOptions = seg.path_options.filter((p) => pickedPathKeys.has(p.key));
+    const pickedOption = pickedPathKey
+      ? seg.path_options.find((p) => p.key === pickedPathKey) ?? null
+      : null;
     let intentContext = seg.draft_intent_context || seg.mirror_back_md;
     let finalIntentText = seg.raw_text_segment || rawText;
 
-    if (pickedOptions.length > 0) {
-      const labels = pickedOptions.map((p) => p.label_md.replace(/[*_`#]/g, "").trim());
-      intentContext = pickedOptions
-        .map((p) => p.draft_intent_context)
-        .filter((s) => s.length > 0)
-        .join("; ") || intentContext;
-      finalIntentText = `${seg.raw_text_segment} — ${labels.join("; ")}`;
+    // Build pathJson (structured facts) separately from the prose intentContext.
+    let pathJson: RichPath | null = null;
+    if (pickedOption) {
+      const label = pickedOption.label_md.replace(/[*_`#]/g, "").trim();
+      intentContext = pickedOption.draft_intent_context || intentContext;
+      finalIntentText = `${seg.raw_text_segment} — ${label}`;
+      // Exclude draft_intent_context — it's prose, not a structured fact.
+      const { draft_intent_context: _omit, ...richFields } = pickedOption;
+      pathJson = richFields;
     }
 
     if (trimmed.length > 0) {
-      // Followup textarea content is woven into intent_context so the
-      // generator sees it.
+      // Freetext is woven into intent_context prose only — not into path_json.
       intentContext = intentContext
         ? `${intentContext}. User added: ${trimmed}`
         : trimmed;
@@ -132,6 +133,7 @@ export default function Dialog({
         seg.dedup.verdict === "same" ? seg.dedup.matched_node_slug : null,
       relatedNodeSlug:
         seg.dedup.verdict === "related" ? seg.dedup.matched_node_slug : null,
+      pathJson,
     };
   }
 
@@ -150,6 +152,7 @@ export default function Dialog({
           intent_context: body.intentContext,
           existing_node_slug: body.existingNodeSlug,
           related_node_slug: body.relatedNodeSlug,
+          path_json: body.pathJson,
         }),
       });
       if (!res.ok) {
@@ -180,24 +183,48 @@ export default function Dialog({
           <p className="text-sm leading-relaxed text-muted-foreground">
             That covers a few different angles — which sounds closest?
             <span className="block text-xs italic text-muted-foreground/80 mt-1">
-              Pick any that fit, or describe what you&apos;re after.
+              Pick one, or describe what you&apos;re after below.
             </span>
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2">
             {segment.path_options.map((opt) => {
-              const active = pickedPathKeys.has(opt.key);
+              const active = pickedPathKey === opt.key;
+              const mathLabel: Record<string, string> = {
+                algebra: "Algebra",
+                calculus: "Calculus",
+                linear_algebra: "Linear algebra",
+                heavy_math: "Heavy mathematics",
+                qualitative: "Qualitative",
+              };
               return (
                 <button
                   key={opt.key}
                   type="button"
-                  onClick={() => togglePath(opt.key)}
-                  className={`rounded-md border px-3 py-2 text-left text-sm transition-colors duration-[var(--duration-fast)] ${
+                  onClick={() => selectPath(opt.key)}
+                  className={`rounded-md border px-3 py-2.5 text-left transition-colors duration-[var(--duration-fast)] ${
                     active
-                      ? "border-primary bg-[var(--amber-subtle)] text-foreground"
-                      : "border-border bg-card text-foreground hover:border-foreground/30"
+                      ? "border-primary bg-[var(--amber-subtle)]"
+                      : "border-border bg-card hover:border-foreground/30"
                   }`}
                 >
-                  {opt.label_md.replace(/[*_`#]/g, "").trim()}
+                  <span className="block text-sm font-medium text-foreground">
+                    {opt.label_md.replace(/[*_`#]/g, "").trim()}
+                  </span>
+                  {opt.what_you_learn && (
+                    <span className="mt-0.5 block text-sm leading-relaxed text-muted-foreground">
+                      {opt.what_you_learn}
+                    </span>
+                  )}
+                  {opt.endpoint && (
+                    <span className="mt-1 block text-xs italic text-muted-foreground/80">
+                      → {opt.endpoint}
+                    </span>
+                  )}
+                  {opt.math_intensity && (
+                    <span className="mt-1.5 inline-block rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
+                      {mathLabel[opt.math_intensity] ?? opt.math_intensity}
+                    </span>
+                  )}
                 </button>
               );
             })}
