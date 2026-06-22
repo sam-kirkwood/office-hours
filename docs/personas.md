@@ -1,14 +1,20 @@
 # personas.md
 
-Three personas describing the experience of using the product one month
+Four personas describing the experience of using the product one month
 after signing up. These are the primary design tool for the project: any
 feature change or architecture decision should be checked against
-whether these three users' journeys still work coherently.
+whether these four users' journeys still work coherently.
 
 Update this file when the product changes meaningfully. If a persona's
 journey no longer makes sense under the new design, either the design
 is wrong or the persona needs to be updated to reflect a new intent —
 don't quietly let the personas drift out of sync with reality.
+
+> **Note (Phase 13):** Persona 4's onboarding beat is written for the new
+> conversational orientation tutor. Personas 1–3 still describe the retired
+> seven-stage survey — their onboarding beats get updated to the tutor flow
+> in Phase 13 Step 6 (doc reconciliation); their week-1/month-1 arcs are
+> unaffected.
 
 ## How to use these
 
@@ -20,8 +26,8 @@ When evaluating a feature, ask:
 
 When evaluating a design decision, ask:
 - Which persona is this decision optimised for?
-- Are the other two personas harmed by it?
-- Is there a simpler design that serves all three?
+- Are the other three personas harmed by it?
+- Is there a simpler design that serves all four?
 
 ---
 
@@ -312,14 +318,97 @@ a confidence boost.
 
 ---
 
-## Patterns across all three
+## Persona 4: The diffuse returner
+
+**Background.** Physics undergrad ~10 years ago, now in a non-research
+job (software, say). No driving obsession and no specific mission —
+just a long-standing *"I used to be able to do this, and I miss it."*
+A popular-science series recently reminded them they can't follow the
+real content the way they once could. They want the basics back and,
+vaguely, to "finally get" some of the things that went over their head
+at university. The friend you'd hand this to without a pitch.
+
+**Onboarding (via the orientation tutor).**
+This is the persona the conversational tutor exists for — they cannot
+state a crisp interest. Their opening message is vague:
+
+> *"I dunno really — physics, I guess? Did a degree years ago but I've
+> forgotten most of the maths. I liked quantum but could never follow it."*
+
+The tutor doesn't make them pick from a menu. It reflects back what it
+heard, then *draws out* a starting point — offering a few concrete
+directions with honest detail ("the maths you'd want back first: calculus
+and differential equations"; "quantum from the conceptual entrance, or the
+deeper machinery") so they can *recognise* what appeals rather than having
+to generate it cold. They land on "get the maths back" + "quantum, properly
+this time."
+- **Intent / altitude:** nostalgia nearly makes them tap *"I know this, go
+  deep"* for quantum — until the tutor's framing ("go deep = you're solid
+  on it now") makes them honestly pick *new to me*. They pick *coming back*
+  for calculus. (That near-miss is exactly the over-claim the prompt has to
+  handle gracefully.)
+- **Calibration:** node-level — calculus and linear algebra *rusty*,
+  quantum's prerequisites mostly *new*.
+- **Mode:** no idea, so they leave the 50/50 default.
+- The session ends on the graph mirror-back — a small map of *Calculus*,
+  *Differential Equations*, and *Quantum Mechanics* over their groundwork.
+  They feel seen: *"oh — it actually got what I meant."*
+
+**What the system did at sign-up.**
+- No interest node invented from thin air: the vague intent resolved
+  against existing nodes (calculus, ODEs, quantum mechanics), so the
+  megagraph didn't gain a "physics, I guess" node.
+- Queue seeded gently: calculus and ODE refreshers (coming-back framing,
+  not cold-start drills) plus one conceptual entry-point on quantum —
+  *"what is a wavefunction actually describing?"* — pitched at the entrance
+  because they said *new*, not go-deep.
+
+**The first two weeks.**
+Mostly maths refreshers, framed as recall rather than first-time teaching.
+Rusty, but it came back faster than they feared — the early wins were the
+point, rebuilding confidence. The quantum entry-point genuinely
+illuminated something: a lot of their old confusion had been missing
+prerequisites, not the quantum itself.
+
+**Week 3.**
+A direction emerged out of the diffuse start — they kept engaging with the
+quantum-adjacent items and rerolling past the drier pure-maths ones; the
+system tilted the mix toward quantum-with-its-maths. They typed into the
+curiosity box: *"what's the deal with the uncertainty principle?"* — got a
+short answer plus the offer of a problem, took the problem. They didn't add
+it as a formal interest; it stayed a one-off (explore, not commit).
+
+**Week 4.**
+The one-off had become a real thread, so they added *Quantum Mechanics*
+properly — confident enough now to say *coming back* rather than *new*. A
+cross-pollination suggestion, *Linear Algebra for QM*, appeared; they took
+it, recognising the gap that had tripped them up a decade ago.
+
+**State at one month.**
+- Their skill tree shows a direction crystallising out of vagueness:
+  - Foundations: calculus, ODEs (active); linear algebra (active, newly
+    surfaced); the rest untouched.
+  - Interests: quantum mechanics (active), plus a bookmarked term or two
+    they hit and parked.
+- Notebook: ~12 entries — maths refreshers, quantum problems, and the
+  uncertainty-principle Q&A.
+- Mode balance drifted slightly toward problems (they reroll papers more
+  often than not), but they've never thought of it as a setting.
+- What they'd tell a friend: *"I didn't really know what I wanted, and it
+  figured it out with me."* — which is the whole point of the tutor.
+
+---
+
+## Patterns across all four
 
 A few things show up in every journey, worth keeping as explicit
 design touchpoints:
 
-1. **Free-text interest expression drives everything.** Each persona's
-   journey starts with a sentence in their own words, not a
-   checkbox-driven curriculum selection.
+1. **Free-text interest expression drives everything — even when it's
+   vague.** Three personas open with a crisp sentence; the diffuse returner
+   (Persona 4) opens with a vague one, and the tutor's job is to draw a
+   concrete starting point *out* of it rather than hand them a menu. Either
+   way the journey begins with their own words, not a checkbox curriculum.
 2. **Cross-pollination is a small but real moment.** All three notice
    the "adjacent users explored this" surface at some point in week 3
    or 4. It's not central, but it's nice.
