@@ -89,6 +89,9 @@ interface ParseAddInterestResponse {
   segments: ParsedInterestSegmentDTO[];
 }
 
+// Per-interest altitude signal (Phase 13 Step 3). Drives intent + entry-lane.
+export type Altitude = "new" | "coming_back" | "go_deep";
+
 interface ResolveAddInterestArgs {
   userId: string;
   addedVia: AddedVia;
@@ -98,14 +101,17 @@ interface ResolveAddInterestArgs {
   existingNodeSlug?: string | null;
   relatedNodeSlug?: string | null;
   pathJson?: RichPath | null;
+  altitude?: Altitude | null;
 }
 
-export interface ConceptTourTileDTO {
+// Node-level readiness tile (Phase 13 Step 3) — replaces the subtopic
+// ConceptTour. One tile per prerequisite node; the user marks each node's
+// overall readiness (solid/rusty/new).
+export interface NodeReadinessTileDTO {
   node_id: string;
   node_slug: string;
-  subtopic_key: string;
-  name: string;
-  gloss: string | null;
+  node_title: string;
+  node_description_preview: string | null;
 }
 
 interface ResolveAddInterestResponse {
@@ -115,7 +121,15 @@ interface ResolveAddInterestResponse {
   verdict: "same" | "related" | "new";
   intent_context: string;
   starter_preview_md: string;
-  concept_tour: ConceptTourTileDTO[];
+  node_readiness: NodeReadinessTileDTO[];
+}
+
+export type NodeReadinessState = "solid" | "rusty" | "new";
+
+interface SubmitNodeReadinessArgs {
+  userId: string;
+  userInterestId: string;
+  nodeStates: Array<{ nodeId: string; state: NodeReadinessState }>;
 }
 
 interface SurfacedItemRaw {
@@ -236,6 +250,23 @@ export async function resolveAddInterest(
     existing_node_slug: args.existingNodeSlug ?? null,
     related_node_slug: args.relatedNodeSlug ?? null,
     path_json: args.pathJson ?? null,
+    altitude: args.altitude ?? null,
+  });
+}
+
+// Phase 13 Step 3: write node-level readiness (solid/rusty/new) from the
+// coarse calibration pass that replaced the subtopic concept tour. Returns
+// 204 with no body.
+export async function submitNodeReadiness(
+  args: SubmitNodeReadinessArgs,
+): Promise<void> {
+  await pythonPost("/add-interest/node-readiness", {
+    user_id: args.userId,
+    user_interest_id: args.userInterestId,
+    node_states: args.nodeStates.map((s) => ({
+      node_id: s.nodeId,
+      state: s.state,
+    })),
   });
 }
 

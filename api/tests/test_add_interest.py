@@ -434,53 +434,50 @@ def test_resolve_new_node_writes_intent_context_and_tour(client: TestClient, fak
     assert ui_inserts[0].payload["intent_context"] == "applied-engineering angle, teach intent"
     assert ui_inserts[0].payload["added_via"] == "explicit_request"
 
-    # Concept tour: tiles from both foundation prerequisites, mixed string and dict
-    # subtopic shapes both resolved to {name, gloss}.
-    tour = body["concept_tour"]
-    assert len(tour) >= 1
-    names = {t["name"] for t in tour}
-    assert "Rules for differentiation" in names           # string-shape subtopics
-    assert "Matrix multiplication" in names               # dict-shape subtopics
-    # subtopic_key is slugified.
-    diff_tile = next(t for t in tour if t["name"] == "Rules for differentiation")
-    assert diff_tile["subtopic_key"] == "rules-for-differentiation"
-    assert diff_tile["node_slug"] == "calculus-1"
+    # Node-readiness pass (Phase 13 Step 3): node-level tiles, one per prereq
+    # node, NOT per subtopic. No path_json → edges fallback over both prereqs.
+    readiness = body["node_readiness"]
+    titles = {t["node_title"] for t in readiness}
+    assert "Calculus 1" in titles
+    assert "Linear Algebra" in titles
+    calc_tile = next(t for t in readiness if t["node_title"] == "Calculus 1")
+    assert calc_tile["node_slug"] == "calculus-1"
+    # Description preview is the leading slice of description_md.
+    assert calc_tile["node_description_preview"].startswith("Limits, derivatives")
 
 
-def test_concept_tour_round_robins_across_prereqs(client: TestClient, fakes) -> None:
-    """Step 4 (t2) granularity: a single foundation with a long subtopic list
-    must not monopolise the concept tour. With two 8-subtopic foundations and a
-    10-tile cap, the tiles should sample both roughly evenly (round-robin),
-    rather than draining the first node (8) and starving the second (2)."""
+def test_node_readiness_includes_topical_prereqs(client: TestClient, fakes) -> None:
+    """Phase 13 Step 3 (§B1/§B3): the node-readiness pass includes ALL prereq
+    KINDS — foundation AND interest (topical, e.g. SR/GR). The old subtopic
+    _concept_tour deprioritised interest-kind prereqs to a fallback; the
+    explicit fix here is that a topical prereq like Special Relativity must
+    appear in the readiness pass for things like astrophysics.
+
+    No path_json → edges fallback over the node's actual prereq edges, all
+    kinds included."""
     supabase, anthropic = fakes
     new_node_id = str(uuid4())
-    mech_id = str(uuid4())
-    em_id = str(uuid4())
+    calc_id = CALCULUS_ID
+    sr_id = str(uuid4())
 
-    mech_node = {
-        "id": mech_id,
-        "slug": "classical-mechanics",
-        "title": "Classical Mechanics",
-        "kind": "foundation",
-        "subtopics_json": [f"Mech subtopic {i}" for i in range(8)],
-    }
-    em_node = {
-        "id": em_id,
-        "slug": "electromagnetism-1",
-        "title": "Electromagnetism I",
-        "kind": "foundation",
-        "subtopics_json": [f"EM subtopic {i}" for i in range(8)],
+    sr_node = {
+        "id": sr_id,
+        "slug": "special-relativity",
+        "title": "Special Relativity",
+        "kind": "interest",  # topical prereq — NOT a foundation
+        "description_md": "Lorentz transformations and spacetime.",
+        "subtopics_json": ["Lorentz transformations", "Four-vectors"],
     }
 
-    supabase.respond("nodes", "select", lambda _: [mech_node, em_node])
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE, sr_node])
     supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
     supabase.respond("edges", "insert", lambda _: [])
     supabase.respond(
         "edges",
         "select",
         lambda _: [
-            {"source_node_id": mech_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
-            {"source_node_id": em_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
+            {"source_node_id": calc_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
+            {"source_node_id": sr_id, "edge_kind": "prerequisite", "target_node_id": new_node_id},
         ],
     )
     _prime_llm_calls(supabase)
@@ -489,13 +486,85 @@ def test_concept_tour_round_robins_across_prereqs(client: TestClient, fakes) -> 
     anthropic.queue(
         json.dumps(
             {
-                "title": "Test Topic",
-                "slug": "test-topic",
-                "description_md": "x",
+                "title": "Astrophysics",
+                "slug": "astrophysics",
+                "description_md": "Stars, galaxies, cosmology.",
                 "domain": "physics",
                 "difficulty_hint": "core",
-                "subtopics": ["a", "b", "c", "d"],
-                "proposed_prerequisite_slugs": ["classical-mechanics", "electromagnetism-1"],
+                "subtopics": ["Stellar structure", "Cosmology"],
+                "proposed_prerequisite_slugs": ["calculus-1", "special-relativity"],
+                "entry_point_preview_md": "an entrance to astrophysics",
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "survey",
+            "raw_text": "astrophysics",
+            "final_intent_text": "Learn astrophysics",
+            "intent_context": "teach intent",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    readiness = resp.json()["node_readiness"]
+    titles = {t["node_title"] for t in readiness}
+    # The interest-kind topical prereq (SR) must be present, not dropped.
+    assert "Special Relativity" in titles
+    assert "Calculus 1" in titles
+
+
+def test_node_readiness_uses_leans_on_prereq_slugs(client: TestClient, fakes) -> None:
+    """Phase 13 Step 3 (resolved decision 2): when the user picked a path,
+    path_json.leans_on_prereq_slugs scopes the readiness pass — the curator
+    reads the path's soft prereq emphasis as a structured field. SR (a topical
+    prereq named in leans_on) must appear even though it's interest-kind."""
+    supabase, anthropic = fakes
+    new_node_id = str(uuid4())
+    sr_id = str(uuid4())
+
+    sr_node = {
+        "id": sr_id,
+        "slug": "special-relativity",
+        "title": "Special Relativity",
+        "kind": "interest",
+        "description_md": "Lorentz transformations and spacetime.",
+        "subtopics_json": ["Lorentz transformations"],
+    }
+    # GR exists but is NOT in leans_on — it must be excluded.
+    gr_node = {
+        "id": str(uuid4()),
+        "slug": "general-relativity",
+        "title": "General Relativity",
+        "kind": "interest",
+        "description_md": "Curved spacetime.",
+        "subtopics_json": ["Geodesics"],
+    }
+
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE, sr_node, gr_node])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    # An edges responder would return MORE prereqs, but leans_on must take
+    # precedence — the readiness pass must NOT consult edges when leans_on set.
+    supabase.respond("edges", "select", lambda _: [
+        {"source_node_id": gr_node["id"], "edge_kind": "prerequisite", "target_node_id": new_node_id},
+    ])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": str(uuid4())}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Astrophysics",
+                "slug": "astrophysics",
+                "description_md": "Stars, galaxies.",
+                "domain": "physics",
+                "difficulty_hint": "core",
+                "subtopics": ["Stellar structure"],
+                "proposed_prerequisite_slugs": ["calculus-1"],
                 "entry_point_preview_md": "an entrance",
             }
         )
@@ -506,21 +575,64 @@ def test_concept_tour_round_robins_across_prereqs(client: TestClient, fakes) -> 
         json={
             "user_id": str(uuid4()),
             "added_via": "survey",
-            "raw_text": "test",
-            "final_intent_text": "test",
-            "intent_context": "test",
+            "raw_text": "astrophysics, the research-following angle",
+            "final_intent_text": "Follow astrophysics research",
+            "intent_context": "research-following angle",
+            "path_json": {
+                "leans_on_prereq_slugs": ["calculus-1", "special-relativity"],
+                "mode_lean": "papers",
+            },
         },
         headers=AUTH_HEADERS,
     )
     assert resp.status_code == 200, resp.text
-    tour = resp.json()["concept_tour"]
-    # Capped at CONCEPT_TOUR_MAX (10).
-    assert len(tour) == 10
-    mech_tiles = [t for t in tour if t["node_slug"] == "classical-mechanics"]
-    em_tiles = [t for t in tour if t["node_slug"] == "electromagnetism-1"]
-    # Round-robin → 5 each, not 8 + 2. Neither node is starved.
-    assert len(mech_tiles) == 5
-    assert len(em_tiles) == 5
+    readiness = resp.json()["node_readiness"]
+    titles = {t["node_title"] for t in readiness}
+    assert "Special Relativity" in titles   # named in leans_on
+    assert "Calculus 1" in titles           # named in leans_on
+    assert "General Relativity" not in titles  # NOT in leans_on → excluded
+
+
+def test_node_readiness_submit_writes_node_level_states(
+    client: TestClient, fakes
+) -> None:
+    """POST /add-interest/node-readiness maps solid/rusty/new to
+    comfortable/active/unseen and upserts node-level user_node_states."""
+    supabase, _ = fakes
+    supabase.respond("user_node_states", "upsert", lambda _: [{}])
+
+    user_id = str(uuid4())
+    n_solid = str(uuid4())
+    n_rusty = str(uuid4())
+    n_new = str(uuid4())
+
+    resp = client.post(
+        "/add-interest/node-readiness",
+        json={
+            "user_id": user_id,
+            "user_interest_id": str(uuid4()),
+            "node_states": [
+                {"node_id": n_solid, "state": "solid"},
+                {"node_id": n_rusty, "state": "rusty"},
+                {"node_id": n_new, "state": "new"},
+            ],
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["written"] == 3
+
+    upserts = [
+        c for c in supabase.calls
+        if c.table == "user_node_states" and c.op == "upsert"
+    ]
+    assert len(upserts) == 3
+    by_node = {c.payload["node_id"]: c.payload["state"] for c in upserts}
+    assert by_node[n_solid] == "comfortable"
+    assert by_node[n_rusty] == "active"
+    assert by_node[n_new] == "unseen"
+    # All writes carry the user_id.
+    assert all(c.payload["user_id"] == user_id for c in upserts)
 
 
 def test_resolve_related_slug_writes_related_edge(client: TestClient, fakes) -> None:
@@ -906,3 +1018,150 @@ def test_resolve_path_json_leans_on_validated(client: TestClient, fakes) -> None
     written_slugs = ui_inserts[0].payload["path_json"]["leans_on_prereq_slugs"]
     assert written_slugs == ["calculus-1"]
     assert "hallucinated-slug" not in written_slugs
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 Step 3 — altitude + entry-lane
+# ---------------------------------------------------------------------------
+
+
+def test_altitude_stored_on_resolve(client: TestClient, fakes) -> None:
+    """altitude passed to /resolve is written to the user_interests row as a
+    structured field."""
+    supabase, anthropic = fakes
+    ui_id = str(uuid4())
+    new_node_id = str(uuid4())
+
+    supabase.respond("nodes", "select", lambda _: [CALCULUS_NODE])
+    supabase.respond("nodes", "insert", lambda _: [{"id": new_node_id}])
+    supabase.respond("edges", "insert", lambda _: [])
+    supabase.respond("edges", "select", lambda _: [])
+    _prime_llm_calls(supabase)
+    supabase.respond("user_interests", "insert", lambda _: [{"id": ui_id}])
+
+    anthropic.queue(
+        json.dumps(
+            {
+                "title": "Quantum Field Theory",
+                "slug": "quantum-field-theory",
+                "description_md": "Fields, particles, and interactions.",
+                "domain": "physics",
+                "difficulty_hint": "advanced",
+                "subtopics": ["Lagrangians", "Feynman diagrams"],
+                "proposed_prerequisite_slugs": [],
+                "entry_point_preview_md": "a consolidation problem on QFT",
+            }
+        )
+    )
+
+    resp = client.post(
+        "/add-interest/resolve",
+        json={
+            "user_id": str(uuid4()),
+            "added_via": "explicit_request",
+            "raw_text": "QFT — I know this well, want to go deep",
+            "final_intent_text": "Quantum field theory, advanced",
+            "intent_context": "go-deep angle",
+            "altitude": "go_deep",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+
+    ui_inserts = [c for c in supabase.calls if c.table == "user_interests" and c.op == "insert"]
+    assert len(ui_inserts) == 1
+    assert ui_inserts[0].payload["altitude"] == "go_deep"
+
+
+def _ui_responder(*, intent_context: str | None, altitude: str | None):
+    """FakeSupabase responder for a single user_interests row."""
+    def responder(_call):
+        return [{"intent_context": intent_context, "altitude": altitude}]
+    return responder
+
+
+def test_derive_intent_altitude_go_deep() -> None:
+    """altitude='go_deep' → consolidate, read as a structured field (no prose)."""
+    from curator_inputs import derive_intent
+
+    fake = FakeSupabase()
+    fake.respond("user_interests", "select", _ui_responder(intent_context=None, altitude="go_deep"))
+    assert derive_intent(fake, user_id="u", node_id="n") == "consolidate"
+
+
+def test_derive_intent_altitude_coming_back() -> None:
+    """altitude='coming_back' → refresh."""
+    from curator_inputs import derive_intent
+
+    fake = FakeSupabase()
+    fake.respond("user_interests", "select", _ui_responder(intent_context=None, altitude="coming_back"))
+    assert derive_intent(fake, user_id="u", node_id="n") == "refresh"
+
+
+def test_derive_intent_altitude_new() -> None:
+    """altitude='new' (no intent_context) → teach."""
+    from curator_inputs import derive_intent
+
+    fake = FakeSupabase()
+    fake.respond("user_interests", "select", _ui_responder(intent_context=None, altitude="new"))
+    assert derive_intent(fake, user_id="u", node_id="n") == "teach"
+
+
+def test_derive_intent_altitude_overrides_prose() -> None:
+    """altitude='go_deep' wins even when intent_context prose says 'rusty'
+    (structured field takes precedence — the carry-forward discipline)."""
+    from curator_inputs import derive_intent
+
+    fake = FakeSupabase()
+    fake.respond(
+        "user_interests", "select",
+        _ui_responder(intent_context="rusty on ODEs, want a refresh", altitude="go_deep"),
+    )
+    assert derive_intent(fake, user_id="u", node_id="n") == "consolidate"
+
+
+def test_derive_intent_altitude_none_falls_back_to_prose() -> None:
+    """altitude=None → fall back to intent_context prose keyword matching."""
+    from curator_inputs import derive_intent
+
+    fake = FakeSupabase()
+    fake.respond(
+        "user_interests", "select",
+        _ui_responder(intent_context="rusty on ODEs, want a refresh", altitude=None),
+    )
+    assert derive_intent(fake, user_id="u", node_id="n") == "refresh"
+
+
+def test_derive_entry_lane_go_deep_skips_entrance() -> None:
+    """altitude='go_deep' → lane 3 (skip entrance), without consulting history."""
+    from curator_inputs import derive_entry_lane
+
+    fake = FakeSupabase()
+    fake.respond(
+        "user_interests", "select",
+        lambda _call: [{"altitude": "go_deep"}],
+    )
+    assert derive_entry_lane(fake, user_id="u", topic_node_id="n") == 3
+
+
+def test_derive_entry_lane_coming_back() -> None:
+    """altitude='coming_back' → lane 2 (light-recall entrance)."""
+    from curator_inputs import derive_entry_lane
+
+    fake = FakeSupabase()
+    fake.respond(
+        "user_interests", "select",
+        lambda _call: [{"altitude": "coming_back"}],
+    )
+    assert derive_entry_lane(fake, user_id="u", topic_node_id="n") == 2
+
+
+def test_derive_entry_lane_new_entry_point_gets_lane_1() -> None:
+    """altitude='new' + no prior attempts on topic → lane 1 (entrance)."""
+    from curator_inputs import derive_entry_lane
+
+    fake = FakeSupabase()
+    fake.respond("user_interests", "select", lambda _call: [{"altitude": "new"}])
+    # is_entry_point: no attempts → True → lane 1.
+    fake.respond("attempts", "select", lambda _call: [])
+    assert derive_entry_lane(fake, user_id="u", topic_node_id="n") == 1

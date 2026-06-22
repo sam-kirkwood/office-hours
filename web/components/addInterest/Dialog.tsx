@@ -25,7 +25,22 @@ import type {
   DialogResolved,
   AddedVia,
 } from "./types";
-import type { RichPath } from "@/lib/pythonApi";
+import type { RichPath, Altitude } from "@/lib/pythonApi";
+
+// Map the parser's implicit_intent to a default altitude (Phase 13 Step 3).
+// teach→new, refresh→coming_back, consolidate→go_deep. The user can override
+// the pre-set with the chips below.
+const INTENT_TO_ALTITUDE: Record<string, Altitude> = {
+  teach: "new",
+  refresh: "coming_back",
+  consolidate: "go_deep",
+};
+
+const ALTITUDE_OPTIONS: Array<{ value: Altitude; label: string; blurb: string }> = [
+  { value: "new", label: "New to me", blurb: "Start from the ground up." },
+  { value: "coming_back", label: "Coming back", blurb: "I've seen this before — jog my memory." },
+  { value: "go_deep", label: "I know this — go deep", blurb: "Skip the intro; assume the apparatus." },
+];
 
 interface Props {
   rawText: string;
@@ -56,6 +71,12 @@ export default function Dialog({
   const isSegment = input.source === "segment";
   const segment = isSegment ? input.segment : null;
   const preNode = !isSegment ? input.preNode : null;
+
+  // Altitude (Phase 13 Step 3) — pre-set from the parser's implicit_intent
+  // when we have a segment; default "new" otherwise. User can override.
+  const [altitude, setAltitude] = useState<Altitude>(
+    (segment && INTENT_TO_ALTITUDE[segment.implicit_intent]) || "new",
+  );
 
   const mirrorBack =
     segment?.mirror_back_md ??
@@ -153,6 +174,7 @@ export default function Dialog({
           existing_node_slug: body.existingNodeSlug,
           related_node_slug: body.relatedNodeSlug,
           path_json: body.pathJson,
+          altitude,
         }),
       });
       if (!res.ok) {
@@ -251,6 +273,37 @@ export default function Dialog({
           />
         </div>
       )}
+
+      <div className="flex flex-col gap-2">
+        <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Where are you with this?
+        </label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {ALTITUDE_OPTIONS.map((opt) => {
+            const active = altitude === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setAltitude(opt.value)}
+                aria-pressed={active}
+                className={`flex-1 rounded-md border px-3 py-2 text-left transition-colors duration-[var(--duration-fast)] ${
+                  active
+                    ? "border-primary bg-[var(--amber-subtle)]"
+                    : "border-border bg-card hover:border-foreground/30"
+                }`}
+              >
+                <span className="block text-sm font-medium text-foreground">
+                  {opt.label}
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  {opt.blurb}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {error && (
         <p className="text-sm text-destructive" role="alert">

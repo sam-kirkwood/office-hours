@@ -17,13 +17,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import Dialog from "./Dialog";
-import ConceptTour, { type ConceptTourState } from "./ConceptTour";
+import NodeReadiness from "./NodeReadiness";
 import type {
   AddedVia,
   DialogResolved,
   PreNodeInput,
 } from "./types";
-import type { ParsedInterestSegmentDTO } from "@/lib/pythonApi";
+import type {
+  ParsedInterestSegmentDTO,
+  NodeReadinessState,
+} from "@/lib/pythonApi";
 
 interface PreNodeProps {
   open: boolean;
@@ -64,41 +67,31 @@ export default function DialogModal(props: Props) {
 
   function handleResolved(r: DialogResolved) {
     setResolved(r);
-    setPhase(r.concept_tour.length > 0 ? "tour" : "done");
-    if (r.concept_tour.length === 0) {
+    setPhase(r.node_readiness.length > 0 ? "tour" : "done");
+    if (r.node_readiness.length === 0) {
       onComplete?.(r);
       onOpenChange(false);
     }
   }
 
-  async function handleTourSubmit(args: {
-    addressed: Array<{
-      nodeId: string;
-      subtopicKey: string;
-      state: ConceptTourState;
-    }>;
+  async function handleReadinessSubmit(args: {
+    nodeStates: Array<{ nodeId: string; state: NodeReadinessState }>;
   }) {
-    if (resolved) {
+    if (resolved && args.nodeStates.length > 0) {
       try {
-        await fetch("/api/add-interest/concept-tour", {
+        await fetch("/api/add-interest/node-readiness", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            addressed: args.addressed.map((a) => ({
-              node_id: a.nodeId,
-              node_slug:
-                resolved.concept_tour.find(
-                  (t) =>
-                    t.node_id === a.nodeId && t.subtopic_key === a.subtopicKey,
-                )?.node_slug ?? "",
-              subtopic_key: a.subtopicKey,
-              state: a.state,
+            user_interest_id: resolved.user_interest_id,
+            node_states: args.nodeStates.map((s) => ({
+              node_id: s.nodeId,
+              state: s.state,
             })),
-            for_interest_node_slug: resolved.node_slug,
           }),
         });
       } catch (err) {
-        console.error("concept-tour write failed:", err);
+        console.error("node-readiness write failed:", err);
       }
     }
     if (resolved) onComplete?.(resolved);
@@ -136,12 +129,12 @@ export default function DialogModal(props: Props) {
 
         {phase === "tour" && resolved && (
           <div className="-mx-4 -mb-4 max-h-[70vh] overflow-y-auto rounded-b-xl border-t bg-background">
-            <ConceptTour
+            <NodeReadiness
               interestTitle={rawText}
-              tiles={resolved.concept_tour}
-              seenSubtopicKeys={new Set()}
+              tiles={resolved.node_readiness}
+              seenNodeIds={new Set()}
               showSkipRemaining={false}
-              onSubmit={handleTourSubmit}
+              onSubmit={handleReadinessSubmit}
             />
           </div>
         )}

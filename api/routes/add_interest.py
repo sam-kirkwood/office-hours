@@ -40,7 +40,6 @@ from auth import require_internal_token
 from config import HAIKU_MODEL, SONNET_MODEL
 from prompts import add_interest as prompts
 from schemas import (
-    ConceptTourTile,  # retained for backward-compat; not used in resolve response
     DedupVerdict,
     GeneratedInterestNode,
     NodeReadinessTile,
@@ -62,8 +61,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_DEDUP_CANDIDATES = 20
-CONCEPT_TOUR_MIN = 6
-CONCEPT_TOUR_MAX = 10
 
 
 # ---------------------------------------------------------------------------
@@ -99,24 +96,6 @@ _SLUG_PUNCT_RE = re.compile(r"[^a-z0-9]+")
 def _slugify(text: str) -> str:
     s = _SLUG_PUNCT_RE.sub("-", text.lower()).strip("-")
     return s or "untitled"
-
-
-def _subtopic_entries(subtopics_json: object) -> list[dict[str, str]]:
-    """nodes.subtopics_json contains either bare strings (newer interest nodes)
-    or {slug, title} dicts (seeded foundation nodes). Normalise to a list of
-    {name, gloss} dicts where gloss may be empty."""
-    if not isinstance(subtopics_json, list):
-        return []
-    entries: list[dict[str, str]] = []
-    for raw in subtopics_json:
-        if isinstance(raw, str):
-            entries.append({"name": raw, "gloss": ""})
-        elif isinstance(raw, dict):
-            name = raw.get("title") or raw.get("name") or raw.get("slug") or ""
-            if not name:
-                continue
-            entries.append({"name": str(name), "gloss": str(raw.get("gloss", ""))})
-    return entries
 
 
 def _validate_dedup_slugs(
@@ -633,44 +612,6 @@ def _node_readiness_tiles(
     return tiles
 
 
-# Retained for backward-compat with older survey code that may still call
-# the round-robin subtopic helper directly in tests. Not used in the resolve
-# response after Phase 13 Step 3.
-def _round_robin_tiles(
-    nodes: list[dict],
-    *,
-    limit: int,
-    seen: set[tuple[str, str]],
-) -> list[ConceptTourTile]:
-    tiles: list[ConceptTourTile] = []
-    if limit <= 0:
-        return tiles
-    per_node = [(n, _subtopic_entries(n.get("subtopics_json"))) for n in nodes]
-    max_len = max((len(entries) for _, entries in per_node), default=0)
-    for idx in range(max_len):
-        for node, entries in per_node:
-            if idx >= len(entries):
-                continue
-            entry = entries[idx]
-            subtopic_key = _slugify(entry["name"])
-            dedup_key = (node["id"], subtopic_key)
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-            tiles.append(
-                ConceptTourTile(
-                    node_id=UUID(node["id"]),
-                    node_slug=node["slug"],
-                    subtopic_key=subtopic_key,
-                    name=entry["name"],
-                    gloss=entry["gloss"] or None,
-                )
-            )
-            if len(tiles) >= limit:
-                return tiles
-    return tiles
-
-
 # ---------------------------------------------------------------------------
 # /add-interest/node-readiness  (Phase 13 Step 3)
 # ---------------------------------------------------------------------------
@@ -684,22 +625,22 @@ _NODE_READINESS_STATE_MAP = {
 
 @router.post(
     "/add-interest/node-readiness",
-    status_code=204,
     dependencies=[Depends(require_internal_token)],
 )
 def submit_node_readiness(
     body: NodeReadinessSubmitRequest,
     supabase: Client = Depends(get_supabase_client),
-) -> None:
+) -> dict:
     """Write node-level user_node_states from the coarse readiness pass.
 
     Maps user-facing labels (solid/rusty/new) to DB states
     (comfortable/active/unseen) and upserts one row per answered node.
     The upsert key is (user_id, node_id) — existing rows from Stage 2
     foundation tiles or engagement are updated in place rather than
-    duplicated.
+    duplicated. Returns {written: N} (the count of accepted marks).
     """
     user_id = str(body.user_id)
+    written = 0
     for item in body.node_states:
         db_state = _NODE_READINESS_STATE_MAP.get(item.state)
         if db_state is None:
@@ -718,12 +659,14 @@ def submit_node_readiness(
                 },
                 on_conflict="user_id,node_id",
             ).execute()
+            written += 1
         except Exception as exc:
             logger.warning(
                 "node-readiness: upsert failed for node %s: %s",
                 item.node_id,
                 exc,
             )
+    return {"written": written}
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 //     pre-filled with a known node)
 
 import type {
-  ConceptTourTileDTO,
+  NodeReadinessTileDTO,
   ParsedInterestSegmentDTO,
 } from "@/lib/pythonApi";
 
@@ -37,7 +37,8 @@ export interface DialogResolved {
   verdict: "same" | "related" | "new";
   intent_context: string;
   starter_preview_md: string;
-  concept_tour: ConceptTourTileDTO[];
+  // Phase 13 Step 3: node-level readiness pass (replaces concept_tour).
+  node_readiness: NodeReadinessTileDTO[];
 }
 
 // What the orchestrator hands the Dialog. Either a parsed segment from

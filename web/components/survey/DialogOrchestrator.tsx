@@ -6,9 +6,13 @@
 //   for each raw_text input (selected tile titles + free text from Stage 3):
 //     call /api/add-interest/parse → segments[]
 //     for each segment:
-//       1. Render Dialog (mirror back, optional followup or path pick, resolve)
-//       2. On resolved: render ConceptTour for the resolved interest
-//          (skippable; dedups tiles against prior tours this session)
+//       1. Render Dialog (mirror back, optional followup or path pick,
+//          altitude, resolve)
+//       2. On resolved: render NodeReadiness for the resolved interest — a
+//          coarse, node-level readiness pass (solid/rusty/new) over the
+//          prereq nodes it leans on (Phase 13 Step 3; replaces the subtopic
+//          ConceptTour). Skippable; dedups nodes against prior passes this
+//          session.
 //   finalise: clear pending_interests_json, mark `dialog` stage done,
 //   navigate to /survey/balance.
 
@@ -16,13 +20,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Dialog from "@/components/addInterest/Dialog";
-import ConceptTour, {
-  type ConceptTourState,
-} from "@/components/addInterest/ConceptTour";
+import NodeReadiness from "@/components/addInterest/NodeReadiness";
 import type { DialogResolved } from "@/components/addInterest/types";
 import type {
   ParsedInterestSegmentDTO,
-  ConceptTourTileDTO,
+  NodeReadinessTileDTO,
+  NodeReadinessState,
 } from "@/lib/pythonApi";
 
 interface Props {
@@ -41,7 +44,7 @@ type Phase =
 
 interface ResolvedItem {
   result: DialogResolved;
-  tiles: ConceptTourTileDTO[];
+  tiles: NodeReadinessTileDTO[];
   interestTitle: string;
 }
 
@@ -53,7 +56,7 @@ export default function DialogOrchestrator({ inputs }: Props) {
   const [segmentIdx, setSegmentIdx] = useState(0);
 
   const [resolved, setResolved] = useState<ResolvedItem | null>(null);
-  const [seenSubtopicKeys, setSeenSubtopicKeys] = useState<Set<string>>(new Set());
+  const [seenNodeIds, setSeenNodeIds] = useState<Set<string>>(new Set());
   const [completedTourCount, setCompletedTourCount] = useState(0);
   const [skipAllRemainingTours, setSkipAllRemainingTours] = useState(false);
   const [resolvedSummaries, setResolvedSummaries] = useState<string[]>([]);
@@ -142,7 +145,7 @@ export default function DialogOrchestrator({ inputs }: Props) {
     const seg = segments[segmentIdx];
     setResolved({
       result,
-      tiles: result.concept_tour,
+      tiles: result.node_readiness,
       interestTitle: seg?.raw_text_segment || currentInput,
     });
     setResolvedSummaries((prev) => [
@@ -152,41 +155,31 @@ export default function DialogOrchestrator({ inputs }: Props) {
     setPhase("starter");
   }
 
-  async function handleTourSubmit(args: {
-    addressed: Array<{
-      nodeId: string;
-      subtopicKey: string;
-      state: ConceptTourState;
-    }>;
+  async function handleReadinessSubmit(args: {
+    nodeStates: Array<{ nodeId: string; state: NodeReadinessState }>;
     skippedAll: boolean;
     skipRemaining: boolean;
   }) {
-    try {
-      const res = await fetch("/api/add-interest/concept-tour", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          addressed: args.addressed.map((a) => ({
-            // node_id is already in DTO; orchestrator passes it through.
-            node_id: a.nodeId,
-            // Look up node_slug from the tour tiles for the comfort_responses_json key.
-            node_slug:
-              resolved?.tiles.find(
-                (t) =>
-                  t.node_id === a.nodeId && t.subtopic_key === a.subtopicKey,
-              )?.node_slug ?? "",
-            subtopic_key: a.subtopicKey,
-            state: a.state,
-          })),
-          for_interest_node_slug: resolved?.result.node_slug,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        console.error("concept-tour write failed:", j);
+    if (args.nodeStates.length > 0 && resolved) {
+      try {
+        const res = await fetch("/api/add-interest/node-readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_interest_id: resolved.result.user_interest_id,
+            node_states: args.nodeStates.map((s) => ({
+              node_id: s.nodeId,
+              state: s.state,
+            })),
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          console.error("node-readiness write failed:", j);
+        }
+      } catch (err) {
+        console.error("node-readiness write failed:", err);
       }
-    } catch (err) {
-      console.error("concept-tour write failed:", err);
     }
 
     // Whether or not the network write succeeded, advance — onboarding should
@@ -194,16 +187,14 @@ export default function DialogOrchestrator({ inputs }: Props) {
     setCompletedTourCount((n) => n + 1);
     if (args.skipRemaining) setSkipAllRemainingTours(true);
 
-    // Merge the tiles the user actually answered into the seen set so
-    // subsequent tours dedup them out. Per survey-and-difficulty-design.md
-    // §1.6.5 a tile is only "covered" when its state was captured — tiles the
-    // user left unanswered must reappear in later tours, not be silently
-    // hidden. Keys are node-scoped (node_id:subtopic_key) so the same subtopic
-    // name under a different foundation node isn't wrongly suppressed.
-    if (args.addressed.length > 0) {
-      setSeenSubtopicKeys((prev) => {
+    // Merge the nodes the user actually answered into the seen set so later
+    // passes dedup them out — a prereq node shared across two interests isn't
+    // re-asked once its readiness was captured. Nodes the user left unanswered
+    // reappear in later passes.
+    if (args.nodeStates.length > 0) {
+      setSeenNodeIds((prev) => {
         const next = new Set(prev);
-        for (const a of args.addressed) next.add(`${a.nodeId}:${a.subtopicKey}`);
+        for (const s of args.nodeStates) next.add(s.nodeId);
         return next;
       });
     }
@@ -315,12 +306,12 @@ export default function DialogOrchestrator({ inputs }: Props) {
 
   if (phase === "tour" && resolved) {
     return (
-      <ConceptTour
+      <NodeReadiness
         interestTitle={resolved.interestTitle}
         tiles={resolved.tiles}
-        seenSubtopicKeys={seenSubtopicKeys}
-        showSkipRemaining={completedTourCount >= 1 /* surface after the 2nd tour starts */}
-        onSubmit={handleTourSubmit}
+        seenNodeIds={seenNodeIds}
+        showSkipRemaining={completedTourCount >= 1 /* surface after the 2nd pass starts */}
+        onSubmit={handleReadinessSubmit}
       />
     );
   }

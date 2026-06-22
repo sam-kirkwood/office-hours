@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { resolveAddInterest, type RichPath } from "@/lib/pythonApi";
+import { resolveAddInterest, type RichPath, type Altitude } from "@/lib/pythonApi";
 
 // Thin proxy to the Python /add-interest/resolve endpoint. The Python service
 // writes the user_interests row and, when needed, generates a new node.
@@ -15,6 +15,8 @@ interface Body {
   // Structured path facts (Phase 13 Step 2). Present when the user chose a
   // path; null when the interest was specific or the user skipped path pick.
   path_json?: RichPath | null;
+  // Per-interest altitude signal (Phase 13 Step 3): new | coming_back | go_deep.
+  altitude?: Altitude | null;
 }
 
 export async function POST(request: Request) {
@@ -48,6 +50,7 @@ export async function POST(request: Request) {
       existingNodeSlug: body.existing_node_slug ?? null,
       relatedNodeSlug: body.related_node_slug ?? null,
       pathJson: body.path_json ?? null,
+      altitude: body.altitude ?? null,
     });
     return NextResponse.json(data);
   } catch (err) {

@@ -47,10 +47,11 @@ from config import HAIKU_MODEL, SONNET_MODEL
 from curator_inputs import (
     FEEDBACK_KEYS,  # noqa: F401  — re-exported for back-compat with tests
     derive_assumed_background_summary,
+    derive_entry_lane,
     derive_feedback_biases,
     derive_intent,
     find_pending_queue_item,
-    is_entry_point,
+    is_entry_point,  # noqa: F401  — re-exported for back-compat with tests
 )
 from prompts import hook_match as hook_match_prompts
 from prompts.problem import build_system_prompt, build_user_prompt
@@ -419,9 +420,17 @@ def generate_problem(
     if intent is None:
         intent = derive_intent(supabase, user_id=user_id, node_id=topic_node_id)
 
-    entry_point = is_entry_point(
+    # §3.4 entry-lane (Phase 13 Step 3). derive_entry_lane reads the structured
+    # `altitude` signal and falls back to the is_entry_point history check when
+    # no altitude is set. The conceptual entrance is shown for lanes 1 (new,
+    # entry point) and 2 (coming back, light recall); skipped for lane 3 (go
+    # deep — assume the apparatus) and lane 0 (already has history here). The
+    # teach/refresh/consolidate distinction rides on `intent` (also altitude-
+    # driven via derive_intent above).
+    entry_lane = derive_entry_lane(
         supabase, user_id=user_id, topic_node_id=topic_node_id
     )
+    entry_point = entry_lane in (1, 2)
 
     assumed_background_summary = derive_assumed_background_summary(
         supabase,

@@ -40,16 +40,31 @@ FEEDBACK_KEYS: set[str] = {
 # ---------------------------------------------------------------------------
 
 
+# Altitude → intent mapping (Phase 13 Step 3). Altitude is the structured
+# signal collected at intake; it takes precedence over intent_context prose.
+_ALTITUDE_TO_INTENT = {
+    "go_deep": "consolidate",
+    "coming_back": "refresh",
+    "new": "teach",
+}
+
+
 def derive_intent(supabase: Client, *, user_id: str, node_id: str) -> str:
-    """Infer intent for this (user, topic). intent_context is source of truth
-    (Step 2f decision); engagement state does not override it.
+    """Infer intent for this (user, topic).
+
+    Order of precedence (Phase 13 Step 3):
+      1. The structured `altitude` field on user_interests, read as a FIELD —
+         never re-parsed from prose. go_deep→consolidate, coming_back→refresh,
+         new→teach.
+      2. Fallback to intent_context prose keyword matching (pre-Step-3 rows
+         and the daily-add path that doesn't always set altitude).
 
     Falls back to 'teach' when there is no user_interests row (concept_review
     on a foundation node the user hasn't claimed as an interest).
     """
     resp = (
         supabase.table("user_interests")
-        .select("intent_context")
+        .select("intent_context, altitude")
         .eq("user_id", user_id)
         .eq("node_id", node_id)
         .limit(1)
@@ -58,7 +73,15 @@ def derive_intent(supabase: Client, *, user_id: str, node_id: str) -> str:
     if not resp.data:
         return "teach"
 
-    raw = (resp.data[0].get("intent_context") or "").lower()
+    row = resp.data[0]
+
+    # 1. Structured altitude field wins.
+    altitude = row.get("altitude")
+    if altitude in _ALTITUDE_TO_INTENT:
+        return _ALTITUDE_TO_INTENT[altitude]
+
+    # 2. Fallback: intent_context prose.
+    raw = (row.get("intent_context") or "").lower()
     if not raw:
         return "teach"
 
@@ -67,6 +90,43 @@ def derive_intent(supabase: Client, *, user_id: str, node_id: str) -> str:
     if "refresh" in raw or "remember" in raw or "rusty" in raw or "reconnect" in raw:
         return "refresh"
     return "teach"
+
+
+def derive_entry_lane(supabase: Client, *, user_id: str, topic_node_id: str) -> int:
+    """Return the §3.4 entry lane for this (user, topic).
+
+    The lanes (orientation-and-calibration-design.md §B3 / survey §3.4):
+      3 — go deep: skip the conceptual entrance, assume full apparatus.
+      2 — coming back: light-recall entrance, assume residual.
+      1 — new to me, AND this is an entry point (no prior attempts on topic):
+          full teach-mode conceptual entrance.
+      0 — not an entry point (the user already has attempts on this topic),
+          and no go-deep/coming-back override: normal generation, no entrance.
+
+    Reads the `altitude` field as a structured signal. When altitude is absent
+    (pre-Step-3 rows, or no interest row), falls back to the is_entry_point
+    history check — preserving the old default behaviour.
+    """
+    resp = (
+        supabase.table("user_interests")
+        .select("altitude")
+        .eq("user_id", user_id)
+        .eq("node_id", topic_node_id)
+        .limit(1)
+        .execute()
+    )
+    altitude = resp.data[0].get("altitude") if resp.data else None
+
+    if altitude == "go_deep":
+        return 3
+    if altitude == "coming_back":
+        return 2
+
+    # 'new' or no signal: an entry point gets the Lane 1 entrance; otherwise
+    # the user has history here, so no entrance (Lane 0).
+    if is_entry_point(supabase, user_id=user_id, topic_node_id=topic_node_id):
+        return 1
+    return 0
 
 
 def is_entry_point(supabase: Client, *, user_id: str, topic_node_id: str) -> bool:

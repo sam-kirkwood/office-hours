@@ -1,6 +1,6 @@
 # Phase 13 — Conversational orientation
 
-> **Status: Step 1 done (2026-06-16).** Design and rationale in
+> **Status: Steps 1–3 done (Step 3 2026-06-17).** Design and rationale in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
 > **Part B** — read it first. The design doc's decisions are **resolved** (see its
 > "Resolved decisions" section: path persistence on `user_interests` as `path_json`
@@ -49,12 +49,29 @@ Shape: `{"label": "...", "endpoint": "...", "math_intensity": "...",
 "mode_lean": "problems|papers|balanced", "leans_on": ["calculus", ...]}`.
 Steps 2 and 3 are sequentially dependent — path sets altitude, so Step 2 must land first.
 
-### Step 3 — Altitude + node-level calibration (§B1, §B3)
+### Step 3 — Altitude + node-level calibration (§B1, §B3) ✅ done (2026-06-17)
 Per-interest altitude (new / coming-back / go-deep) feeding intent + entry-point +
 difficulty default. Replace the subtopic drill with a coarse **node-level**
 readiness pass (solid / rusty / new) over the prereqs the interests lean on,
 including topical prereqs (SR/GR). Subtopic detail keeps accruing from engagement +
 the node panel.
+
+**Built:** `altitude` TEXT column on `user_interests` (migration `20250039`,
+CHECK new/coming_back/go_deep); collected via three chips in `Dialog.tsx`
+(pre-set from the parser's `implicit_intent`), stored through `/resolve`.
+Generation reads it as a **structured field**: `derive_intent` maps
+altitude→intent (go_deep→consolidate / coming_back→refresh / new→teach) ahead of
+the prose fallback, and a new `derive_entry_lane` returns the §3.4 lane (3 skip
+entrance / 2 light recall / 1 new-entry-point / 0 has-history) — `generate_problem`
+shows the entrance only for lanes 1–2, so a go-deep interest's first problem skips
+it (Lane 3 live) and a new interest gets it (Lane 1). The subtopic `ConceptTour` is
+replaced by node-level `NodeReadiness.tsx` + `POST /add-interest/node-readiness`
+(solid/rusty/new → comfortable/active/unseen on `user_node_states`); prereq scope
+comes from `path_json.leans_on_prereq_slugs` when a path was picked, else the node's
+prereq edges — **all prereq kinds included** (the old foundations-only filter that
+dropped SR/GR is fixed). Old `ConceptTour.tsx` + `/api/add-interest/concept-tour`
+route deleted. Tests: altitude→lane/intent, leans_on-scoped + topical-prereq
+selection, node-level state writes.
 
 ### Step 4 — The orientation tutor (§B4) — split into three sub-sessions
 

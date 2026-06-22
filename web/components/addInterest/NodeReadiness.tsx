@@ -1,71 +1,65 @@
 "use client";
 
-// Concept tour for one resolved interest — survey-and-difficulty-design.md §1.6.
+// Node-level readiness pass — orientation-and-calibration-design.md §B1/§B3
+// (Phase 13 Step 3). Replaces the subtopic ConceptTour with a coarse,
+// node-level read over the prerequisite NODES the interest leans on.
 //
-// Renders 6–10 subtopic tiles drawn from the resolved interest's prerequisite
-// foundation nodes. Each tile has three-state self-report:
-//   Familiar       → user_node_states.state = 'comfortable'
-//   Want a refresh → user_node_states.state = 'active'
-//   New to me      → user_node_states.state = 'unseen' (explicit)
-//   Unclicked      → 'unseen' (implicit, not posted)
+// Each tile is one prerequisite node with three-state self-report:
+//   Solid → user_node_states.state = 'comfortable'
+//   Rusty → 'active'
+//   New   → 'unseen'
+//   Unclicked → not posted (left unspecified)
 //
-// On submit we POST one bulk write to /api/add-interest/concept-tour which
-// writes user_node_states and appends to surveys.comfort_responses_json.
+// On submit we POST one write to /api/add-interest/node-readiness, which maps
+// the labels to DB states and upserts node-level user_node_states. Subtopic
+// detail is no longer cold-collected — it accrues from engagement + the node
+// panel (§B1).
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { ConceptTourTileDTO } from "@/lib/pythonApi";
-
-export type ConceptTourState = "familiar" | "refresh" | "new";
+import type { NodeReadinessTileDTO, NodeReadinessState } from "@/lib/pythonApi";
 
 interface Props {
   // The resolved interest's name — shown in the headline.
   interestTitle: string;
-  // 6–10 subtopic tiles from /resolve.
-  tiles: ConceptTourTileDTO[];
-  // Node-scoped keys ("<node_id>:<subtopic_key>") for tiles the user actually
-  // answered in an earlier tour this session — these are filtered out (§1.6.5).
-  seenSubtopicKeys: Set<string>;
-  // Show the "Skip remaining tours" affordance — orchestrator passes true
-  // after the second tour.
+  // The prerequisite-node tiles from /resolve.
+  tiles: NodeReadinessTileDTO[];
+  // Node ids already answered in an earlier pass this session — filtered out.
+  seenNodeIds: Set<string>;
+  // Show the "Skip remaining" affordance — orchestrator passes true after the
+  // second pass.
   showSkipRemaining?: boolean;
   onSubmit: (args: {
-    addressed: Array<{
-      nodeId: string;
-      subtopicKey: string;
-      state: ConceptTourState;
-    }>;
+    nodeStates: Array<{ nodeId: string; state: NodeReadinessState }>;
     skippedAll: boolean;
     skipRemaining: boolean;
   }) => void | Promise<void>;
 }
 
-const STATE_LABELS: Record<ConceptTourState, string> = {
-  familiar: "Familiar",
-  refresh: "Refresh",
+const STATE_LABELS: Record<NodeReadinessState, string> = {
+  solid: "Solid",
+  rusty: "Rusty",
   new: "New to me",
 };
 
-export default function ConceptTour({
+export default function NodeReadiness({
   interestTitle,
   tiles,
-  seenSubtopicKeys,
+  seenNodeIds,
   showSkipRemaining = false,
   onSubmit,
 }: Props) {
-  const visibleTiles = tiles.filter(
-    (t) => !seenSubtopicKeys.has(`${t.node_id}:${t.subtopic_key}`),
-  );
-  const [picks, setPicks] = useState<Record<string, ConceptTourState>>({});
+  const visibleTiles = tiles.filter((t) => !seenNodeIds.has(t.node_id));
+  const [picks, setPicks] = useState<Record<string, NodeReadinessState>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  function setState(subtopicKey: string, state: ConceptTourState) {
+  function setState(nodeId: string, state: NodeReadinessState) {
     setPicks((prev) => {
       const next = { ...prev };
-      if (next[subtopicKey] === state) {
-        delete next[subtopicKey]; // tap again to clear
+      if (next[nodeId] === state) {
+        delete next[nodeId]; // tap again to clear
       } else {
-        next[subtopicKey] = state;
+        next[nodeId] = state;
       }
       return next;
     });
@@ -74,15 +68,11 @@ export default function ConceptTour({
   async function finish(skip: { all: boolean; remaining: boolean }) {
     setSubmitting(true);
     try {
-      const addressed = visibleTiles
-        .filter((t) => picks[t.subtopic_key])
-        .map((t) => ({
-          nodeId: t.node_id,
-          subtopicKey: t.subtopic_key,
-          state: picks[t.subtopic_key],
-        }));
+      const nodeStates = visibleTiles
+        .filter((t) => picks[t.node_id])
+        .map((t) => ({ nodeId: t.node_id, state: picks[t.node_id] }));
       await onSubmit({
-        addressed,
+        nodeStates,
         skippedAll: skip.all,
         skipRemaining: skip.remaining,
       });
@@ -92,11 +82,11 @@ export default function ConceptTour({
   }
 
   if (visibleTiles.length === 0) {
-    // Everything was covered in an earlier tour — let the orchestrator move on.
+    // Everything was covered in an earlier pass — let the orchestrator move on.
     return (
       <div className="mx-auto max-w-2xl px-5 py-10">
         <p className="font-serif text-base text-foreground">
-          We&apos;ve already covered the prerequisites for {interestTitle} earlier.
+          We&apos;ve already covered what {interestTitle} builds on.
         </p>
         <div className="mt-6 flex justify-end">
           <Button
@@ -115,44 +105,46 @@ export default function ConceptTour({
   return (
     <div className="mx-auto max-w-2xl px-5 py-10">
       <h2 className="font-serif text-xl text-foreground">
-        First, the groundwork {interestTitle} builds on.
+        What {interestTitle} builds on.
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        These are the foundations {interestTitle} leans on — not the topic
-        itself. Mark anything you already know or want to revisit, and leave the
-        rest. It just helps us judge where to start; it&apos;s not a test, and
-        nothing here is required.
+        These are the areas {interestTitle} leans on. Tell us roughly where you
+        stand on each — solid, rusty, or new — and leave the rest. It just helps
+        us judge where to start; it&apos;s not a test, and nothing here is
+        required.
       </p>
 
       <div className="mt-6 flex flex-col gap-3">
         {visibleTiles.map((tile) => {
-          const picked = picks[tile.subtopic_key];
+          const picked = picks[tile.node_id];
           return (
             <div
-              key={`${tile.node_id}:${tile.subtopic_key}`}
+              key={tile.node_id}
               className="flex flex-col gap-2 rounded-md border border-border bg-card p-4"
             >
               <div className="flex flex-col gap-1">
-                <p className="font-serif text-base text-foreground">{tile.name}</p>
-                {tile.gloss && (
+                <p className="font-serif text-base text-foreground">
+                  {tile.node_title}
+                </p>
+                {tile.node_description_preview && (
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    {tile.gloss}
+                    {tile.node_description_preview}
                   </p>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
-                {(["familiar", "refresh", "new"] as ConceptTourState[]).map((s) => {
+                {(["solid", "rusty", "new"] as NodeReadinessState[]).map((s) => {
                   const active = picked === s;
                   return (
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setState(tile.subtopic_key, s)}
+                      onClick={() => setState(tile.node_id, s)}
                       className={`rounded-md border px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-colors duration-[var(--duration-fast)] ${
                         active
-                          ? s === "familiar"
+                          ? s === "solid"
                             ? "border-[var(--forest)]/50 bg-[var(--forest-subtle)] text-foreground"
-                            : s === "refresh"
+                            : s === "rusty"
                               ? "border-primary bg-[var(--amber-subtle)] text-foreground"
                               : "border-border bg-muted text-foreground"
                           : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
@@ -176,7 +168,7 @@ export default function ConceptTour({
             onClick={() => finish({ all: true, remaining: false })}
             disabled={submitting}
           >
-            Skip this tour
+            Skip this
           </Button>
           {showSkipRemaining && (
             <Button
@@ -185,7 +177,7 @@ export default function ConceptTour({
               onClick={() => finish({ all: true, remaining: true })}
               disabled={submitting}
             >
-              Skip remaining tours
+              Skip remaining
             </Button>
           )}
         </div>
