@@ -921,3 +921,160 @@ class GenerateSiblingResponse(BaseModel):
     sibling_queue_item_id: UUID | None = None
     is_max_difficulty: bool = False
     is_min_difficulty: bool = False
+
+
+# ---------------------------------------------------------------------------
+# /orientation-tutor (Phase 13 Step 4a — §B4 the orientation tutor)
+# ---------------------------------------------------------------------------
+# The conversational orientation tutor: a guided chat that elicits the four
+# signals (A interests, B intent/altitude + path, C foundation readiness, D
+# mode), structured underneath. This module is the *orchestrator* — the signal
+# state model, gap tracking, resumability, and the chat/form envelopes. The
+# system prompt that drives the conversation is a separate first-class
+# deliverable (Step 4b); the chat UI + tap-to-answer chips are Step 4c.
+#
+# Design contract:
+#   - The orchestrator tracks which of A/B/C/D are still open and decides when
+#     it has enough to offer "build my queue" (ready_to_build). The model is
+#     advisory (`proposes_build`); readiness is computed here, not trusted to
+#     the model.
+#   - Two envelopes over one signal model: mode="chat" (LLM turns) and
+#     mode="form" (a structured gaps payload — chips + fields — for the
+#     click-not-talk fallback, resolved decision 3). Form mode never calls the
+#     LLM.
+#   - Signals are written to the SAME structured shape that generation reads
+#     (altitude, path_json). The tutor is a new collection surface, not a new
+#     storage model — when interests resolve (4c), they land on user_interests
+#     via the add-interest core, never re-parsed from the transcript.
+
+
+class OrientationInterest(BaseModel):
+    """Signal A (one interest) carrying its B (altitude + path).
+
+    `resolved` marks whether the add-interest core (/parse → /resolve) has run
+    for this interest yet — 4a only *tracks* interests; 4c wires resolution.
+    """
+
+    raw_text: str
+    node_slug: str | None = None         # resolved megagraph node, once resolved
+    altitude: str | None = None          # B: 'new' | 'coming_back' | 'go_deep'
+    path_key: str | None = None          # B: chosen path option key (ambiguous only)
+    path_json: dict | None = None        # B: the chosen rich path object
+    resolved: bool = False
+
+
+class OrientationSignals(BaseModel):
+    """The A/B/C/D tracking struct, persisted as orientation_sessions.signals_json.
+
+    This is the canonical 'what I've got so far' state and the source of truth
+    for gap detection. It is the same shape the growing-map UI (4c) renders.
+    """
+
+    interests: list[OrientationInterest] = Field(default_factory=list)  # A + B
+    foundation_marks: dict[str, str] = Field(default_factory=dict)       # C: slug→solid/rusty/new
+    foundation_swept: bool = False                                       # C: the sweep happened
+    mode: str | None = None                                              # D: problems/papers/balanced
+    work_context: str | None = None                                      # optional flavour escape valve
+
+
+class OrientationInterestInput(BaseModel):
+    """A new interest submitted via a chip/form (deterministic) or extracted by
+    the model from free text."""
+
+    raw_text: str
+    node_slug: str | None = None
+    altitude: str | None = None
+    path_key: str | None = None
+    path_json: dict | None = None
+    resolved: bool = False
+
+
+class OrientationAltitudeSet(BaseModel):
+    """Set altitude (and optionally path) on an already-tracked interest by
+    index into signals.interests."""
+
+    interest_index: int
+    altitude: str
+    path_key: str | None = None
+    path_json: dict | None = None
+
+
+class OrientationSignalUpdate(BaseModel):
+    """Structured (non-LLM) signal input from tap-to-answer chips or form
+    fields. Applied to the session state deterministically — this is the spine
+    4c's chips call and the contract form mode submits against."""
+
+    add_interests: list[OrientationInterestInput] = Field(default_factory=list)  # A (+ optional B)
+    set_altitude: list[OrientationAltitudeSet] = Field(default_factory=list)     # B
+    foundation_marks: dict[str, str] | None = None                               # C: merge
+    foundation_swept: bool | None = None                                         # C: mark swept
+    mode: str | None = None                                                      # D
+    work_context: str | None = None                                              # flavour
+
+
+class OrientationExtraction(BaseModel):
+    """What the model parsed from the user's latest free-text turn (chat mode).
+    Merged into the signal state the same way a structured update is. Kept
+    deliberately simple for 4a; the prompt that fills it is Step 4b's work."""
+
+    new_interests: list[OrientationInterestInput] = Field(default_factory=list)
+    foundation_marks: dict[str, str] = Field(default_factory=dict)
+    foundation_swept: bool | None = None
+    mode: str | None = None
+    work_context: str | None = None
+
+
+class OrientationTurnLLMOutput(BaseModel):
+    """The model's structured return for one chat turn: the conversational
+    reply plus the signals it extracted plus whether it thinks it's done."""
+
+    assistant_message_md: str
+    extracted: OrientationExtraction = Field(default_factory=OrientationExtraction)
+    proposes_build: bool = False
+
+
+class OrientationGap(BaseModel):
+    """One of the four signals and whether it is satisfied yet."""
+
+    signal: str          # 'A' | 'B' | 'C' | 'D'
+    label: str           # human label, e.g. 'Interests'
+    satisfied: bool
+    detail: str | None = None  # what's still needed when unsatisfied
+
+
+class OrientationFormField(BaseModel):
+    """A structured field/chip-set for form mode (resolved decision 3). Renders
+    the same A/B/C/D collection as the chat, without conversation."""
+
+    signal: str          # 'A' | 'B' | 'C' | 'D'
+    kind: str            # 'text' | 'altitude' | 'node_readiness' | 'mode'
+    prompt: str
+    chips: list[str] = Field(default_factory=list)  # chip labels where applicable
+
+
+class OrientationTutorRequest(BaseModel):
+    user_id: UUID
+    # Resume an existing session; if null the route loads the user's in-progress
+    # session or creates a fresh one.
+    session_id: UUID | None = None
+    mode: Literal["chat", "form"] = "chat"
+    # Free-text turn (chat mode). None = opening greeting (fresh session) or a
+    # pure state fetch (existing session, no new input).
+    user_message: str | None = None
+    # Structured chip/form input, applied deterministically before any LLM call.
+    signal_update: OrientationSignalUpdate | None = None
+    # The explicit "I'm happy — build my queue" action. Honoured only when the
+    # signals are ready_to_build; otherwise the session stays in_progress and
+    # the gaps are returned.
+    finalize: bool = False
+
+
+class OrientationTutorResponse(BaseModel):
+    session_id: UUID
+    mode: str
+    status: str                          # 'in_progress' | 'completed'
+    assistant_message_md: str | None = None      # chat mode turn
+    signals: OrientationSignals                  # the growing 'what I've got so far' map
+    gaps: list[OrientationGap]                   # A/B/C/D, satisfied or not
+    ready_to_build: bool
+    form_fields: list[OrientationFormField] = Field(default_factory=list)  # form mode only

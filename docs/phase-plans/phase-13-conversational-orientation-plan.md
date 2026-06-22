@@ -1,6 +1,6 @@
 # Phase 13 — Conversational orientation
 
-> **Status: Steps 1–3 done (Step 3 2026-06-17).** Design and rationale in
+> **Status: Steps 1–3 done; Step 4a done (2026-06-22).** Design and rationale in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
 > **Part B** — read it first. The design doc's decisions are **resolved** (see its
 > "Resolved decisions" section: path persistence on `user_interests` as `path_json`
@@ -75,12 +75,31 @@ selection, node-level state writes.
 
 ### Step 4 — The orientation tutor (§B4) — split into three sub-sessions
 
-**Step 4a — Orchestrator + signal state + resumability (Python + DB)**
+**Step 4a — Orchestrator + signal state + resumability (Python + DB) ✅ done (2026-06-22)**
 New `POST /orientation-tutor` route. Signal state model (A/B/C/D tracking struct)
 persisted as JSONB on `surveys` or a new `orientation_sessions` table. Resumability:
 persist transcript + extracted-signals-so-far. Form-mode flag: orchestrator accepts
 `mode: "chat" | "form"`; in form mode it returns a structured gaps payload (chips +
 fields) instead of chat turns. The seven-stage survey stays live until 4c ships.
+
+**Built:** new `orientation_sessions` table (migration `20250040` — chosen over the
+`surveys` row to isolate the tutor from the still-live seven-stage survey and keep a
+large transcript off the hot surveys row; partial unique index = ≤1 in-progress
+session per user; RLS select-own). `POST /orientation-tutor` orchestrator in
+[api/routes/orientation_tutor.py](../../api/routes/orientation_tutor.py): the
+`OrientationSignals` A/B/C/D struct, pure `apply_signal_update`/`apply_extraction`
+merge + `compute_gaps`/`is_ready_to_build`/`build_form_fields` helpers, session
+load-or-create/resume, chat envelope (Sonnet turn → extraction merge → transcript
+append) and form envelope (gaps payload, no LLM). Readiness is computed by the
+orchestrator, not trusted to the model's advisory `proposes_build`. `finalize`
+completes the session only when ready. Signals write the same structured fields
+generation reads (`altitude`, `path_json`) — the tutor is a collection surface, not
+a new storage model. **The system prompt in
+[api/prompts/orientation_tutor.py](../../api/prompts/orientation_tutor.py) is a
+deliberate first-draft placeholder — Step 4b iterates it.** Tests:
+[api/tests/test_orientation_tutor.py](../../api/tests/test_orientation_tutor.py)
+(signal-tracking, resumability, form-mode gaps, finalize, chat-turn extraction).
+**Migration `20250040` needs applying before the route runs against the real DB.**
 
 **Step 4b — The system prompt (first-class deliverable, own iteration cycle)**
 Draft → walk against all three persona inputs → tune → walk again. Must: elicit

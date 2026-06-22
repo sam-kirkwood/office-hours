@@ -15,6 +15,7 @@ from routes.grade_paper_answer import router as grade_paper_answer_router
 from routes.grade_solution import router as grade_solution_router
 from routes.ingest_paper import router as ingest_paper_router
 from routes.ingest_paper_user import router as ingest_paper_user_router
+from routes.orientation_tutor import router as orientation_tutor_router
 from routes.paper_question import router as paper_question_router
 from routes.parse_solution import router as parse_solution_router
 from routes.propose_papers import router as propose_papers_router
@@ -38,6 +39,7 @@ app.include_router(curator_router)
 app.include_router(grade_solution_router)
 app.include_router(ingest_paper_router)
 app.include_router(ingest_paper_user_router)
+app.include_router(orientation_tutor_router)
 app.include_router(generate_paper_engagement_router)
 app.include_router(grade_paper_answer_router)
 app.include_router(paper_question_router)

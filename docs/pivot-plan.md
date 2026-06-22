@@ -1,16 +1,18 @@
 # Pivot plan — status & phase map
 
-**Where things are (2026-06-17):** Phase 12 (the responsive daily loop) is complete.
+**Where things are (2026-06-22):** Phase 12 (the responsive daily loop) is complete.
 Phase 13 (conversational orientation) is underway — Steps 1–3 done (§3.4 amendment +
 rich paths + path_json migration; altitude signal + node-level calibration wired to
-generation, subtopic drill replaced).
+generation, subtopic drill replaced); Step 4a done (orientation orchestrator +
+A/B/C/D signal state + resumability + form-mode gaps; new `orientation_sessions`
+table). Step 4b (the system prompt) is next — its own session.
 
 | Phase | What | Status |
 |---|---|---|
 | 4-rev … 10-rev | graph migration → queue → skill tree → papers → adaptation → curation → polish → survey/curator/UX redesign | ✅ done |
 | 10.5-rev | operator-walkthrough remediation (queue/refresher/problem-page/survey-rendering/skill-tree fixes) | ✅ done |
 | **12** | the responsive daily loop — card actions, the correction loop, the curiosity-box router, steering | ✅ done (2026-06-16) |
-| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | 🔄 Steps 1–3 done |
+| **13** | conversational orientation — four-signal tutor, rich paths, the entry-point amendment | 🔄 Steps 1–3 + 4a done |
 | 11-deploy | FastAPI deploy + cron + Sentry + README (keeps its number; runs **last**, once happy) | ▢ deferred to end |
 
 Design source of truth: SPEC.md, ARCHITECTURE.md, docs/graph-design.md,
@@ -54,6 +56,10 @@ remark-gfm), then run `scripts/reformat_problems.py` (`--dry-run` → spot-check
 **Pending operator action** (Phase 13 Step 3): apply migration `20250039`
 (`user_interests.altitude` column) before the altitude signal can be stored —
 tests use FakeSupabase so they pass without it, but the live app needs the column.
+
+**Pending operator action** (Phase 13 Step 4a): apply migration `20250040`
+(`orientation_sessions` table) before `POST /orientation-tutor` runs against the
+live DB — tests use FakeSupabase so they pass without it.
 
 ---
 
