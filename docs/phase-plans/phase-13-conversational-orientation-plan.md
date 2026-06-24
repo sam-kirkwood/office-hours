@@ -1,6 +1,6 @@
 # Phase 13 — Conversational orientation
 
-> **Status: Steps 1–3 done; Step 4a done (2026-06-22).** Design and rationale in
+> **Status: Steps 1–3 done; Step 4a + 4b done (2026-06-22).** Design and rationale in
 > [docs/orientation-and-calibration-design.md](../orientation-and-calibration-design.md)
 > **Part B** — read it first. The design doc's decisions are **resolved** (see its
 > "Resolved decisions" section: path persistence on `user_interests` as `path_json`
@@ -101,11 +101,48 @@ deliberate first-draft placeholder — Step 4b iterates it.** Tests:
 (signal-tracking, resumability, form-mode gaps, finalize, chat-turn extraction).
 **Migration `20250040` needs applying before the route runs against the real DB.**
 
-**Step 4b — The system prompt (first-class deliverable, own iteration cycle)**
+**Step 4b — The system prompt (first-class deliverable, own iteration cycle) ✅ done (2026-06-22)**
 Draft → walk against all three persona inputs → tune → walk again. Must: elicit
 four signals, present paths with honest detail, read clear-vs-ambiguous intent and
 branch commit-vs-explore, stay peer-to-peer (never quiz-like), know when it has
 enough. Budget at minimum one full session here, not a sub-bullet of 4a.
+
+**Built:** rewrote [api/prompts/orientation_tutor.py](../../api/prompts/orientation_tutor.py)
+— placeholder → load-bearing tutor prompt. **Voice deliberately diverges from the docs.**
+An initial pass built to the docs' §5 register (peer-to-peer, warm, "feel seen", one
+question at a time, draw-it-out-don't-menu, §C "never specific techniques") and the
+operator rejected the *generated text* as AI-slop and too cozy — the docs had never been
+tested against real output. The voice was re-tuned to the operator's own worked examples:
+**brisk, concrete, confident; the tutor drives.** Takes vague or crisp input and moves on
+it; offers **menus of named specifics** rather than open prompts (menus are now the tool,
+not the failure mode the docs warn against); **dense, substantive turns** over thin ones;
+**concrete foundation probes** ("find the eigenvalues of a 2×2 matrix — remember, or look
+it up?") as a thermometer instead of the abstract solid/rusty/new scale (a deliberate §C
+deviation — see below); an **operational** wrap-up readout, not an emotional one. Personality
+comes from competence/concreteness, never praise. Structure: a universal `_ANTISLOP` block
+(bans evaluating the user's choices, stock phrases incl. "load-bearing"/"good thread",
+reassurance padding, quiz-closers) + a swappable `_VOICE` register that leads with the
+operator's few-shot examples; `build_system_prompt(voice=…)` is the seam the voice bench
+A/B's. Kept intact: the FROZEN extraction contract (stable canonical `raw_text` reused on
+update — the merge dedupes by exact raw_text; enum discipline; `foundation_swept` timing)
+and the altitude **over-claim** safety beat (go-deep = "solid *now*, not just that you
+enjoyed it" — reframed, not recorded). Route call temperature lowered to **0.6** (from the
+1.0 default) — at 1.0 the model occasionally beat even explicit phrase-bans; 0.6 keeps
+variety while cutting the slips (the only route change; merge/readiness plumbing untouched).
+Evaluated with two DB-free harnesses against the real prompt + `call_json` + signal-merge
+helpers: a multi-turn persona walk ([api/scripts/walk_orientation.py](../../api/scripts/walk_orientation.py),
+LLM-played personas) and a fast single-turn **voice bench**
+([api/scripts/voice_bench.py](../../api/scripts/voice_bench.py), frozen scenarios × register
+variants at temp 0 — the iteration loop that found the voice). All four personas reach
+`ready_to_build`; the over-claim is reframed not recorded; extraction holds through the
+concrete-probe style. Two extraction-contract fixtures added to
+[api/tests/test_orientation_tutor.py](../../api/tests/test_orientation_tutor.py).
+
+**§C reconciliation owed (Step 6):** the prompt now uses concrete technique probes for the
+foundation read, which contradicts `survey-and-difficulty-design.md` §C / orientation-doc
+§B1 ("coarse, node-level, *never specific techniques*"). Operator-confirmed intentional —
+the probe is a self-placed thermometer, the extracted signal stays node-level. Docs bend
+to the prompt here, not the reverse; fold this in during Step 6 doc reconciliation.
 
 **Step 4c — Chat UI + chips + growing map + "Build my queue" + form-mode toggle**
 `/survey` page replaced with the tutor UI. Tap-to-answer chips for paths, altitude
@@ -146,6 +183,19 @@ multi-select to **single-select** (one path = one coherent `mode_lean`/`leans_on
 set; the free-text escape still covers "a bit of both"). §2.3 still says "multi-
 select is allowed" — reconcile it to single-select here. Operator-confirmed as
 intentional.
+
+**Copy/voice pass — deferred to a single pre-deploy rewrite (operator's call,
+2026-06-23).** The full copy/voice rewrite runs *once*, right before deploy, when
+every surface that needs copy has it — not piecemeal as surfaces land. The §5 tone
+reconciliation lands there: Step 4b found §5's warm-peer-to-peer register reads as
+AI-slop in generated chat, so the tutor was rebuilt to a brisker, concrete,
+confident voice (see the Step 4b note). At that pass — decide the §5 scope (global
+vs tutor-only register), and **voice-bench the other generation prompts** (problem /
+feedback / paper — all written to §5, never tested against output) in the same
+sweep. **Menus / clickable options are a confirmed keep** (they cut the user's
+mental load — the original "options pop up to click" vision), so reconcile §B4's
+"draw-out-*don't*-menu" and Persona 4's onboarding beat *toward* menus-as-draw-out,
+not against it.
 
 ## Out of scope
 

@@ -367,6 +367,11 @@ def orientation_tutor(
                 schema=OrientationTurnLLMOutput,
                 route="/orientation-tutor",
                 user_id=user_id,
+                # Step 4b: the brisk voice holds far more consistently below the
+                # default 1.0 — at 1.0 the model occasionally beats even explicit
+                # phrase bans ("load-bearing", "that's actually…"). 0.6 keeps some
+                # conversational variety while sharply cutting the slips.
+                temperature=0.6,
                 request_summary={
                     "turns": len(transcript),
                     "mode": "chat",

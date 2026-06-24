@@ -179,6 +179,81 @@ def test_set_altitude_out_of_range_is_ignored() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Extraction-contract fixtures (Step 4b)
+#
+# These pin the FROZEN schema the system prompt must hit. The strings are
+# verbatim-shaped model output (the kind the persona walks produce): they must
+# parse into OrientationTurnLLMOutput AND merge cleanly into the signal state.
+# If a prompt change makes the model drift off this shape, these break.
+# ---------------------------------------------------------------------------
+
+
+def test_realistic_turn_json_parses_and_merges_all_four_signals() -> None:
+    """A full multi-field extraction (Persona-3-shaped) round-trips and closes
+    every gap — the contract the tuned prompt aims at on its closing turn."""
+    raw = json.dumps(
+        {
+            "assistant_message_md": "Here's what I've got — want me to build your queue?",
+            "extracted": {
+                "new_interests": [
+                    {
+                        "raw_text": "ordinary differential equations",
+                        "altitude": "coming_back",
+                        "path_key": None,
+                        "path_json": None,
+                    },
+                    {"raw_text": "complex analysis", "altitude": "coming_back"},
+                ],
+                "foundation_marks": {"calculus": "solid", "linear_algebra": "solid"},
+                "foundation_swept": True,
+                "mode": "problems",
+                "work_context": "numerical engineer",
+            },
+            "proposes_build": True,
+        }
+    )
+    from schemas import OrientationTurnLLMOutput
+
+    out = OrientationTurnLLMOutput.model_validate_json(raw)
+    s = apply_extraction(OrientationSignals(), out.extracted)
+
+    assert [i.raw_text for i in s.interests] == [
+        "ordinary differential equations",
+        "complex analysis",
+    ]
+    assert all(i.altitude == "coming_back" for i in s.interests)
+    assert s.foundation_marks == {"calculus": "solid", "linear_algebra": "solid"}
+    assert s.mode == "problems"
+    assert s.work_context == "numerical engineer"
+    assert is_ready_to_build(s)  # all four signals closed in one merge
+
+
+def test_two_turn_altitude_update_dedupes_by_stable_raw_text() -> None:
+    """The load-bearing reliability property the prompt enforces: an interest
+    introduced one turn (no altitude) and given altitude the next — under the
+    SAME canonical raw_text — updates in place rather than duplicating, so
+    signal B actually closes."""
+    s = OrientationSignals()
+
+    # Turn 1: interest captured, altitude still open (B not yet satisfiable).
+    s = apply_extraction(s, OrientationExtraction(
+        new_interests=[OrientationInterestInput(raw_text="quantum mechanics")]
+    ))
+    assert len(s.interests) == 1
+    assert {g.signal: g.satisfied for g in compute_gaps(s)}["B"] is False
+
+    # Turn 2: same raw_text, now with altitude → in-place update, one interest.
+    s = apply_extraction(s, OrientationExtraction(
+        new_interests=[
+            OrientationInterestInput(raw_text="quantum mechanics", altitude="new")
+        ]
+    ))
+    assert len(s.interests) == 1  # not duplicated
+    assert s.interests[0].altitude == "new"
+    assert {g.signal: g.satisfied for g in compute_gaps(s)}["B"] is True
+
+
+# ---------------------------------------------------------------------------
 # 3. Form-mode gaps payload (no LLM)
 # ---------------------------------------------------------------------------
 
